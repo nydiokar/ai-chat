@@ -86,44 +86,87 @@ npm link
 
 ## Usage
 
-### Start a new chat
+### Discord Bot
+
+#### Starting the Bot
+1. Using PM2 (Recommended for 24/7 operation):
 ```bash
-# Chat with GPT (default)
+# Install PM2 globally
+npm install -g pm2
+
+# Build the project
+npm run build
+
+# Start the bot with PM2
+pm2 start ecosystem.config.js
+
+# Monitor the bot
+pm2 monit
+
+# View logs
+pm2 logs them-bot
+```
+
+2. Using provided scripts:
+```bash
+# For development with auto-reload
+npm run bot
+
+# For production
+npm run bot:prod
+```
+
+#### Stopping the Bot
+```bash
+# If using PM2
+pm2 stop them-bot
+pm2 delete them-bot
+
+# If running in terminal
+Press Ctrl+C
+```
+
+#### Auto-start with Windows
+```bash
+# Generate startup script
+pm2 startup
+# Save current process list
+pm2 save
+```
+
+### CLI Commands
+The CLI interface is separate from the Discord bot and can be used independently:
+
+```bash
+# Start a new chat
 them chat
 
-# Chat with Claude
-them chat -m claude
-```
-
-### List recent conversations
-```bash
-# Show last 10 conversations (default)
+# List recent conversations
 them list
 
-# Show last 5 conversations
-them list -l 5
+# Show a specific conversation
+them show <id>
+
+# Continue a conversation
+them continue <id>
+
+# Delete a conversation
+them delete <id>
 ```
 
-### Show a specific conversation
-```bash
-them show <conversation-id>
-```
+## Monitoring and Maintenance
 
-### Continue a conversation
-```bash
-them continue <conversation-id>
-```
+### PM2 Commands
+- `pm2 monit` - Real-time monitoring
+- `pm2 logs them-bot` - View bot logs
+- `pm2 status` - Check bot status
+- `pm2 restart them-bot` - Restart the bot
+- `pm2 reload them-bot` - Zero-downtime reload
 
-### Delete a conversation
-```bash
-them delete <conversation-id>
-```
-
-### Development
-```bash
-# Run in development mode with auto-reload
-npm run dev
-```
+### Automatic Cleanup
+- Inactive sessions are automatically cleaned up
+- Default cleanup interval: 24 hours
+- Default session timeout: 1 hour
 
 ## Commands
 
@@ -150,14 +193,6 @@ The application can be configured through environment variables and the config f
 - Session Management:
   - `cleanupInterval: 24` - Hours between inactive session cleanup (default: 24)
   - `sessionTimeout: 1` - Hours before a session is considered inactive (default: 1)
-
-## Error Handling
-
-- Input validation for message length and content
-- Automatic retry on API rate limits (configurable attempts and delay)
-- Graceful error handling for network issues
-- Clear error messages for missing API keys or database issues
-- Debug logging for troubleshooting
 
 ## Debug Mode
 
