@@ -1,0 +1,9 @@
+venv/
+node_modules/
+.env
+dist/
+.sql
+.sqlite
+prisma/
+logs/
+.pm2/
