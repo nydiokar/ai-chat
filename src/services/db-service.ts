@@ -2,7 +2,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { AIModel, ConversationStats, Message, MessageRole, Model, Role, DiscordMessageContext } from '../types';
 import { debug } from '../config';
 
-class DatabaseError extends Error {
+export class DatabaseError extends Error {
   constructor(message: string, public cause?: unknown) {
     super(message);
     this.name = 'DatabaseError';
@@ -20,7 +20,7 @@ type TransactionClient = Omit<
 >;
 
 export class DatabaseService {
-  private prisma: PrismaClient;
+  protected prisma: PrismaClient;
   private static instance: DatabaseService;
   private readonly MAX_TITLE_LENGTH = 100;
   private readonly MAX_SUMMARY_LENGTH = 500;
@@ -376,7 +376,7 @@ export class DatabaseService {
       id: conversation.id,
       model: conversation.model,
       createdAt: conversation.createdAt,
-      messages: conversation.messages.map((msg) => ({
+      messages: conversation.messages.map((msg: any) => ({
         role: msg.role,
         content: msg.content,
         createdAt: msg.createdAt,

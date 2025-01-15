@@ -1,15 +1,7 @@
-export interface Config {
-  maxContextMessages: number;
-  maxMessageLength: number;
-  debug: boolean;
-  maxRetries: number;
-  retryDelay: number;
-  rateLimitDelay: number;
-  discord: {
-    enabled: boolean;
-    cleanupInterval: number;  // Hours before inactive sessions are cleaned up
-    sessionTimeout: number;   // Hours before a session is considered inactive
-  };
+import { BaseConfig, MCPConfig, defaultMCPConfig } from './mcp-config';
+
+export interface Config extends BaseConfig {
+  mcp: MCPConfig;  // Add MCP configuration
 }
 
 export const defaultConfig: Config = {
@@ -24,7 +16,40 @@ export const defaultConfig: Config = {
     cleanupInterval: 24,     // Clean up sessions every 24 hours
     sessionTimeout: 1,       // Sessions inactive for 1 hour are closed
   },
+  mcp: defaultMCPConfig,    // Add default MCP configuration
 };
+
+export function validateEnvironment(): void {
+  const required = [
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'DATABASE_URL'
+  ];
+
+  if (process.env.DISCORD_ENABLED === 'true') {
+    required.push('DISCORD_TOKEN');
+  }
+
+  // Add MCP environment validation
+  if (process.env.MCP_ENABLED === 'true') {
+    required.push('MCP_AUTH_TOKEN');
+  }
+
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  // Validate MCP-specific configurations
+  if (process.env.MCP_ENABLED === 'true') {
+    // Validate MCP log level if specified
+    const validLogLevels = ['error', 'warn', 'info', 'debug'];
+    if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
+      throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
+    }
+  }
+}
 
 export function sanitizeInput(input: string): string {
   return input
@@ -51,23 +76,5 @@ export function debug(message: string, config: Config = defaultConfig) {
   if (config.debug) {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] ${message}`);
-  }
-}
-
-export function validateEnvironment(): void {
-  const required = [
-    'OPENAI_API_KEY',
-    'ANTHROPIC_API_KEY',
-    'DATABASE_URL'
-  ];
-
-  if (process.env.DISCORD_ENABLED === 'true') {
-    required.push('DISCORD_TOKEN');
-  }
-
-  const missing = required.filter(key => !process.env[key]);
-  
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 }
