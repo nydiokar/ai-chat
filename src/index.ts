@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import dotenv from 'dotenv';
-import { OpenAIService, AnthropicService } from './services/ai-service';
-import { DatabaseService } from './services/db-service';
-import { DiscordService } from './services/discord-service';
-import { Conversation, Message } from './types';
+import { OpenAIService, AnthropicService } from './services/ai-service.js';
+import { DatabaseService } from './services/db-service.js';
+import { Message } from './types/index.js';
 import { createInterface } from 'readline';
-import { defaultConfig, validateInput, debug, validateEnvironment } from './config';
+import { defaultConfig, validateInput, debug, validateEnvironment } from './config.js';
+import toolsConfig from "./config/tools.js";
+import { MCPServerManager } from './services/mcp-server-manager.js';
+import { AIServiceFactory } from './services/ai-service-factory.js';
+import { defaultMCPConfig } from './types/mcp-config.js';
 
 dotenv.config();
 validateEnvironment();
 
 const program = new Command();
 const db = DatabaseService.getInstance();
+const aiService = AIServiceFactory.create('gpt');
+const mcpManager = new MCPServerManager(db, aiService);
 
 program
   .name('ai-chat')
@@ -271,6 +276,136 @@ program
     } catch (error: any) {
       console.error('Error:', error.message);
       debug(`Fatal error in continued conversation: ${error.message}`);
+    }
+  });
+
+program
+  .command('mcp')
+  .description('MCP (Model Context Protocol) commands')
+  .command('list-tools')
+  .description('List available MCP tools')
+  .action(async () => {
+    try {
+      console.log('\nAvailable MCP Tools:');
+      toolsConfig.tools.forEach((tool: any) => {
+        console.log(`\n${tool.name}`);
+        console.log(`Description: ${tool.description}`);
+        console.log('Input Schema:', JSON.stringify(tool.inputSchema, null, 2));
+      });
+    } catch (error: any) {
+      console.error('Error:', error.message);
+      debug(`Error listing MCP tools: ${error.message}`);
+    }
+  });
+
+program
+  .command('mcp-chat')
+  .description('Start a chat session with MCP tools enabled')
+  .option('-m, --model <model>', 'Choose AI model (gpt/claude)', 'claude')
+  .action(async (options) => {
+    try {
+      const config = defaultMCPConfig;
+      const serverId = 'default';
+      
+      if (!mcpManager.hasServer(serverId)) {
+        const serverConfig = config.mcpServers[serverId];
+        await mcpManager.startServer(serverId, serverConfig);
+      }
+
+      console.log(`\nStarting new MCP-enabled chat session`);
+      console.log('Type "exit" to end the conversation\n');
+
+      const readline = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const conversationId = await db.createConversation(options.model);
+
+      const askQuestion = () => {
+        readline.question('You: ', async (input: string) => {
+          if (input.toLowerCase() === 'exit') {
+            debug('Ending chat session');
+            readline.close();
+            return;
+          }
+
+          try {
+            const response = await mcpManager.executeToolQuery(serverId, input, conversationId);
+            console.log(`\nAssistant: ${response}\n`);
+          } catch (error: any) {
+            console.error('Error:', error.message);
+            debug(`Error in MCP conversation: ${error.message}`);
+          }
+          
+          askQuestion();
+        });
+      };
+
+      askQuestion();
+    } catch (error: any) {
+      console.error('Error:', error.message);
+      debug(`Error starting MCP chat: ${error.message}`);
+    }
+  });
+
+program
+  .command('test-chat')
+  .description('Test basic AI chat functionality without MCP tools')
+  .option('-m, --model <model>', 'Choose AI model (gpt/claude)', 'gpt')
+  .action(async (options) => {
+    try {
+      const aiService = AIServiceFactory.create(options.model);
+      const db = DatabaseService.getInstance();
+      
+      console.log(`\nStarting new chat session with ${options.model}`);
+      console.log('Type "exit" to end the conversation\n');
+
+      const readline = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const conversationId = await db.createConversation(options.model);
+      const messages: Message[] = [];
+
+      const askQuestion = () => {
+        readline.question('You: ', async (input: string) => {
+          if (input.toLowerCase() === 'exit') {
+            readline.close();
+            return;
+          }
+
+          try {
+            messages.push({
+              role: 'user',
+              content: input,
+              conversationId,
+              createdAt: new Date(),
+              id: 0
+            });
+
+            const response = await aiService.generateResponse(input, messages);
+            console.log(`\nAssistant: ${response.content}\n`);
+
+            messages.push({
+              role: 'assistant',
+              content: response.content,
+              conversationId,
+              createdAt: new Date(),
+              id: 0
+            });
+          } catch (error: any) {
+            console.error('Error:', error.message);
+          }
+          
+          askQuestion();
+        });
+      };
+
+      askQuestion();
+    } catch (error: any) {
+      console.error('Error:', error.message);
     }
   });
 

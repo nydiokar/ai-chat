@@ -1,7 +1,11 @@
 @echo off
 echo Building project...
 call npm run build
+echo Creating logs directory...
+mkdir logs 2>nul
 echo Starting Discord Bot...
-call pm2 start ecosystem.config.js
-echo Bot started! Use "pm2 monit" to monitor, "pm2 logs" to view logs
+call pm2 delete them-bot 2>nul
+call pm2 start ecosystem.config.cjs
+echo Bot started! Showing logs...
+call pm2 logs them-bot
 pause 

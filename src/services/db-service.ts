@@ -1,11 +1,17 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-import { AIModel, ConversationStats, Message, MessageRole, Model, Role, DiscordMessageContext } from '../types';
-import { debug } from '../config';
+import { PrismaClient } from '@prisma/client';
+import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
+import { debug } from '../config.js';
 
 export class DatabaseError extends Error {
-  constructor(message: string, public cause?: unknown) {
+  public cause?: any;
+
+  constructor(message: string, cause?: any) {
     super(message);
     this.name = 'DatabaseError';
+    this.cause = cause;
+    
+    // This is needed in TypeScript when extending Error
+    Object.setPrototypeOf(this, DatabaseError.prototype);
   }
 }
 
@@ -25,7 +31,7 @@ export class DatabaseService {
   private readonly MAX_TITLE_LENGTH = 100;
   private readonly MAX_SUMMARY_LENGTH = 500;
 
-  private constructor() {
+  protected constructor() {
     this.prisma = new PrismaClient({
       log: ['error', 'warn'],
     });
@@ -54,7 +60,7 @@ export class DatabaseService {
       }
     }
     const errorMessage = prismaError.message || 'Unknown database error';
-    throw new DatabaseError(`Database ${operation} failed: ${errorMessage}`, error);
+    throw new DatabaseError(`Database ${operation} failed: ${errorMessage}`, error as Error);
   }
 
   static getInstance(): DatabaseService {
@@ -168,7 +174,7 @@ export class DatabaseService {
         return message;
       });
     } catch (error) {
-      throw new DatabaseError(`Failed to add message to conversation ${conversationId}`, error);
+      throw new DatabaseError(`Failed to add message to conversation ${conversationId}`, error as Error);
     }
   }
 
@@ -270,7 +276,7 @@ export class DatabaseService {
       });
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      throw new DatabaseError(`Failed to update conversation ${id} metadata`, error);
+      throw new DatabaseError(`Failed to update conversation ${id} metadata`, error as Error);
     }
   }
 
@@ -418,5 +424,19 @@ export class DatabaseService {
         session: true
       }
     });
+  }
+
+  // Add a protected method for transaction access
+  protected async transaction<T>(
+    fn: (prisma: TransactionClient) => Promise<T>
+  ): Promise<T> {
+    return this.prisma.$transaction(fn);
+  }
+
+  // Add a method for MCP service to use
+  async executePrismaOperation<T>(
+    operation: (prisma: TransactionClient) => Promise<T>
+  ): Promise<T> {
+    return this.transaction(operation);
   }
 }

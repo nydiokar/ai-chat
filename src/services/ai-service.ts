@@ -1,5 +1,6 @@
-import { Message, MessageRole } from '../types';
-import { validateInput, defaultConfig } from '../config';
+import { Message, MessageRole, Tool } from '../types/index.js';
+import { validateInput, defaultConfig } from '../config.js';
+
 
 const MAX_CONTEXT_MESSAGES = 10;
 const MAX_TOKENS_PER_REQUEST = 4000;
@@ -79,7 +80,10 @@ interface APIErrorResponse {
 }
 
 export interface AIService {
-  generateResponse(prompt: string, conversationHistory?: Message[]): Promise<{ content: string; tokenCount: number | null }>;
+  generateResponse(
+    prompt: string, 
+    conversationHistory?: Message[],
+    tools?: Tool[]): Promise<{ content: string; tokenCount: number | null }>;
   getModel(): 'gpt' | 'claude';
 }
 

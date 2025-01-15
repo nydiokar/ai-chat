@@ -6,15 +6,18 @@ module.exports = {
     env: {
       NODE_ENV: "production",
     },
-    // Restart if memory exceeds 1GB
     max_memory_restart: "1G",
-    // Restart on error
     autorestart: true,
-    // Error log file
     error_file: "logs/error.log",
-    // Output log file
     output_file: "logs/output.log",
-    // Time between automatic restarts
-    restart_delay: 4000
+    log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+    merge_logs: true,
+    log_type: "json",
+    combine_logs: true,
+    time: true,
+    restart_delay: 4000,
+    exp_backoff_restart_delay: 100,
+    metrics: false,
+    metric_interval: 0
   }]
-} 
+}; 

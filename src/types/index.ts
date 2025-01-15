@@ -88,3 +88,13 @@ export interface ImportConversation {
     tokenCount?: number;
   }[];
 }
+
+export interface Tool {
+  name: string;
+  description: string;
+  inputSchema: any;
+}
+
+export interface ToolCallResult {
+  content: Array<{ text: string }>;
+}

@@ -1,10 +1,19 @@
-import { BaseConfig, MCPConfig, defaultMCPConfig } from './mcp-config';
-
-export interface Config extends BaseConfig {
-  mcp: MCPConfig;  // Add MCP configuration
+// Base configuration interface
+export interface BaseConfig {
+  maxContextMessages: number;
+  maxMessageLength: number;
+  debug: boolean;
+  maxRetries: number;
+  retryDelay: number;
+  rateLimitDelay: number;
+  discord: {
+    enabled: boolean;
+    cleanupInterval: number;  // Hours before inactive sessions are cleaned up
+    sessionTimeout: number;   // Hours before a session is considered inactive
+  };
 }
 
-export const defaultConfig: Config = {
+export const defaultConfig: BaseConfig = {
   maxContextMessages: 10,
   maxMessageLength: 4000,
   debug: process.env.DEBUG === 'true',
@@ -16,7 +25,7 @@ export const defaultConfig: Config = {
     cleanupInterval: 24,     // Clean up sessions every 24 hours
     sessionTimeout: 1,       // Sessions inactive for 1 hour are closed
   },
-  mcp: defaultMCPConfig,    // Add default MCP configuration
+
 };
 
 export function validateEnvironment(): void {
@@ -58,7 +67,7 @@ export function sanitizeInput(input: string): string {
     .replace(/\u2028|\u2029/g, '\n'); // Replace line separators with newlines
 }
 
-export function validateInput(input: string, config: Config = defaultConfig): string | null {
+export function validateInput(input: string, config: BaseConfig = defaultConfig): string | null {
   const sanitized = sanitizeInput(input);
   
   if (!sanitized) {
@@ -72,7 +81,7 @@ export function validateInput(input: string, config: Config = defaultConfig): st
   return null;
 }
 
-export function debug(message: string, config: Config = defaultConfig) {
+export function debug(message: string, config: BaseConfig = defaultConfig) {
   if (config.debug) {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] ${message}`);

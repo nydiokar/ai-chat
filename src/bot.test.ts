@@ -1,26 +1,31 @@
 import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
+import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
 
-dotenv.config();
+describe('Discord Bot Tests', () => {
+    let client: Client;
 
-const token = process.env.DISCORD_TOKEN;
-console.log('Token length:', token?.length); // Don't log the full token!
+    before(async () => {
+        dotenv.config();
+        client = new Client({
+            intents: [
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildMessages,
+                GatewayIntentBits.MessageContent,
+            ]
+        });
+    });
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ]
-});
+    it('should connect to Discord', async () => {
+        const token = process.env.DISCORD_TOKEN;
+        expect(token).to.not.be.undefined;
+        
+        await client.login(token);
+        expect(client.user).to.not.be.null;
+    });
 
-client.once('ready', () => {
-  console.log('Bot is ready!');
-  console.log(`Logged in as ${client.user?.tag}`);
-});
-
-client.login(token).then(() => {
-  console.log('Login successful');
-}).catch((error) => {
-  console.error('Login failed:', error);
+    after(async () => {
+        await client.destroy();
+    });
 }); 

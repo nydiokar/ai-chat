@@ -1,8 +1,8 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials } from 'discord.js';
-import { DatabaseService } from './db-service';
-import { AIModel, DiscordMessageContext } from '../types';
-import { OpenAIService, AnthropicService } from './ai-service';
-import { debug } from '../config';
+import { DatabaseService } from './db-service.js';
+import { AIModel, DiscordMessageContext } from '../types/index.js';
+import { OpenAIService, AnthropicService } from './ai-service.js';
+import { debug } from '../config.js';
 
 export class DiscordService {
   private client: Client;

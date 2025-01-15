@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
-import { DatabaseService } from './services/db-service';
-import { DiscordService } from './services/discord-service';
-import { defaultConfig, debug, validateEnvironment } from './config';
+import { DatabaseService } from './services/db-service.js';
+import { DiscordService } from './services/discord-service.js';
+import { defaultConfig, debug, validateEnvironment } from './config.js';
 
 dotenv.config();
 validateEnvironment();
