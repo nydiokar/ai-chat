@@ -1,21 +1,61 @@
-import { Tool, Message } from '../types/index.js';
+import { Message } from '../types/index.js';
 import { AIService } from './ai-service.js';
 import { MCPClientService } from './mcp-client-service.js';
 import { DatabaseService } from './db-service.js';
-
-interface ToolCall {
-    name: string;
-    arguments: any;
-}
+import toolsConfig from '../config/tools.js';
+import { MCPError } from '../types/errors.js';
 
 export class ToolsHandler {
+    private availableTools: Set<string>;
+
     constructor(
         private client: MCPClientService,
         private ai: AIService,
         private db: DatabaseService
-    ) {}
+    ) {
+        // Initialize available tools from config
+        this.availableTools = new Set(toolsConfig.tools.map(tool => tool.name));
+    }
 
     async processQuery(query: string, conversationId: number): Promise<string> {
+        // Parse tool usage command: "Use tool-name with parameter 'value'"
+        const toolMatch = query.match(/^Use (\S+)(?:\s+with parameter '([^']+)')?$/);
+        
+        if (toolMatch) {
+            const [_, toolName, param] = toolMatch;
+            
+            if (!this.availableTools.has(toolName)) {
+                throw MCPError.toolNotFound(toolName);
+            }
+
+            if (!param) {
+                throw MCPError.missingParameter(toolName);
+            }
+
+            try {
+                const result = await this.client.callTool(toolName, { param });
+                
+                await this.db.executePrismaOperation(prisma => 
+                    prisma.mCPToolUsage.create({
+                        data: {
+                            toolId: toolName,
+                            conversationId,
+                            input: { param },
+                            output: result,
+                            duration: 0,
+                            status: 'success'
+                        }
+                    })
+                );
+
+                await this.db.addMessage(conversationId, result, 'assistant');
+                return result;
+            } catch (error) {
+                throw MCPError.toolExecutionFailed(error);
+            }
+        }
+
+        // Default AI handling
         const tools = await this.client.listTools();
         const messages: Message[] = [{
             role: 'user',
@@ -25,73 +65,8 @@ export class ToolsHandler {
             id: 0
         }];
         
-        // Initial AI response
         const response = await this.ai.generateResponse(query, messages, tools);
-        const toolCalls = this.parseToolCalls(response.content);
-        
-        let finalText: string[] = [response.content];
-
-        // Handle tool calls
-        for (const call of toolCalls) {
-            const startTime = Date.now();
-            try {
-                const result = await this.client.callTool(call.name, call.arguments);
-                
-                // Log successful tool usage
-                await this.db.executePrismaOperation(prisma => 
-                    prisma.mCPToolUsage.create({
-                        data: {
-                            toolId: call.name,
-                            conversationId,
-                            input: call.arguments,
-                            output: result,
-                            duration: Date.now() - startTime,
-                            status: 'success'
-                        }
-                    })
-                );
-
-                finalText.push(result);
-                
-                // Continue conversation with tool result
-                messages.push(
-                    { role: 'assistant', content: response.content, id: 0, createdAt: new Date(), conversationId },
-                    { role: 'user', content: result, id: 0, createdAt: new Date(), conversationId }
-                );
-                
-                const followUp = await this.ai.generateResponse('', messages);
-                finalText.push(followUp.content);
-                
-            } catch (error) {
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                
-                // Log failed tool usage
-                await this.db.executePrismaOperation(prisma => 
-                    prisma.mCPToolUsage.create({
-                        data: {
-                            toolId: call.name,
-                            conversationId,
-                            input: call.arguments,
-                            error: errorMsg,
-                            duration: Date.now() - startTime,
-                            status: 'error'
-                        }
-                    })
-                );
-                
-                finalText.push(`Error executing tool ${call.name}: ${errorMsg}`);
-            }
-        }
-
-        return finalText.join('\n');
-    }
-
-    public parseToolCalls(content: string): ToolCall[] {
-        const toolCallRegex = /\[Calling tool (.*?) with args (.*?)\]/g;
-        const matches = [...content.matchAll(toolCallRegex)];
-        return matches.map(match => ({
-            name: match[1],
-            arguments: JSON.parse(match[2])
-        }));
+        await this.db.addMessage(conversationId, response.content, 'assistant');
+        return response.content;
     }
 } 

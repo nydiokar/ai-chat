@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npx prisma generate",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn src/index.ts",
     "bot": "ts-node src/discord-bot.ts",
@@ -13,7 +13,12 @@
     "bot:logs": "pm2 logs them-bot",
     "bot:monit": "pm2 monit",
     "db:init": "prisma migrate dev --name init",
-    "test": "mocha -r ts-node/register ./src/**/*.test.ts --timeout 15000"
+    "db:sync": "npx prisma db push",
+    "db:migrate": "npx prisma migrate dev",
+    "pretest": "npm run build && npm run db:sync",
+    "test": "mocha -r ts-node/register ./src/**/*.test.ts --timeout 15000",
+    "tool:build": "tsc",
+    "tool:start": "node dist/tools/test-tool.js"
   },
   "bin": {
     "them": "./dist/index.js"

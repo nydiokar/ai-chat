@@ -6,6 +6,7 @@ import EventEmitter from "events";
 import { ToolsHandler } from "./tools-handler.js";
 import { AIService } from "./ai-service.js";
 import { MCPServerConfig } from "../types/mcp-config.js";
+import { MCPError, ErrorType } from "../types/errors.js";
 
 // This manages multiple tool servers and their lifecycle
 export class MCPServerManager extends EventEmitter {
@@ -30,16 +31,30 @@ export class MCPServerManager extends EventEmitter {
     }
 
     async startServer(serverId: string, config: MCPServerConfig): Promise<void> {
-        const client = new MCPClientService(config);
-        await client.connect();
-        this._servers.set(serverId, client);
-        
-        await this.db.executePrismaOperation(async (prisma) => {
-            await prisma.mCPServer.update({
-                where: { id: serverId },
-                data: { status: 'RUNNING' }
+        try {
+            const client = new MCPClientService(config);
+            await client.connect();
+            this._servers.set(serverId, client);
+            
+            await this.db.executePrismaOperation(async (prisma) => {
+                await prisma.mCPServer.upsert({
+                    where: { id: serverId },
+                    update: { status: 'RUNNING' },
+                    create: {
+                        id: serverId,
+                        status: 'RUNNING',
+                        name: serverId,
+                        version: '1.0.0'
+                    }
+                });
             });
-        });
+        } catch (error) {
+            throw new MCPError(
+                ErrorType.SERVER_START_FAILED,
+                `Failed to start server ${serverId}`,
+                error
+            );
+        }
     }
 
     async executeToolQuery(serverId: string, query: string, conversationId: number): Promise<string> {
@@ -63,9 +78,15 @@ export class MCPServerManager extends EventEmitter {
             this._toolsHandlers.delete(serverId);
             
             await this.db.executePrismaOperation(async (prisma) => {
-                await prisma.mCPServer.update({
+                await prisma.mCPServer.upsert({
                     where: { id: serverId },
-                    data: { status: 'STOPPED' }
+                    update: { status: 'STOPPED' },
+                    create: {
+                        id: serverId,
+                        status: 'STOPPED',
+                        name: serverId,
+                        version: '1.0.0'
+                    }
                 });
             });
         }

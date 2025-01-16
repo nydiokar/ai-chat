@@ -1,5 +1,6 @@
 import { Message, MessageRole, Tool } from '../types/index.js';
 import { validateInput, defaultConfig } from '../config.js';
+import { MCPError, ErrorType } from '../types/errors.js';
 
 
 const MAX_CONTEXT_MESSAGES = 10;
@@ -200,8 +201,18 @@ export class OpenAIService extends BaseAIService {
       });
     } catch (err: unknown) {
       const error = err as Error;
-      const message = error?.message || 'Unknown error occurred';
-      throw new Error(`OpenAI API error: ${message}`);
+      if (error.message.includes('rate limit')) {
+        throw new MCPError(
+          ErrorType.RATE_LIMIT_EXCEEDED,
+          `Rate limit exceeded for ${this.getModel()}`,
+          error
+        );
+      }
+      throw new MCPError(
+        ErrorType.API_ERROR,
+        `${this.getModel()} API error: ${error.message || 'Unknown error'}`,
+        error
+      );
     }
   }
 

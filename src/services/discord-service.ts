@@ -3,6 +3,7 @@ import { DatabaseService } from './db-service.js';
 import { AIModel, DiscordMessageContext } from '../types/index.js';
 import { OpenAIService, AnthropicService } from './ai-service.js';
 import { debug } from '../config.js';
+import { MCPError } from '../types/errors.js';
 
 export class DiscordService {
   private client: Client;
@@ -104,7 +105,10 @@ export class DiscordService {
 
       } catch (error) {
         console.error('Error handling Discord message:', error);
-        await message.reply('Sorry, I encountered an error processing your message.');
+        const errorMessage = error instanceof MCPError 
+            ? `Error: ${error.message}`
+            : 'Sorry, I encountered an error processing your message.';
+        await message.reply(errorMessage);
       }
     });
 
