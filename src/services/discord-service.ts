@@ -1,7 +1,9 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials } from 'discord.js';
 import { DatabaseService } from './db-service.js';
 import { AIModel, DiscordMessageContext } from '../types/index.js';
-import { OpenAIService, AnthropicService } from './ai-service.js';
+import { AIService } from './ai/base-service.js';
+import { AIServiceFactory } from './ai-service-factory.js';
+
 import { debug } from '../config.js';
 import { MCPError } from '../types/errors.js';
 
@@ -10,6 +12,7 @@ export class DiscordService {
   private db: DatabaseService;
   private static instance: DiscordService;
   private readonly defaultModel: AIModel = 'gpt';
+  private aiServices: Map<string, AIService> = new Map();
 
   private constructor() {
     this.client = new Client({
@@ -83,11 +86,15 @@ export class DiscordService {
           discordContext
         );
 
-        // Get AI service based on model
+        // Get or create AI service based on model
         const conversation = await this.db.getConversation(conversationId);
-        const service = conversation.model === 'gpt' 
-          ? new OpenAIService() 
-          : new AnthropicService();
+        const serviceKey = `${conversation.model}-${discordContext.channelId}`;
+        
+        let service = this.aiServices.get(serviceKey);
+        if (!service) {
+          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude');
+          this.aiServices.set(serviceKey, service);
+        }
 
         // Generate AI response
         const result = await service.generateResponse(content, conversation.messages);
@@ -129,6 +136,13 @@ export class DiscordService {
 
   async stop() {
     try {
+      // Cleanup all AI services
+      for (const service of this.aiServices.values()) {
+        await service.cleanup();
+      }
+      this.aiServices.clear();
+
+      // Destroy Discord client
       await this.client.destroy();
     } catch (error) {
       console.error('Error stopping Discord client:', error);

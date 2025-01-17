@@ -11,6 +11,11 @@ export interface BaseConfig {
     cleanupInterval: number;  // Hours before inactive sessions are cleaned up
     sessionTimeout: number;   // Hours before a session is considered inactive
   };
+  mcp: {
+    enabled: boolean;
+    authToken?: string;
+    logLevel?: 'error' | 'warn' | 'info' | 'debug';
+  };
 }
 
 export const defaultConfig: BaseConfig = {
@@ -25,7 +30,11 @@ export const defaultConfig: BaseConfig = {
     cleanupInterval: 24,     // Clean up sessions every 24 hours
     sessionTimeout: 1,       // Sessions inactive for 1 hour are closed
   },
-
+  mcp: {
+    enabled: true,
+    authToken: process.env.MCP_AUTH_TOKEN,
+    logLevel: (process.env.MCP_LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug'
+  }
 };
 
 export function validateEnvironment(): void {
@@ -38,12 +47,7 @@ export function validateEnvironment(): void {
   if (process.env.DISCORD_ENABLED === 'true') {
     required.push('DISCORD_TOKEN');
   }
-
-  // Add MCP environment validation
-  if (process.env.MCP_ENABLED === 'true') {
-    required.push('MCP_AUTH_TOKEN');
-  }
-
+  
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {

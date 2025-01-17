@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import dotenv from 'dotenv';
-import { OpenAIService, AnthropicService } from './services/ai-service.js';
+import { OpenAIService } from './services/ai/openai-service.js';
+import { AnthropicService } from './services/ai/anthropic-service.js';
 import { DatabaseService } from './services/db-service.js';
 import { Message } from './types/index.js';
 import { createInterface } from 'readline';
 import { defaultConfig, validateInput, debug, validateEnvironment } from './config.js';
-import toolsConfig from "./config/tools.js";
-import { MCPServerManager } from './services/mcp-server-manager.js';
+
+import { MCPServerManager } from './services/mcp/mcp-server-manager.js';
 import { AIServiceFactory } from './services/ai-service-factory.js';
-import { defaultMCPConfig } from './types/mcp-config.js';
+import { getMCPConfig } from './types/mcp-config.js';
+import { MCPClientService } from './services/mcp/mcp-client-service.js';
 
 dotenv.config();
 validateEnvironment();
@@ -282,16 +284,80 @@ program
 program
   .command('mcp')
   .description('MCP (Model Context Protocol) commands')
+  .command('brave-web-search')
+  .description('Perform a web search using Brave Search')
+  .argument('<query>', 'Search query')
+  .option('-c, --count <number>', 'Number of results (max 20)', '10')
+  .action(async (query, options) => {
+    try {
+      const mcpConfig = getMCPConfig();
+      const braveConfig = mcpConfig.mcpServers['brave-search'];
+      if (!braveConfig) {
+        throw new Error('Brave search server not configured');
+      }
+
+      const client = new MCPClientService(braveConfig);
+      await client.connect();
+      
+      const results = await client.webSearch(query, parseInt(options.count));
+      console.log('\nSearch Results:\n');
+      console.log(results);
+      
+      await client.cleanup();
+    } catch (error: any) {
+      console.error('Error:', error.message);
+      debug(`Error in Brave web search: ${error.message}`);
+    }
+  });
+
+program
+  .command('mcp')
+  .description('MCP (Model Context Protocol) commands')
+  .command('brave-local-search')
+  .description('Search for local businesses using Brave Search')
+  .argument('<query>', 'Search query (e.g., "pizza near Central Park")')
+  .option('-c, --count <number>', 'Number of results (max 20)', '5')
+  .action(async (query, options) => {
+    try {
+      const mcpConfig = getMCPConfig();
+      const braveConfig = mcpConfig.mcpServers['brave-search'];
+      if (!braveConfig) {
+        throw new Error('Brave search server not configured');
+      }
+
+      const client = new MCPClientService(braveConfig);
+      await client.connect();
+      
+      const results = await client.localSearch(query, parseInt(options.count));
+      console.log('\nLocal Search Results:\n');
+      console.log(results);
+      
+      await client.cleanup();
+    } catch (error: any) {
+      console.error('Error:', error.message);
+      debug(`Error in Brave local search: ${error.message}`);
+    }
+  });
+
+program
+  .command('mcp')
+  .description('MCP (Model Context Protocol) commands')
   .command('list-tools')
   .description('List available MCP tools')
   .action(async () => {
     try {
-      console.log('\nAvailable MCP Tools:');
-      toolsConfig.tools.forEach((tool: any) => {
-        console.log(`\n${tool.name}`);
-        console.log(`Description: ${tool.description}`);
-        console.log('Input Schema:', JSON.stringify(tool.inputSchema, null, 2));
-      });
+      const mcpConfig = getMCPConfig();
+      console.log('\nAvailable MCP Servers:');
+      for (const [name, config] of Object.entries(mcpConfig.mcpServers)) {
+        console.log(`\n${name}`);
+        const server = new MCPClientService(config);
+        await server.connect();
+        const tools = await server.listTools();
+        tools.forEach(tool => {
+          console.log(`  - ${tool.name}: ${tool.description}`);
+        });
+        await server.cleanup();
+      }
     } catch (error: any) {
       console.error('Error:', error.message);
       debug(`Error listing MCP tools: ${error.message}`);
@@ -301,10 +367,10 @@ program
 program
   .command('mcp-chat')
   .description('Start a chat session with MCP tools enabled')
-  .option('-m, --model <model>', 'Choose AI model (gpt/claude)', 'claude')
+  .option('-m, --model <model>', 'Choose AI model (gpt/claude)', 'gpt')
   .action(async (options) => {
     try {
-      const config = defaultMCPConfig;
+      const config = getMCPConfig();
       const serverId = 'default';
       
       if (!mcpManager.hasServer(serverId)) {
@@ -313,6 +379,9 @@ program
       }
 
       console.log(`\nStarting new MCP-enabled chat session`);
+      console.log('Available commands:');
+      console.log('  /search <query>  - Perform a web search');
+      console.log('  /local <query>   - Search for local businesses');
       console.log('Type "exit" to end the conversation\n');
 
       const readline = createInterface({
@@ -331,8 +400,37 @@ program
           }
 
           try {
-            const response = await mcpManager.executeToolQuery(serverId, input, conversationId);
-            console.log(`\nAssistant: ${response}\n`);
+            // Check for direct search commands
+            if (input.startsWith('/search ')) {
+              const query = input.slice(8);
+              const config = getMCPConfig();
+              const braveConfig = config.mcpServers['brave-search'];
+              if (braveConfig) {
+                const client = new MCPClientService(braveConfig);
+                await client.connect();
+                const results = await client.webSearch(query);
+                console.log('\nSearch Results:\n');
+                console.log(results);
+                await client.cleanup();
+              }
+            } 
+            else if (input.startsWith('/local ')) {
+              const query = input.slice(7);
+              const config = getMCPConfig();
+              const braveConfig = config.mcpServers['brave-search'];
+              if (braveConfig) {
+                const client = new MCPClientService(braveConfig);
+                await client.connect();
+                const results = await client.localSearch(query);
+                console.log('\nLocal Search Results:\n');
+                console.log(results);
+                await client.cleanup();
+              }
+            }
+            else {
+              const response = await mcpManager.executeToolQuery(serverId, input, conversationId);
+              console.log(`\nAssistant: ${response}\n`);
+            }
           } catch (error: any) {
             console.error('Error:', error.message);
             debug(`Error in MCP conversation: ${error.message}`);

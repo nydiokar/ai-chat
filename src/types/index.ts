@@ -1,3 +1,5 @@
+import { MCPServerConfig } from "./mcp-config";
+
 export enum Role {
   user = 'user',
   assistant = 'assistant',
@@ -89,9 +91,10 @@ export interface ImportConversation {
   }[];
 }
 
-export interface Tool {
+export interface MCPTool {
   name: string;
   description: string;
+  server: MCPServerConfig;  // From mcp-config.ts
   inputSchema: any;
 }
 

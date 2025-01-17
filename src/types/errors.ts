@@ -8,7 +8,8 @@ export enum ErrorType {
     API_ERROR = 'API_ERROR',
     RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
     SERVER_START_FAILED = 'SERVER_START_FAILED',
-    INVALID_MODEL = 'INVALID_MODEL'
+    INVALID_MODEL = 'INVALID_MODEL',
+    SERVER_NOT_FOUND = 'SERVER_NOT_FOUND'
 }
 
 export class MCPError extends Error {
@@ -70,6 +71,12 @@ export class MCPError extends Error {
             ErrorType.DATABASE_ERROR,
             error.message,
             error instanceof Error ? error : undefined
+        );
+    }
+    static serverNotFound(serverId: string): MCPError {
+        return new MCPError(
+            ErrorType.SERVER_NOT_FOUND,
+            `Server ${serverId} not found`
         );
     }
 } 

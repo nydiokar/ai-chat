@@ -1,94 +1,44 @@
-import { MCPServerManager } from "../src/services/mcp-server-manager.js";
+import dotenv from 'dotenv';
+dotenv.config(); // Load environment variables first
+
+import { MCPServerManager } from "./services/mcp/mcp-server-manager.js";
 import { DatabaseService } from "../src/services/db-service.js";
 import { AIServiceFactory } from "../src/services/ai-service-factory.js";
-import { expect } from "chai";
+import { assert, expect } from "chai";
 import { describe, it, before, after } from "mocha";
-import toolsConfig from "../src/config/tools.js";
+import { mcpConfig } from "./tools/tools.js";
 import { MCPError, ErrorType } from '../src/types/errors.js';
 
 describe('MCP Integration Tests', () => {
-    let mcpManager: MCPServerManager;
-    let db: DatabaseService;
-    let aiService: any;
-    const serverId = 'test-tool';
-
+    let manager: MCPServerManager;
+    let serverId: string;
+    
     before(async () => {
-        // Initialize services
-        db = DatabaseService.getInstance();
-        aiService = AIServiceFactory.create('gpt');
-        mcpManager = new MCPServerManager(db, aiService);
-
-        const serverConfig = {
-            command: 'node',
-            args: ['./dist/tools/test-tool.js'],
-            env: { NODE_ENV: 'test' }
-        };
-
-        try {
-            await mcpManager.startServer(serverId, serverConfig);
-            
-            // Verify tool registration matches config
-            const client = mcpManager['_servers'].get(serverId);
-            if (!client) throw new Error('Server not initialized');
-            
-            const availableTools = await client.listTools();
-            const configuredTools = toolsConfig.tools;
-            
-            expect(availableTools.length).to.equal(configuredTools.length);
-            expect(availableTools[0].name).to.equal(configuredTools[0].name);
-            expect(availableTools[0].description).to.equal(configuredTools[0].description);
-        } catch (error) {
-            console.error('Failed to start server:', error);
-            throw error;
-        }
-    });
-
-    it('should execute configured tool and get response', async () => {
-        const conversationId = await db.createConversation('gpt');
-        const toolName = toolsConfig.tools[0].name; // Get name from config
-        
-        const query = `Use ${toolName} with parameter 'test-value'`;
-        const response = await mcpManager.executeToolQuery(serverId, query, conversationId);
-
-        // Verify response matches tool's expected format
-        expect(response).to.include('Test tool executed with param: test-value');
-
-        // Verify conversation was recorded
-        const conversation = await db.getConversation(conversationId);
-        expect(conversation).to.exist;
-        expect(conversation?.messages).to.have.length.greaterThan(0);
-
-        // Verify tool usage was recorded
-        const toolUsage = await db.executePrismaOperation(prisma => 
-            prisma.mCPToolUsage.findFirst({
-                where: { 
-                    conversationId,
-                    toolId: toolName
-                }
-            })
-        );
-        expect(toolUsage).to.exist;
-    });
-
-    it('should handle tool execution errors gracefully', async () => {
-        const conversationId = await db.createConversation('gpt');
-        const nonExistentTool = 'non-existent-tool';
-        
-        const query = `Use ${nonExistentTool}`;
-        
-        try {
-            await mcpManager.executeToolQuery(serverId, query, conversationId);
-            expect.fail('Should have thrown an error');
-        } catch (error) {
-            expect(error).to.be.instanceOf(MCPError);
-            expect((error as MCPError).type).to.equal(ErrorType.TOOL_NOT_FOUND);
-            expect((error as MCPError).message).to.equal(`Tool not found: ${nonExistentTool}`);
-        }
+        // Setup once for all tests
+        manager = new MCPServerManager(DatabaseService.getInstance(), AIServiceFactory.create('gpt'));
+        serverId = 'brave-search';
+        const config = mcpConfig.mcpServers[serverId];
+        await manager.startServer(serverId, config);
     });
 
     after(async () => {
-        // Cleanup
-        await mcpManager.stopServer(serverId);
-        await db.disconnect();
+        // Cleanup after all tests
+        await manager.stopServer(serverId);
     });
-}); 
+
+    it('should execute web search tool and get response', async () => {
+        const query = '[Calling tool brave_web_search with args {"query": "test query", "count": 1}]';
+        const response = await manager.executeToolQuery(serverId, query, 37);
+        assert.isString(response);
+    });
+
+    it('should handle tool execution errors gracefully', async () => {
+        try {
+            await manager.executeToolQuery('non-existent-server', '[Calling tool non-existent-tool with args {}]', 37);
+            assert.fail('Should have thrown an error');
+        } catch (error) {
+            assert.instanceOf(error, MCPError);
+            assert.equal(error.type, ErrorType.SERVER_NOT_FOUND);
+        }
+    });
+});

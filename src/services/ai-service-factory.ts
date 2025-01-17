@@ -1,4 +1,6 @@
-import { AIService, OpenAIService, AnthropicService } from './ai-service.js';
+import { AIService, } from './ai/base-service.js';
+import { OpenAIService } from './ai/openai-service.js';
+import { AnthropicService } from './ai/anthropic-service.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { handleError } from '../utils/error-handler.js';
 

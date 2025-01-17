@@ -27,7 +27,7 @@ type TransactionClient = Omit<
 >;
 
 export class DatabaseService {
-  protected prisma: PrismaClient;
+  public readonly prisma: PrismaClient;
   private static instance: DatabaseService;
   private readonly MAX_TITLE_LENGTH = 100;
   private readonly MAX_SUMMARY_LENGTH = 500;
