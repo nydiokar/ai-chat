@@ -21,6 +21,31 @@ export class MCPServerManager extends EventEmitter {
     private readonly config: MCPConfig;
     private readonly basePath: string;
 
+    private async startHealthCheck() {
+        setInterval(async () => {
+            for (const [serverId, server] of this._servers.entries()) {
+                try {
+                    // Test if server is responsive
+                    await server.listTools();
+                } catch (error) {
+                    console.error(`[MCPServerManager] Server ${serverId} health check failed:`, error);
+                    
+                    // Try to restart the server
+                    try {
+                        console.log(`[MCPServerManager] Attempting to restart server ${serverId}`);
+                        await this.stopServer(serverId);
+                        const config = this.config.mcpServers[serverId];
+                        if (config) {
+                            await this.startServer(serverId, config);
+                        }
+                    } catch (restartError) {
+                        console.error(`[MCPServerManager] Failed to restart server ${serverId}:`, restartError);
+                    }
+                }
+            }
+        }, 60000); // Check every minute
+    }
+
     constructor(
         private db: DatabaseService,
         private aiService: AIService
@@ -32,6 +57,9 @@ export class MCPServerManager extends EventEmitter {
         const __filename = fileURLToPath(import.meta.url);
         const __dirname = dirname(__filename);
         this.basePath = join(__dirname, '..', '..', '..');
+        
+        // Start health check monitoring
+        this.startHealthCheck();
     }
 
     // Public method to check if server exists

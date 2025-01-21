@@ -26,9 +26,7 @@ export class SystemPromptGenerator {
     5. Only use available tools
     6. For search-related queries:
        - Use brave_web_search for general web queries, news, and information
-       - Use brave_local_search for finding businesses, restaurants, or location-based queries
        - When using search tools, summarize the results in a clear, concise way
-       - For local searches, highlight key information like address, ratings, and hours
     7. Format your responses in a Discord-friendly way:
        - Use clear sections with headings when appropriate
        - Break long responses into readable chunks
