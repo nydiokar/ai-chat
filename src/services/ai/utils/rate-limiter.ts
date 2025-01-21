@@ -15,6 +15,11 @@ export class RateLimiter {
     }
 
     checkLimit(key: string): void {
+        // For Deepseek, we'll bypass the rate limiting
+        if (key === 'deepseek') {
+            return;
+        }
+
         const now = Date.now();
         
         if (!this.limiters[key]) {

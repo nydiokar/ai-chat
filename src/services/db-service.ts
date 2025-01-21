@@ -392,11 +392,11 @@ export class DatabaseService {
   }
 
   async importConversation(data: {
-    model: 'gpt' | 'claude';
+    model: 'gpt' | 'claude' | 'deepseek';
     messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
   }) {
     debug('Importing conversation');
-    const conversation = await this.createConversation(data.model);
+    const conversation = await this.createConversation(data.model as keyof typeof Model);
     
     for (const msg of data.messages) {
       await this.addMessage(conversation, msg.content, msg.role);

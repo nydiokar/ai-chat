@@ -43,7 +43,7 @@ export abstract class BaseAIService implements AIService {
 
     abstract generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
     abstract processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
-    abstract getModel(): 'gpt' | 'claude';
+    abstract getModel(): 'gpt' | 'claude' | 'deepseek';
 
     setSystemPrompt(prompt: string): void {
         this.systemPrompt = prompt;

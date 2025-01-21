@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials, TextChannel, Message } from 'discord.js';
 import { DatabaseService } from './db-service.js';
 import { AIModel, DiscordMessageContext } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
@@ -11,7 +11,7 @@ export class DiscordService {
   private client: Client;
   private db: DatabaseService;
   private static instance: DiscordService;
-  private readonly defaultModel: AIModel = 'gpt';
+  private readonly defaultModel: AIModel = 'deepseek';
   private aiServices: Map<string, AIService> = new Map();
 
   private constructor() {
@@ -92,7 +92,7 @@ export class DiscordService {
         
         let service = this.aiServices.get(serviceKey);
         if (!service) {
-          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude');
+          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek');
           this.aiServices.set(serviceKey, service);
         }
 
@@ -108,14 +108,14 @@ export class DiscordService {
         );
 
         // Send response to Discord
-        await message.reply(result.content);
+        await this.sendMessage(message.channel as TextChannel, result.content, message);
 
       } catch (error) {
         console.error('Error handling Discord message:', error);
         const errorMessage = error instanceof MCPError 
             ? `Error: ${error.message}`
             : 'Sorry, I encountered an error processing your message.';
-        await message.reply(errorMessage);
+        await this.sendMessage(message.channel as TextChannel, errorMessage, message);
       }
     });
 
@@ -148,5 +148,72 @@ export class DiscordService {
       console.error('Error stopping Discord client:', error);
       throw error;
     }
+  }
+
+  protected async sendMessage(channel: TextChannel, content: string, reference?: Message): Promise<void> {
+    // Split message if it's longer than Discord's limit
+    const MAX_LENGTH = 1900; // Leaving some buffer for safety
+    
+    if (content.length <= MAX_LENGTH) {
+        await channel.send({
+            content,
+            reply: reference ? { messageReference: reference.id } : undefined
+        });
+        return;
+    }
+
+    // Split long messages
+    const parts = this.splitMessage(content);
+    
+    // Send first part with reference
+    await channel.send({
+        content: parts[0],
+        reply: reference ? { messageReference: reference.id } : undefined
+    });
+
+    // Send remaining parts
+    for (let i = 1; i < parts.length; i++) {
+        await channel.send({ content: parts[i] });
+    }
+  }
+
+  private splitMessage(content: string): string[] {
+    const MAX_LENGTH = 1900; // Leaving some buffer for safety
+    const parts: string[] = [];
+    let currentPart = '';
+
+    // Split by paragraphs first
+    const paragraphs = content.split('\n');
+
+    for (const paragraph of paragraphs) {
+        if (currentPart.length + paragraph.length + 1 <= MAX_LENGTH) {
+            currentPart += (currentPart ? '\n' : '') + paragraph;
+        } else {
+            if (currentPart) {
+                parts.push(currentPart);
+            }
+            // If a single paragraph is too long, split it by words
+            if (paragraph.length > MAX_LENGTH) {
+                const words = paragraph.split(' ');
+                currentPart = '';
+                for (const word of words) {
+                    if (currentPart.length + word.length + 1 <= MAX_LENGTH) {
+                        currentPart += (currentPart ? ' ' : '') + word;
+                    } else {
+                        parts.push(currentPart);
+                        currentPart = word;
+                    }
+                }
+            } else {
+                currentPart = paragraph;
+            }
+        }
+    }
+
+    if (currentPart) {
+        parts.push(currentPart);
+    }
+
+    return parts;
   }
 }
