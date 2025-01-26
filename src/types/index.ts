@@ -15,6 +15,25 @@ export enum Model {
 export type MessageRole = keyof typeof Role;
 export type AIModel = keyof typeof Model;
 
+export interface MCPToolUsageHistory {
+    args: any;
+    result: string | null;
+    timestamp: Date;
+    success: boolean;
+}
+
+export interface MCPToolContext {
+    lastRefreshed: Date;
+    refreshCount: number;
+    history: MCPToolUsageHistory[];
+    patterns?: Record<string, {
+        mostCommon: any[];
+        uniqueValues: number;
+    }>;
+    currentArgs?: any;
+    successRate?: number;
+}
+
 export interface Message {
   id: number;
   content: string;

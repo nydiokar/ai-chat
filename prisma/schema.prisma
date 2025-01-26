@@ -77,18 +77,32 @@ model MCPServer {
 }
 
 model MCPTool {
-  id          String      @id
-  serverId    String      // Reference to MCPServer
+  id          String           @id
+  serverId    String          // Reference to MCPServer
   name        String
   description String
-  isEnabled   Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  server      MCPServer   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  isEnabled   Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  server      MCPServer       @relation(fields: [serverId], references: [id], onDelete: Cascade)
   usage       MCPToolUsage[]
+  context     MCPToolContext? // Link to tool context
 
   @@unique([serverId, name])
   @@index([serverId])
+}
+
+model MCPToolContext {
+  id              Int      @id @default(autoincrement())
+  toolId          String   @unique
+  tool            MCPTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  contextData     Json     // Stores tool-specific context data
+  lastRefreshed   DateTime @default(now())
+  refreshCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([toolId])
 }
 
 model MCPToolUsage {

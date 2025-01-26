@@ -1,10 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { MCPTool } from "../../types/index.js";
+import { MCPTool, MCPToolContext } from "../../types/index.js";
 import { MCPServerConfig } from "../../types/mcp-config.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
-
 
 // Define response schemas
 const ToolListResponseSchema = z.object({
@@ -114,16 +113,28 @@ export class MCPClientService {
         }
     }
 
-    async callTool(name: string, args: any): Promise<string> {
+    async callTool(name: string, args: any, context?: MCPToolContext): Promise<string> {
         try {
             console.log(`[MCPClientService] Calling tool ${name} with args:`, args);
+            
+            // Enhance arguments with context if available
+            const enhancedArgs = context ? {
+                ...args,
+                _context: {
+                    lastUsage: context.history?.[0],
+                    successRate: context.successRate,
+                    commonPatterns: context.patterns
+                }
+            } : args;
+
             const result = await this.client.request({
                 method: 'tools/call',
                 params: {
                     name,
-                    arguments: args
+                    arguments: enhancedArgs
                 }
             }, ToolCallResponseSchema);
+            
             console.log(`[MCPClientService] Tool result:`, result);
             
             if ('error' in result) {

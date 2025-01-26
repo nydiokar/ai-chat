@@ -19,6 +19,8 @@ const nodePath = process.execPath; // Gets the full path to the node executable
 export const mcpConfig: MCPConfig = {
     mcpServers: {
         "github": {
+            id: "github",
+            name: "GitHub Tools",
             command: nodePath,
             args: [
                 "node_modules/@modelcontextprotocol/server-github/dist/index.js"
@@ -54,6 +56,8 @@ export const mcpConfig: MCPConfig = {
             ]
         },
         "brave-search": {
+            id: "brave-search",
+            name: "Brave Search",
             command: nodePath,
             args: [
                 "node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"

@@ -1,4 +1,4 @@
-import { Message } from '../../types/index.js';
+import { Message, MCPToolContext, MCPToolUsageHistory } from '../../types/index.js';
 import { AIService } from '../ai/base-service.js';
 import { MCPClientService } from './mcp-client-service.js';
 import { DatabaseService } from '../db-service.js';
@@ -6,6 +6,7 @@ import { MCPError } from '../../types/errors.js';
 
 export class ToolsHandler {
     private availableTools: Set<string>;
+    private toolContexts: Map<string, MCPToolContext> = new Map();
 
     constructor(
         private client: MCPClientService,
@@ -14,6 +15,85 @@ export class ToolsHandler {
     ) {
         this.availableTools = new Set();
         this.initializeTools();
+        this.loadPersistedContexts();
+    }
+
+    private async loadPersistedContexts(): Promise<void> {
+        try {
+            type DBContext = {
+                tool: { name: string };
+                contextData: any;
+                lastRefreshed: Date;
+                refreshCount: number;
+            };
+
+            const contexts = await this.db.executePrismaOperation(async (prisma) => {
+                const result = await prisma.$queryRaw`
+                    SELECT c.*, t.name as toolName 
+                    FROM MCPToolContext c
+                    JOIN MCPTool t ON t.id = c.toolId
+                `;
+                return result as DBContext[];
+            });
+
+            for (const context of contexts) {
+                this.toolContexts.set(context.tool.name, {
+                    ...context.contextData,
+                    lastRefreshed: context.lastRefreshed,
+                    refreshCount: context.refreshCount
+                });
+            }
+            console.log(`[ToolsHandler] Loaded ${contexts.length} persisted tool contexts`);
+        } catch (error) {
+            console.error('[ToolsHandler] Failed to load persisted contexts:', error);
+        }
+    }
+
+    public async getToolContext(toolName: string): Promise<MCPToolContext | undefined> {
+        if (!this.availableTools.has(toolName)) {
+            return undefined;
+        }
+        return this.toolContexts.get(toolName);
+    }
+
+    private async getEnhancedContext(toolName: string, currentArgs: any): Promise<MCPToolContext> {
+        // Get base context
+        let context = this.toolContexts.get(toolName) || {
+            lastRefreshed: new Date(),
+            refreshCount: 0,
+            history: []
+        };
+
+        const tool = await this.db.executePrismaOperation(prisma =>
+            prisma.mCPTool.findFirst({
+                where: { name: toolName },
+                include: {
+                    usage: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 5
+                    }
+                }
+            })
+        );
+
+        if (tool) {
+            // Add usage patterns
+            const recentUsage = tool.usage.map(u => ({
+                args: u.input,
+                result: u.output,
+                timestamp: u.createdAt,
+                success: u.status === 'success'
+            }));
+
+            context = {
+                ...context,
+                history: recentUsage,
+                currentArgs,
+                successRate: tool.usage.filter(u => u.status === 'success').length / tool.usage.length
+            };
+        }
+
+        return context;
     }
 
     private async initializeTools() {
@@ -25,6 +105,98 @@ export class ToolsHandler {
         } catch (error) {
             console.error('[ToolsHandler] Failed to initialize tools:', error);
         }
+    }
+
+    async refreshToolContext(toolName: string): Promise<void> {
+        if (!this.availableTools.has(toolName)) {
+            throw new Error(`Tool ${toolName} not found`);
+        }
+
+        const tool = await this.db.executePrismaOperation(prisma =>
+            prisma.mCPTool.findFirst({
+                where: { name: toolName },
+                include: {
+                    usage: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 5,
+                        where: { status: 'success' }
+                    }
+                }
+            })
+        );
+
+        if (!tool) {
+            throw new Error(`Tool ${toolName} not found in database`);
+        }
+
+        // Generate new context with usage patterns
+        const context = {
+            lastRefreshed: new Date(),
+            refreshCount: (this.toolContexts.get(toolName)?.refreshCount || 0) + 1,
+            history: tool.usage.map(u => ({
+                args: u.input,
+                result: u.output,
+                timestamp: u.createdAt,
+                success: u.status === 'success'
+            } as MCPToolUsageHistory)),
+            patterns: await this.analyzeUsagePatterns(tool.id)
+        };
+
+        // Update in-memory context
+        this.toolContexts.set(toolName, context);
+
+        // Persist context to database
+        await this.db.executePrismaOperation(prisma =>
+            prisma.$executeRaw`
+                INSERT OR REPLACE INTO MCPToolContext (toolId, contextData, lastRefreshed, refreshCount)
+                VALUES (${tool.id}, ${JSON.stringify(context)}, ${context.lastRefreshed}, ${context.refreshCount})
+            `
+        );
+
+        console.log(`[ToolsHandler] Refreshed and persisted context for tool ${toolName}`);
+    }
+
+    private async analyzeUsagePatterns(toolId: string): Promise<any> {
+        const usage = await this.db.executePrismaOperation(prisma =>
+            prisma.mCPToolUsage.findMany({
+                where: {
+                    toolId,
+                    status: 'success'
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 20
+            })
+        );
+
+        // Analyze common input patterns
+        const inputPatterns = usage.reduce((acc, u) => {
+            const inputKeys = Object.keys(u.input as object);
+            inputKeys.forEach(key => {
+                if (!acc[key]) acc[key] = [];
+                acc[key].push((u.input as any)[key]);
+            });
+            return acc;
+        }, {} as Record<string, any[]>);
+
+        // Calculate frequency of values for each input parameter
+        const patterns = Object.entries(inputPatterns).reduce((acc, [key, values]) => {
+            const frequency = values.reduce((freq, val) => {
+                const strVal = JSON.stringify(val);
+                freq[strVal] = (freq[strVal] || 0) + 1;
+                return freq;
+            }, {} as Record<string, number>);
+
+            acc[key] = {
+                mostCommon: Object.entries(frequency)
+                    .sort(([,a], [,b]) => (b as number) - (a as number))
+                    .slice(0, 3)
+                    .map(([val]) => JSON.parse(val)),
+                uniqueValues: new Set(values.map(v => JSON.stringify(v))).size
+            };
+            return acc;
+        }, {} as Record<string, { mostCommon: any[]; uniqueValues: number }>);
+
+        return patterns;
     }
 
     async processQuery(query: string, conversationId: number): Promise<string> {
@@ -71,7 +243,12 @@ export class ToolsHandler {
             try {
                 console.log(`[ToolsHandler] Executing tool ${toolName} with args: ${argsStr}`);
                 const args = JSON.parse(argsStr);
-                const result = await this.client.callTool(toolName, args);
+                
+                // Get enhanced context for this tool execution
+                const enhancedContext = await this.getEnhancedContext(toolName, args);
+                
+                // Pass enhanced context to the tool
+                const result = await this.client.callTool(toolName, args, enhancedContext);
                 console.log(`[ToolsHandler] Tool execution successful`);
                 
                 await this.db.executePrismaOperation(prisma => 
