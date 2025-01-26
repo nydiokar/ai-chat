@@ -6,3 +6,5 @@ dist/
 .sqlite
 logs/
 .pm2/
+*.db
+prisma/dev.db

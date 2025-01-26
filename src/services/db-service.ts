@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
 import { debug } from '../config.js';
-
 
 export class DatabaseError extends Error {
   public cause?: any;
@@ -25,6 +25,12 @@ type TransactionClient = Omit<
   PrismaClient,
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
 >;
+
+type FullTransactionClient = TransactionClient & {
+  mCPServer: PrismaClient['mCPServer'];
+  mCPTool: PrismaClient['mCPTool'];
+  mCPToolUsage: PrismaClient['mCPToolUsage'];
+};
 
 export class DatabaseService {
   public readonly prisma: PrismaClient;
@@ -136,7 +142,7 @@ export class DatabaseService {
       this.validateContent(content);
 
       debug(`Adding message to conversation ${conversationId}`);
-      await this.prisma.$transaction(async (prisma: TransactionClient) => {
+      await this.prisma.$transaction(async (prisma) => {
         const message = await prisma.message.create({
           data: {
             content,
@@ -436,8 +442,8 @@ export class DatabaseService {
 
   // Add a method for MCP service to use
   async executePrismaOperation<T>(
-    operation: (prisma: TransactionClient) => Promise<T>
+    operation: (prisma: FullTransactionClient) => Promise<T>
   ): Promise<T> {
-    return this.transaction(operation);
+    return this.prisma.$transaction(operation as any) as Promise<T>;
   }
 }

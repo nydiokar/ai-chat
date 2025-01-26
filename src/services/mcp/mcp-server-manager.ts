@@ -2,13 +2,11 @@ import dotenv from 'dotenv';
 dotenv.config(); // Load environment variables first
 
 import { DatabaseService } from "../db-service.js";
-
 import { MCPClientService } from "./mcp-client-service.js";
-
 import EventEmitter from "events";
 import { ToolsHandler } from "./tools-handler.js";
 import { AIService } from "../ai/base-service.js";
-import { getMCPConfig, MCPConfig, MCPServerConfig } from '../../types/mcp-config.js';
+import { getMCPConfig, MCPConfig, MCPServerConfig, MCPToolModel } from '../../types/mcp-config.js';
 import { MCPError, ErrorType } from "../../types/errors.js";
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -76,6 +74,46 @@ export class MCPServerManager extends EventEmitter {
         return this._servers.get(serverId);
     }
 
+    // Helper method to sync tools with database
+    private async syncToolsWithDB(serverId: string, tools: { name: string; description: string }[]): Promise<void> {
+        await this.db.executePrismaOperation(async (prisma) => {
+            // Create or update tools
+            for (const tool of tools) {
+                await prisma.mCPTool.upsert({
+                    where: {
+                        serverId_name: {
+                            serverId,
+                            name: tool.name
+                        }
+                    },
+                    update: {
+                        description: tool.description,
+                        updatedAt: new Date()
+                    },
+                    create: {
+                        id: `${serverId}:${tool.name}`,
+                        serverId,
+                        name: tool.name,
+                        description: tool.description,
+                        isEnabled: true
+                    }
+                });
+            }
+
+            // Disable tools that no longer exist
+            const toolNames = tools.map(t => t.name);
+            await prisma.mCPTool.updateMany({
+                where: {
+                    serverId,
+                    name: { notIn: toolNames }
+                },
+                data: {
+                    isEnabled: false
+                }
+            });
+        });
+    }
+
     async startServer(serverId: string, config: MCPServerConfig): Promise<void> {
         try {
             console.log(`[MCPServerManager] Starting server: ${serverId} with config:`, JSON.stringify(config, null, 2));
@@ -94,6 +132,9 @@ export class MCPServerManager extends EventEmitter {
             // Verify server is working by listing tools
             const tools = await client.listTools();
             console.log(`[MCPServerManager] Server ${serverId} started with ${tools.length} tools`);
+
+            // Sync tools with database before setting server
+            await this.syncToolsWithDB(serverId, tools);
 
             this._servers.set(serverId, client);
             
@@ -130,6 +171,71 @@ export class MCPServerManager extends EventEmitter {
         }
     }
 
+    async enableTool(serverId: string, toolName: string): Promise<void> {
+        const server = this._servers.get(serverId);
+        if (!server) {
+            throw new MCPError(
+                ErrorType.SERVER_NOT_FOUND,
+                `Server ${serverId} not found`
+            );
+        }
+
+        await this.db.executePrismaOperation(async (prisma) => {
+            await prisma.mCPTool.update({
+                where: {
+                    serverId_name: {
+                        serverId,
+                        name: toolName
+                    }
+                },
+                data: {
+                    isEnabled: true,
+                    updatedAt: new Date()
+                }
+            });
+        });
+
+        console.log(`[MCPServerManager] Enabled tool ${toolName} on server ${serverId}`);
+    }
+
+    async disableTool(serverId: string, toolName: string): Promise<void> {
+        const server = this._servers.get(serverId);
+        if (!server) {
+            throw new MCPError(
+                ErrorType.SERVER_NOT_FOUND,
+                `Server ${serverId} not found`
+            );
+        }
+
+        await this.db.executePrismaOperation(async (prisma) => {
+            await prisma.mCPTool.update({
+                where: {
+                    serverId_name: {
+                        serverId,
+                        name: toolName
+                    }
+                },
+                data: {
+                    isEnabled: false,
+                    updatedAt: new Date()
+                }
+            });
+        });
+
+        console.log(`[MCPServerManager] Disabled tool ${toolName} on server ${serverId}`);
+    }
+
+    async getEnabledTools(serverId: string): Promise<MCPToolModel[]> {
+        return await this.db.executePrismaOperation(async (prisma) => {
+            return prisma.mCPTool.findMany({
+                where: {
+                    serverId,
+                    isEnabled: true
+                }
+            });
+        });
+    }
+
     async executeToolQuery(serverId: string, query: string, conversationId: number): Promise<string> {
         try {
             const server = this._servers.get(serverId);
@@ -144,6 +250,17 @@ export class MCPServerManager extends EventEmitter {
             if (!handler) {
                 handler = new ToolsHandler(server, this.aiService, this.db);
                 this._toolsHandlers.set(serverId, handler);
+            }
+
+            // Check if tool is enabled before processing query
+            const toolName = query.split(' ')[0]; // Simple way to get tool name from query
+            const enabledTools = await this.getEnabledTools(serverId);
+            
+            if (!enabledTools.some(tool => tool.name === toolName)) {
+                throw new MCPError(
+                    ErrorType.TOOL_NOT_FOUND,
+                    `Tool ${toolName} is not enabled on server ${serverId}`
+                );
             }
 
             return handler.processQuery(query, conversationId);

@@ -1,6 +1,7 @@
 import { mcpConfig } from '../tools/tools.js';
 
-export interface MCPTool {
+// Configuration interfaces
+export interface MCPToolConfig {
     name: string;
     description: string;
 }
@@ -9,7 +10,18 @@ export interface MCPServerConfig {
     command: string;
     args: string[];
     env?: Record<string, string>;
-    tools?: MCPTool[];
+    tools?: MCPToolConfig[];
+}
+
+// Database model interfaces
+export interface MCPToolModel {
+    id: string;
+    serverId: string;
+    name: string;
+    description: string;
+    isEnabled: boolean;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface MCPConfig {
