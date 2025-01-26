@@ -3,7 +3,7 @@ Last Updated: [17.01.2025]
 
 ## Day 1: Foundation 🏗️
 
-### Session 1: Tool Registration System
+### Session 1: Tool Registration System ///// implement git + github - local and api operations
 **Focus**: Simple config-based tool addition
 - [ ] Update MCPTool interface
   > Create a minimal interface that defines a tool with name, description and server configuration, following Anthropic's tool structure. The interface should match the JSON config format used in tools.ts for seamless tool registration.
@@ -12,7 +12,7 @@ Last Updated: [17.01.2025]
   > Implement server registration in MCPServerManager that takes server configs from tools.ts and initializes them with proper lifecycle management. Each server should handle its own tools and maintain its connection state.
   
 - [ ] Add basic error recovery
-  > Implement error handling for common server issues like connection failures or tool execution errors, with automatic reconnection attempts. The system should maintain stability even if individual tools or servers fail.
+  > Implement error handling for common server issues like connection failures or tool execution errors, with automatic reconnection attempts. The system should maintain stability even if individual tools or servers fail. 
 
 **Deliverable**: Clean tool registration system that works with simple config updates
 
@@ -70,6 +70,19 @@ Last Updated: [17.01.2025]
 
 **Deliverable**: Working memory system for tasks
 
+### Session 5B: Core Server Setup
+**Focus**: Server Integration
+- [ ] Memory Server Configuration
+  > Set up MCP memory server for project context, user preferences, and relationship tracking. Link with conversation system.
+
+- [ ] Git Server Integration
+  > Configure local git server for repository operations and file analysis. Implement core git operations.
+
+- [ ] GitHub API Setup
+  > Establish GitHub API connection for remote collaboration features. Enable issue and PR management.
+
+**Deliverable**: Integrated server ecosystem
+
 ### Session 6: Tool Result Integration
 **Focus**: Clean tool usage
 - [ ] Implement standardized tool response handling
@@ -126,11 +139,11 @@ Last Updated: [17.01.2025]
 
 ## Dependencies Map 🗺️
 ```
-Session 1 ──► Session 6 ──► Session 7
+Session 1 ──► Session 5B ──► Session 6 ──► Session 7
     │
-Session 2 ──► Session 4 ──► Session 8
+Session 2 ──► Session 4  ──► Session 8
     │
-Session 3 ──► Session 5 ──► Session 9
+Session 3 ──► Session 5  ──► Session 9
 ```
 
 ## Progress Metrics 📊

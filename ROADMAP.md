@@ -78,6 +78,14 @@ Multiple models and specialized interaction modes
 - 💾 Result Caching
 - 🔄 Cross-Tool Context
 - 🔍 Dynamic Tool Discovery
+- 🧠 Core Server Integration
+  - Memory Server: Project context, preferences, relationships
+  - Git Server: Local repo operations, file analysis
+  - GitHub API: Issues, PRs, remote collaboration
+  - Prisma DB: Structured operational data
+- 🧠 Memory System
+  - Prisma DB: Structured operational data (tasks, users, configs)
+  - Memory Server: Contextual data (project context, preferences, relationships)
 
 ### 📋 Task Management
 - 🗣️ Natural Language Processing

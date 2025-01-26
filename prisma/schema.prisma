@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+enum Role {
+  user
+  assistant
+  system
+}
+
+enum Model {
+  gpt
+  claude
+  deepseek
+}
+
+// Existing models
+model Message {
+  id              Int          @id @default(autoincrement())
+  content         String
+  role            Role
+  createdAt       DateTime     @default(now())
+  conversationId  Int
+  tokenCount      Int? // Track token usage
+  discordUserId   String? // Discord user ID
+  discordUsername String? // Discord username
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([discordUserId])
+}
+
+model Conversation {
+  id               Int            @id @default(autoincrement())
+  model            Model
+  title            String? // Optional conversation title
+  summary          String? // Optional conversation summary
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  tokenCount       Int            @default(0) // Track total tokens
+  discordGuildId   String? // Discord server ID
+  discordChannelId String? // Discord channel ID
+  messages         Message[]
+  session          Session? // Link to active session
+
+  @@index([createdAt])
+  @@index([discordGuildId, discordChannelId])
+}
+
+model Session {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  discordUserId  String // Discord user ID who started the session
+  createdAt      DateTime     @default(now())
+  lastActivity   DateTime     @default(now())
+  isActive       Boolean      @default(true)
+
+  @@index([discordUserId])
+  @@index([lastActivity])
+}
+
+// Simplified MCP-related models
+model mCPServer {
+  id        String         @id
+  name      String
+  version   String
+  status    String        // INITIALIZING, RUNNING, STOPPED, ERROR
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model MCPToolUsage {
+  id             Int           @id @default(autoincrement())
+  toolId         String        // Tool name
+  conversationId Int
+  input          Json?         // Tool input arguments
+  output         String?       // Tool output
+  error          String?       // Error message if failed
+  duration       Int           // Duration in milliseconds
+  status         String        // 'success' or 'error'
+  createdAt      DateTime      @default(now())
+
+  @@index([toolId])
+  @@index([conversationId])
+  @@index([createdAt])
+}
