@@ -1,6 +1,7 @@
 // MCP specific errors
 export enum ErrorType {
     TOOL_NOT_FOUND = 'TOOL_NOT_FOUND',
+    TOOL_NOT_ENABLED = 'TOOL_NOT_ENABLED',
     TOOL_EXECUTION_FAILED = 'TOOL_EXECUTION_FAILED',
     MISSING_PARAMETER = 'MISSING_PARAMETER',
     CONNECTION_FAILED = 'CONNECTION_FAILED',
@@ -79,4 +80,11 @@ export class MCPError extends Error {
             `Server ${serverId} not found`
         );
     }
-} 
+
+    static toolNotEnabled(toolName: string, serverId: string): MCPError {
+        return new MCPError(
+            ErrorType.TOOL_NOT_ENABLED,
+            `Tool ${toolName} is not enabled on server ${serverId}`
+        );
+    }
+}

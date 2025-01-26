@@ -65,19 +65,36 @@ model Session {
   @@index([lastActivity])
 }
 
-// Simplified MCP-related models
-model mCPServer {
+// MCP-related models
+model MCPServer {
   id        String         @id
   name      String
   version   String
   status    String        // INITIALIZING, RUNNING, STOPPED, ERROR
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+  tools     MCPTool[]     // Relation to tools
+}
+
+model MCPTool {
+  id          String      @id
+  serverId    String      // Reference to MCPServer
+  name        String
+  description String
+  isEnabled   Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  server      MCPServer   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  usage       MCPToolUsage[]
+
+  @@unique([serverId, name])
+  @@index([serverId])
 }
 
 model MCPToolUsage {
   id             Int           @id @default(autoincrement())
   toolId         String        // Tool name
+  mcpTool        MCPTool      @relation(fields: [toolId], references: [id])
   conversationId Int
   input          Json?         // Tool input arguments
   output         String?       // Tool output
