@@ -65,20 +65,47 @@ export class SystemPromptGenerator {
             return `${this.defaultSystemPrompt}\n\nNo tools are currently available.`;
         }
 
-        const toolsContext = allTools
-            .map(tool => {
-                const schema = JSON.stringify(tool.inputSchema, null, 2);
-                return `Tool: ${tool.name}
-Description: ${tool.description}
-Input Schema: ${schema}`;
-            })
-            .join('\n\n');
+        const toolsContext = await Promise.all(allTools.map(async tool => {
+            const schema = JSON.stringify(tool.inputSchema, null, 2);
+            const server = this.mcpManager.getServerByIds(tool.server.name);
+            
+            let contextInfo = '';
+            if (server) {
+                const toolHandler = this.mcpManager.getToolsHandler(tool.server.name);
+                if (toolHandler) {
+                    try {
+                        const context = await toolHandler.getToolContext(tool.name);
+                        if (context) {
+                            const successRate = context.successRate ?? 1; // Default to 100% if no data
+                            contextInfo = `\nUsage Patterns:
+- Success Rate: ${(successRate * 100).toFixed(1)}%
+${context.patterns ? Object.entries(context.patterns).map(([param, data]) => 
+`- Common ${param} values: ${(data as any).mostCommon?.slice(0, 2)?.join(', ') || 'No common values'}`
+).join('\n') : ''}`;
+                        }
+                    } catch (error) {
+                        console.warn(`[SystemPromptGenerator] Failed to get context for tool ${tool.name}:`, error);
+                    }
+                }
+            }
 
-        return `${this.defaultSystemPrompt}
+            return `Tool: ${tool.name}
+Description: ${tool.description}
+Input Schema: ${schema}${contextInfo}`;
+        }));
+
+        const prompt = `${this.defaultSystemPrompt}
 
 Available Tools:
-${toolsContext}
+${toolsContext.join('\n\n')}
+
+When using tools:
+1. Consider their success rates and common usage patterns
+2. Prefer well-performing tools over those with low success rates
+3. Use common parameter values when appropriate
 
 ${additionalContext}`.trim();
+
+        return prompt;
     }
 }
