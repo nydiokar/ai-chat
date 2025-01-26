@@ -11,7 +11,7 @@ export class DiscordService {
   private client: Client;
   private db: DatabaseService;
   private static instance: DiscordService;
-  private readonly defaultModel: AIModel = 'deepseek';
+  private readonly defaultModel: AIModel = 'gpt';
   private aiServices: Map<string, AIService> = new Map();
 
   private constructor() {
