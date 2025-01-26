@@ -6,5 +6,12 @@ dist/
 .sqlite
 logs/
 .pm2/
+<<<<<<< HEAD
 *.db
 prisma/dev.db
+=======
+.db/
+# Prisma
+prisma/dev.db
+*.db
+>>>>>>> c534e5335612fae7e13d30479b0e1eacb3a2d1b9
