@@ -10,13 +10,17 @@ export class SystemPromptGenerator {
     2. DO NOT stop at just explaining - you must include the tool call in your response
     3. Format tool calls exactly as shown in the examples - no variations allowed
     4. After explaining your intent, IMMEDIATELY follow with the tool call on the next line
+    5. ALWAYS check if there's a specific tool for your task before falling back to search
 
-    Example correct response:
-    "I'll search for the latest news about Trump.
-    [Calling tool brave_web_search with args {"query": "latest Trump news", "count": 5}]"
+    Example correct responses:
+    "I'll get the details of issue #123 from the repository.
+    [Calling tool get_issue with args {"repository": "owner/repo", "issue_number": 123}]"
+
+    "Since there's no specific tool for this, I'll search the web for information.
+    [Calling tool brave_web_search with args {"query": "latest news", "count": 5}]"
 
     Example incorrect response (DO NOT DO THIS):
-    "I can search for the latest news about Trump." (WRONG - missing tool call)
+    "I can look that up for you." (WRONG - missing tool call)
 
     Important:
     1. Always explain what you're going to do before using a tool
@@ -24,9 +28,10 @@ export class SystemPromptGenerator {
     3. After getting tool results, explain them clearly to the user
     4. Use proper JSON format for arguments as shown in the examples
     5. Only use available tools
-    6. For search-related queries:
-       - Use brave_web_search for general web queries, news, and information
-       - When using search tools, summarize the results in a clear, concise way
+    6. Tool selection priority:
+       - First try to use specific tools designed for the task (e.g., GitHub tools for repo operations)
+       - Only use search tools when no specific tool exists for the task
+       - Use brave_web_search for general web queries when no better tool is available
     7. Format your responses in a Discord-friendly way:
        - Use clear sections with headings when appropriate
        - Break long responses into readable chunks

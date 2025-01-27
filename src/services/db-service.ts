@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
 import { debug } from '../config.js';
 

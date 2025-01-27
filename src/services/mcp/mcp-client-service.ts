@@ -4,6 +4,8 @@ import { MCPTool, MCPToolContext } from "../../types/index.js";
 import { MCPServerConfig } from "../../types/mcp-config.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
+import { join } from "path";
+import { statSync } from 'fs';
 
 // Define response schemas
 const ToolListResponseSchema = z.object({
@@ -31,21 +33,44 @@ export class MCPClientService {
     private healthCheckInterval: NodeJS.Timer | undefined;
 
     constructor(config: MCPServerConfig) {
-        this.config = config;
-        this.transport = new StdioClientTransport({
+        console.log('[MCPClientService] Initializing with config:', {
             command: config.command,
             args: config.args,
+            envKeys: Object.keys(config.env || {})
+        });
+        
+        // Check if the module exists synchronously
+        const modulePath = join(process.cwd(), config.args[0]);
+        try {
+            const stats = statSync(modulePath);
+            console.log('[MCPClientService] Module exists:', {
+                path: modulePath,
+                isFile: stats.isFile()
+            });
+        } catch (error) {
+            console.error('[MCPClientService] Module not found:', {
+                path: modulePath,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+        
+        this.config = config;
+        this.transport = new StdioClientTransport({
+            command: this.config.command,
+            args: this.config.args,
             env: {
-                // Filter out undefined values from process.env
                 ...Object.entries(process.env).reduce((acc, [key, value]) => {
                     if (value !== undefined) {
                         acc[key] = value;
                     }
                     return acc;
                 }, {} as Record<string, string>),
-                ...config.env // Override with config-specific environment
-            }
+                ...this.config.env
+            },
+            stderr: 'inherit'  // This will show server errors in the parent process stderr
         });
+
+        console.log('[MCPClientService] Created StdioClientTransport');
 
         this.client = new Client({
             name: "mcp-client",
@@ -53,29 +78,72 @@ export class MCPClientService {
         }, {
             capabilities: { tools: {} }
         });
+
+        console.log('[MCPClientService] Created Client');
     }
 
     async connect(): Promise<void> {
         try {
-            if (this.isConnected) return;
-            await this.client.connect(this.transport);
-            this.isConnected = true;
-            // Reset delay on successful connection
-            this.currentReconnectDelay = this.reconnectDelay;
-            console.log('[MCPClientService] Successfully connected');
-        } catch (error) {
-            console.error('[MCPClientService] Connection error:', error);
+            if (this.isConnected) {
+                console.log('[MCPClientService] Already connected');
+                return;
+            }
             
-            // Implement exponential backoff with maximum delay
+            console.log('[MCPClientService] Starting connection attempt');
+            console.log('[MCPClientService] Connection config:', {
+                command: this.config.command,
+                args: this.config.args,
+                envKeys: Object.keys(this.config.env || {})
+            });
+            
+            try {
+                console.log('[MCPClientService] Connecting to transport...');
+                await this.client.connect(this.transport);
+                console.log('[MCPClientService] Transport connected successfully');
+            } catch (error) {
+                console.error('[MCPClientService] Transport connection failed:', 
+                    error instanceof Error ? error.message : 'Unknown error');
+                if (error instanceof Error) {
+                    console.error('Stack trace:', error.stack);
+                }
+                throw error;
+            }
+
+            try {
+                console.log('[MCPClientService] Testing connection with tools/list...');
+                const response = await this.client.request({
+                    method: 'tools/list',
+                    params: {}
+                }, ToolListResponseSchema);
+                
+                console.log('[MCPClientService] Got tools list:', response);
+                this.isConnected = true;
+                return;
+            } catch (error) {
+                console.error('[MCPClientService] Tools list request failed:', 
+                    error instanceof Error ? error.message : 'Unknown error');
+                if (error instanceof Error) {
+                    console.error('Stack trace:', error.stack);
+                }
+                throw error;
+            }
+        } catch (error) {
+            console.error('[MCPClientService] Connection failed:', 
+                error instanceof Error ? error.message : 'Unknown error');
+            
+            if (this.currentReconnectDelay === this.reconnectDelay) {
+                console.log('[MCPClientService] First attempt failed, retrying immediately...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.connect();
+            }
+            
             this.currentReconnectDelay = Math.min(
                 this.currentReconnectDelay * 2,
                 this.maxReconnectDelay
             );
             
-            console.log(`[MCPClientService] Connection failed, retrying in ${this.currentReconnectDelay/1000} seconds...`);
+            console.log(`[MCPClientService] Will retry in ${this.currentReconnectDelay/1000} seconds`);
             await new Promise(resolve => setTimeout(resolve, this.currentReconnectDelay));
-            
-            // Always retry connection
             return this.connect();
         }
     }

@@ -41,64 +41,94 @@ export class OpenAIService extends BaseAIService {
     protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
         functions: any[],
-        server: any
+        servers: any[]
     ): Promise<AIResponse> {
-        const completion = await this.client.chat.completions.create({
-            model: this.modelName,
-            messages,
-            tools: functions.map(fn => ({
-                type: "function",
-                function: fn
-            })),
-            tool_choice: "auto",
-            temperature: 0.7
-        });
-
-        let currentMessages = [...messages];
-        let responseMessage = completion.choices[0]?.message;
-        
-        // Keep processing tool calls until we get a regular message response
-        while (responseMessage?.tool_calls) {
-            currentMessages.push(responseMessage);
-            
-            // Process all tool calls in this response
-            for (const toolCall of responseMessage.tool_calls) {
-                try {
-                    const functionName = toolCall.function.name;
-                    const functionArgs = JSON.parse(toolCall.function.arguments);
-                    const result = await server.callTool(functionName, functionArgs);
-                    
-                    // Add the tool response message
-                    currentMessages.push({
-                        role: 'tool',
-                        content: result,
-                        tool_call_id: toolCall.id
-                    } as ChatCompletionMessageParam);
-                } catch (error) {
-                    console.error(`Tool execution failed:`, error);
-                    throw error;
-                }
+        try {
+            // Create a map of tool names to their respective servers
+            const toolServerMap = new Map();
+            for (const server of servers) {
+                const tools = await server.listTools();
+                tools.forEach((tool: any) => toolServerMap.set(tool.name, server));
             }
-            
-            // Get the next response
-            const nextCompletion = await this.client.chat.completions.create({
-                model: this.modelName,
-                messages: currentMessages,
-                tools: functions.map(fn => ({
-                    type: "function",
-                    function: fn
-                })),
-                tool_choice: "auto",
-                temperature: 0.7
-            });
-            
-            responseMessage = nextCompletion.choices[0]?.message;
-        }
 
-        return {
-            content: responseMessage?.content || '',
-            tokenCount: completion.usage?.total_tokens || null
-        };
+            const completion = await this.client.chat.completions.create({
+                model: this.modelName,
+                messages,
+                tools: functions.map(fn => ({ type: 'function', function: fn })),
+                tool_choice: 'auto',
+                temperature: 0.7,
+            });
+
+            let currentMessages = [...messages];
+            let responseMessage = completion.choices[0]?.message;
+            let totalTokens = completion.usage?.total_tokens || 0;
+            let toolResults = [];
+
+            while (responseMessage?.tool_calls) {
+                currentMessages.push(responseMessage);
+
+                // Process all tool calls in this response
+                for (const toolCall of responseMessage.tool_calls) {
+                    try {
+                        const server = toolServerMap.get(toolCall.function.name);
+                        if (!server) {
+                            throw new Error(`No server found for tool: ${toolCall.function.name}`);
+                        }
+
+                        let toolResult: string;
+                        try {
+                            console.log(`Attempting to parse arguments for tool ${toolCall.function.name}:`, toolCall.function.arguments);
+                            const functionArgs = JSON.parse(toolCall.function.arguments);
+                            console.log('Successfully parsed arguments:', functionArgs);
+                            
+                            toolResult = await server.callTool(toolCall.function.name, functionArgs);
+                            toolResults.push(toolResult);
+                        } catch (error: unknown) {
+                            console.error('Failed to parse tool arguments:', {
+                                tool: toolCall.function.name,
+                                arguments: toolCall.function.arguments,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                            throw error;
+                        }
+
+                        // Add the tool response message
+                        currentMessages.push({
+                            role: 'tool',
+                            content: toolResult,
+                            tool_call_id: toolCall.id
+                        } as ChatCompletionMessageParam);
+                    } catch (error) {
+                        console.error(`Tool execution failed:`, error);
+                        throw error;
+                    }
+                }
+
+                // Get the next response
+                const nextCompletion = await this.client.chat.completions.create({
+                    model: this.modelName,
+                    messages: currentMessages,
+                    tools: functions.map(fn => ({
+                        type: "function",
+                        function: fn
+                    })),
+                    tool_choice: "auto",
+                    temperature: 0.7
+                });
+
+                totalTokens += nextCompletion.usage?.total_tokens || 0;
+                responseMessage = nextCompletion.choices[0]?.message;
+            }
+
+            return {
+                content: responseMessage?.content || '',
+                tokenCount: totalTokens,
+                toolResults
+            };
+        } catch (error) {
+            console.error('Error in handleToolBasedCompletion:', error);
+            throw error;
+        }
     }
 
     protected async processWithoutTools(
@@ -122,11 +152,23 @@ export class OpenAIService extends BaseAIService {
 
         return {
             content: completion.choices[0]?.message?.content || '',
-            tokenCount: completion.usage?.total_tokens || null
+            tokenCount: completion.usage?.total_tokens || null,
+            toolResults: []
         };
     }
 
-    getModel(): 'gpt' | 'claude' {
+    protected async makeApiCall(
+        messages: ChatCompletionMessageParam[],
+        temperature: number
+    ) {
+        return this.client.chat.completions.create({
+            model: this.modelName,
+            messages,
+            temperature
+        });
+    }
+
+    getModel(): 'gpt' | 'claude' | 'deepseek' {
         return 'gpt';
     }
 }

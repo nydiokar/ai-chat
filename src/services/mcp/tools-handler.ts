@@ -3,6 +3,7 @@ import { AIService } from '../ai/base-service.js';
 import { MCPClientService } from './mcp-client-service.js';
 import { DatabaseService } from '../db-service.js';
 import { MCPError } from '../../types/errors.js';
+import { ToolWithUsage } from '../../types/mcp-config.js';
 
 export class ToolsHandler {
     private availableTools: Set<string>;
@@ -57,11 +58,22 @@ export class ToolsHandler {
     }
 
     private async getEnhancedContext(toolName: string, currentArgs: any): Promise<MCPToolContext> {
-        // Get base context
         let context = this.toolContexts.get(toolName) || {
             lastRefreshed: new Date(),
             refreshCount: 0,
             history: []
+        };
+
+        type PrismaTool = {
+            id: string;
+            name: string;
+            description: string;
+            usage: Array<{
+                input: any;
+                output: string;
+                createdAt: Date;
+                status: string;
+            }>;
         };
 
         const tool = await this.db.executePrismaOperation(prisma =>
@@ -74,11 +86,10 @@ export class ToolsHandler {
                     }
                 }
             })
-        );
+        ) as PrismaTool | null ?? { id: '', name: '', description: '', usage: [] };
 
         if (tool) {
-            // Add usage patterns
-            const recentUsage = tool.usage.map(u => ({
+            const recentUsage = tool.usage.map((u) => ({
                 args: u.input,
                 result: u.output,
                 timestamp: u.createdAt,
@@ -89,7 +100,7 @@ export class ToolsHandler {
                 ...context,
                 history: recentUsage,
                 currentArgs,
-                successRate: tool.usage.filter(u => u.status === 'success').length / tool.usage.length
+                successRate: tool.usage.filter((u) => u.status === 'success').length / tool.usage.length
             };
         }
 
@@ -107,33 +118,16 @@ export class ToolsHandler {
         }
     }
 
-    async refreshToolContext(toolName: string): Promise<void> {
+    async refreshToolContext(toolName: string, tool: ToolWithUsage): Promise<void> {
         if (!this.availableTools.has(toolName)) {
             throw new Error(`Tool ${toolName} not found`);
-        }
-
-        const tool = await this.db.executePrismaOperation(prisma =>
-            prisma.mCPTool.findFirst({
-                where: { name: toolName },
-                include: {
-                    usage: {
-                        orderBy: { createdAt: 'desc' },
-                        take: 5,
-                        where: { status: 'success' }
-                    }
-                }
-            })
-        );
-
-        if (!tool) {
-            throw new Error(`Tool ${toolName} not found in database`);
         }
 
         // Generate new context with usage patterns
         const context = {
             lastRefreshed: new Date(),
             refreshCount: (this.toolContexts.get(toolName)?.refreshCount || 0) + 1,
-            history: tool.usage.map(u => ({
+            history: tool.usage.map((u) => ({
                 args: u.input,
                 result: u.output,
                 timestamp: u.createdAt,

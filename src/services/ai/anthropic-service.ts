@@ -88,7 +88,8 @@ export class AnthropicService extends BaseAIService {
 
                 return {
                     content: finalCompletion.content[0].type === 'text' ? finalCompletion.content[0].text : '',
-                    tokenCount: null // Anthropic doesn't provide token counts
+                    tokenCount: null, // Anthropic doesn't provide token counts
+                    toolResults: [result]
                 };
             } catch (error) {
                 console.error(`Tool execution failed:`, error);
@@ -98,7 +99,8 @@ export class AnthropicService extends BaseAIService {
 
         return {
             content: completion.content[0].type === 'text' ? completion.content[0].text : '',
-            tokenCount: null
+            tokenCount: null,
+            toolResults: []
         };
     }
 
@@ -129,11 +131,51 @@ export class AnthropicService extends BaseAIService {
 
         return {
             content: completion.content[0].type === 'text' ? completion.content[0].text : '',
-            tokenCount: null // Anthropic doesn't provide token counts
+            tokenCount: null, // Anthropic doesn't provide token counts
+            toolResults: []
         };
     }
 
-    getModel(): 'gpt' | 'claude' {
+    protected async makeApiCall(
+        messages: ChatCompletionMessageParam[],
+        temperature: number
+    ) {
+        // Convert OpenAI-style messages to Anthropic format
+        let prompt = '';
+        for (const msg of messages) {
+            if (msg.role === 'system') {
+                prompt += `${msg.content}\n\n`;
+            } else if (msg.role === 'user') {
+                prompt += `${HUMAN_PROMPT} ${msg.content}\n\n`;
+            } else if (msg.role === 'assistant') {
+                prompt += `${AI_PROMPT} ${msg.content}\n\n`;
+            }
+        }
+
+        const completion = await this.client.messages.create({
+            model: this.modelName,
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: prompt }]
+        });
+
+        const content = completion.content[0].type === 'text' ? completion.content[0].text : '';
+        const message: ChatCompletionMessageParam = {
+            role: 'assistant',
+            content
+        };
+
+        return {
+            choices: [{
+                message,
+                finish_reason: 'stop'
+            }],
+            usage: {
+                total_tokens: 0 // Anthropic doesn't provide token counts
+            }
+        };
+    }
+
+    getModel(): 'gpt' | 'claude' | 'deepseek' {
         return 'claude';
     }
 }

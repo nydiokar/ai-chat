@@ -15,7 +15,14 @@ export interface MCPServerConfig {
     tools?: MCPToolConfig[];
 }
 
-// Database model interfaces
+// For database operations
+export interface MCPToolUsage {
+    input: any;
+    output: any;
+    createdAt: Date;
+    status: string;
+}
+
 export interface MCPToolModel {
     id: string;
     serverId: string;
@@ -34,3 +41,15 @@ export function getMCPConfig(): MCPConfig {
     console.log('[getMCPConfig] Loading config:', JSON.stringify(mcpConfig, null, 2));
     return mcpConfig;
 }
+
+// Type for database operations that include usage
+export interface ToolWithUsage extends MCPToolConfig {
+    id: string;
+    usage: MCPToolUsage[];
+}
+
+// List of configured MCP server IDs
+export const MCP_SERVER_IDS = [
+    'brave-search',
+    'github'
+] as const;

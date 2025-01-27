@@ -6,6 +6,7 @@ import { SystemPromptGenerator } from '../mcp/system-prompt-generator.js';
 import { getMCPConfig } from '../../types/mcp-config.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
+import { MCP_SERVER_IDS } from '../../types/mcp-config.js';
 
 const MAX_CONTEXT_MESSAGES = defaultConfig.maxContextMessages;
 
@@ -17,11 +18,13 @@ export interface AIMessage {
 export interface AIResponse {
     content: string;
     tokenCount: number | null;
+    toolResults: any[];
 }
 
 export interface AIService {
     generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
     processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
+    getModel(): 'gpt' | 'claude' | 'deepseek';
     setSystemPrompt(prompt: string): void;
     cleanup(): Promise<void>;
 }
@@ -30,6 +33,7 @@ export abstract class BaseAIService implements AIService {
     protected systemPrompt: string = '';
     protected mcpManager?: MCPServerManager;
     protected initPromise: Promise<void>;
+    private initialized: boolean = false;
 
     constructor() {
         if (defaultConfig.mcp.enabled) {
@@ -57,6 +61,10 @@ export abstract class BaseAIService implements AIService {
     }
 
     protected async initializeMCP(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+
         try {
             const config = getMCPConfig();
             for (const [serverId, serverConfig] of Object.entries(config.mcpServers)) {
@@ -67,6 +75,7 @@ export abstract class BaseAIService implements AIService {
                     console.error(`Failed to start MCP server ${serverId}:`, serverError);
                 }
             }
+            this.initialized = true;
         } catch (error) {
             console.error('Failed to initialize MCP:', error);
         }
@@ -140,14 +149,21 @@ export abstract class BaseAIService implements AIService {
         aiRateLimiter.checkLimit(this.getModel());
         
         try {
-            const server = await this.mcpManager?.getServerByIds('brave-search');
-            if (!server) {
+            // Get all configured servers in parallel
+            const serverPromises = MCP_SERVER_IDS.map(id => this.mcpManager?.getServerByIds(id));
+            const servers = (await Promise.all(serverPromises)).filter(Boolean);
+
+            if (servers.length === 0) {
                 return this.processWithoutTools(message, conversationHistory);
             }
 
             const contextMessages = this.getContextMessages(conversationHistory);
-            const tools = await server.listTools();
-            const functions = tools.map(tool => ({
+            
+            // Get all tools from all servers
+            const toolsPromises = servers.map(server => server?.listTools() || []);
+            const allTools = (await Promise.all(toolsPromises)).flat();
+            
+            const functions = allTools.map(tool => ({
                 name: tool.name,
                 description: tool.description || '',
                 parameters: tool.inputSchema
@@ -159,18 +175,156 @@ export abstract class BaseAIService implements AIService {
                 { role: "user", content: message }
             ];
 
-            return this.handleToolBasedCompletion(messages, functions, server);
+            return this.handleToolBasedCompletion(messages, functions, servers);
         } catch (error) {
             console.error('Error processing message with tools:', error);
             return this.processWithoutTools(message, conversationHistory);
         }
     }
 
-    protected abstract handleToolBasedCompletion(
+    protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
         functions: any[],
-        server: any
-    ): Promise<AIResponse>;
+        servers: any[]
+    ): Promise<AIResponse> {
+        try {
+            // Create a map of tool names to their respective servers
+            const toolServerMap = new Map();
+            for (const server of servers) {
+                const tools = await server.listTools();
+                tools.forEach((tool: any) => toolServerMap.set(tool.name, server));
+            }
+
+            const completion = await this.createChatCompletion({
+                messages,
+                tools: functions.map(fn => ({ type: 'function', function: fn })),
+                tool_choice: 'auto',
+                temperature: 0.7,
+            });
+
+            const response = completion.choices[0] as {
+                message: ChatCompletionMessageParam & {
+                    tool_calls?: Array<{
+                        id: string;
+                        function: { name: string; arguments: string }
+                    }>
+                };
+                finish_reason: string;
+            };
+            let tokenCount = completion.usage?.total_tokens || 0;
+
+            if (response.finish_reason === 'tool_calls' && 
+                response.message && 
+                'tool_calls' in response.message && 
+                response.message.tool_calls) {
+                const toolCalls = response.message.tool_calls;
+                const toolResults = await Promise.all(
+                    toolCalls.map(async (toolCall: any) => {
+                        const server = toolServerMap.get(toolCall.function.name);
+                        if (!server) {
+                            throw new Error(`No server found for tool: ${toolCall.function.name}`);
+                        }
+                        
+                        try {
+                            const result = await server.callTool(
+                                toolCall.function.name,
+                                JSON.parse(toolCall.function.arguments)
+                            );
+                            return result;
+                        } catch (error) {
+                            console.error(`Error calling tool ${toolCall.function.name}:`, error);
+                            return { error: `Failed to execute tool ${toolCall.function.name}` };
+                        }
+                    })
+                );
+
+                // Add tool results to messages
+                messages.push(response.message);
+                messages.push({
+                    role: 'tool',
+                    content: JSON.stringify(toolResults),
+                    tool_call_id: toolCalls[0].id
+                });
+
+                // Get final response
+                const finalCompletion = await this.createChatCompletion({
+                    messages,
+                    temperature: 0.7,
+                });
+
+                tokenCount += finalCompletion.usage?.total_tokens || 0;
+
+                const messageContent = finalCompletion.choices[0].message.content;
+                return {
+                    content: typeof messageContent === 'string' ? messageContent : '',
+                    toolResults,
+                    tokenCount
+                };
+            }
+
+            const messageContent = response.message.content;
+            return {
+                content: typeof messageContent === 'string' ? messageContent : '',
+                toolResults: [],
+                tokenCount
+            };
+        } catch (error) {
+            console.error('Error in handleToolBasedCompletion:', error);
+            throw error;
+        }
+    }
+
+    protected async createChatCompletion(options: {
+        messages: ChatCompletionMessageParam[];
+        tools?: { type: 'function'; function: any }[];
+        tool_choice?: 'auto' | 'none';
+        temperature?: number;
+    }): Promise<{
+        choices: Array<{
+            message: ChatCompletionMessageParam;
+            finish_reason: string;
+        }>;
+        usage?: {
+            total_tokens: number;
+        };
+    }> {
+        // Add tools information if provided
+        let augmentedMessages = [...options.messages];
+        if (options.tools) {
+            const toolsDescription = `Available tools:\n${options.tools.map(tool => 
+                `${tool.function.name}: ${tool.function.description}\nParameters: ${JSON.stringify(tool.function.parameters, null, 2)}\n`
+            ).join('\n')}\n\n`;
+            
+            // Add tools info to system message if exists, or create new system message
+            const systemMessageIndex = augmentedMessages.findIndex(msg => msg.role === 'system');
+            if (systemMessageIndex >= 0) {
+                augmentedMessages[systemMessageIndex] = {
+                    ...augmentedMessages[systemMessageIndex],
+                    content: `${augmentedMessages[systemMessageIndex].content}\n\n${toolsDescription}`
+                };
+            } else {
+                augmentedMessages.unshift({
+                    role: 'system',
+                    content: toolsDescription
+                });
+            }
+        }
+
+        return this.makeApiCall(augmentedMessages, options.temperature || 0.7);
+    }
+
+    protected abstract makeApiCall(
+        messages: ChatCompletionMessageParam[],
+        temperature: number
+    ): Promise<{
+        choices: Array<{
+            message: ChatCompletionMessageParam;
+            finish_reason: string;
+        }>;
+        usage?: {
+            total_tokens: number;
+        };
+    }>;
 
     protected abstract processWithoutTools(
         message: string,

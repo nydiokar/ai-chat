@@ -96,7 +96,8 @@ export class DeepseekService extends BaseAIService {
 
         return {
             content: responseMessage?.content || '',
-            tokenCount: completion.usage?.total_tokens || null
+            tokenCount: completion.usage?.total_tokens || null,
+            toolResults: []
         };
     }
 
@@ -121,11 +122,23 @@ export class DeepseekService extends BaseAIService {
 
         return {
             content: completion.choices[0]?.message?.content || '',
-            tokenCount: completion.usage?.total_tokens || null
+            tokenCount: completion.usage?.total_tokens || null,
+            toolResults: []
         };
+    }
+
+    protected async makeApiCall(
+        messages: ChatCompletionMessageParam[],
+        temperature: number
+    ) {
+        return this.client.chat.completions.create({
+            model: this.modelName,
+            messages,
+            temperature
+        });
     }
 
     getModel(): 'gpt' | 'claude' | 'deepseek' {
         return 'deepseek';
     }
-} 
+}
