@@ -7,28 +7,15 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-enum Role {
-  user
-  assistant
-  system
-}
-
-enum Model {
-  gpt
-  claude
-  deepseek
-}
-
-// Existing models
 model Message {
   id              Int          @id @default(autoincrement())
   content         String
-  role            Role
+  role            String
   createdAt       DateTime     @default(now())
   conversationId  Int
-  tokenCount      Int? // Track token usage
-  discordUserId   String? // Discord user ID
-  discordUsername String? // Discord username
+  tokenCount      Int?
+  discordUserId   String?
+  discordUsername String?
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
@@ -36,17 +23,18 @@ model Message {
 }
 
 model Conversation {
-  id               Int            @id @default(autoincrement())
-  model            Model
-  title            String? // Optional conversation title
-  summary          String? // Optional conversation summary
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  tokenCount       Int            @default(0) // Track total tokens
-  discordGuildId   String? // Discord server ID
-  discordChannelId String? // Discord channel ID
+  id               Int       @id @default(autoincrement())
+  model            String
+  title            String?
+  summary          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  tokenCount       Int       @default(0)
+  discordChannelId String?
+  discordGuildId   String?
   messages         Message[]
-  session          Session? // Link to active session
+  session          Session?
+  tasks            Task[]
 
   @@index([createdAt])
   @@index([discordGuildId, discordChannelId])
@@ -55,69 +43,125 @@ model Conversation {
 model Session {
   id             Int          @id @default(autoincrement())
   conversationId Int          @unique
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  discordUserId  String // Discord user ID who started the session
+  discordUserId  String
   createdAt      DateTime     @default(now())
   lastActivity   DateTime     @default(now())
   isActive       Boolean      @default(true)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([discordUserId])
   @@index([lastActivity])
 }
 
-// MCP-related models
 model MCPServer {
-  id        String         @id
+  id        String    @id
   name      String
   version   String
-  status    String        // INITIALIZING, RUNNING, STOPPED, ERROR
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  tools     MCPTool[]     // Relation to tools
+  status    String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tools     MCPTool[]
 }
 
 model MCPTool {
-  id          String           @id
-  serverId    String          // Reference to MCPServer
+  id          String          @id
+  serverId    String
   name        String
   description String
   isEnabled   Boolean         @default(true)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   server      MCPServer       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  context     MCPToolContext?
   usage       MCPToolUsage[]
-  context     MCPToolContext? // Link to tool context
 
   @@unique([serverId, name])
   @@index([serverId])
 }
 
 model MCPToolContext {
-  id              Int      @id @default(autoincrement())
-  toolId          String   @unique
-  tool            MCPTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
-  contextData     Json     // Stores tool-specific context data
-  lastRefreshed   DateTime @default(now())
-  refreshCount    Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            Int      @id @default(autoincrement())
+  toolId        String   @unique
+  contextData   Json
+  lastRefreshed DateTime @default(now())
+  refreshCount  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tool          MCPTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
 
   @@index([toolId])
 }
 
 model MCPToolUsage {
-  id             Int           @id @default(autoincrement())
-  toolId         String        // Tool name
-  mcpTool        MCPTool      @relation(fields: [toolId], references: [id])
+  id             Int      @id @default(autoincrement())
+  toolId         String
   conversationId Int
-  input          Json?         // Tool input arguments
-  output         String?       // Tool output
-  error          String?       // Error message if failed
-  duration       Int           // Duration in milliseconds
-  status         String        // 'success' or 'error'
-  createdAt      DateTime      @default(now())
+  input          Json?
+  output         String?
+  error          String?
+  duration       Int
+  status         String
+  createdAt      DateTime @default(now())
+  mcpTool        MCPTool  @relation(fields: [toolId], references: [id])
 
   @@index([toolId])
   @@index([conversationId])
   @@index([createdAt])
+}
+
+model User {
+  id            String   @id
+  username      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  isActive      Boolean  @default(true)
+  preferences   Json?
+  assignedTasks Task[]   @relation("TaskAssignee")
+  tasks         Task[]
+
+  @@index([username])
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id             Int           @id @default(autoincrement())
+  title          String
+  description    String
+  status         TaskStatus    @default(OPEN)
+  priority       TaskPriority  @default(MEDIUM)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  dueDate        DateTime?
+  completedAt    DateTime?
+  creatorId      String
+  assigneeId     String?
+  conversationId Int?
+  tags           Json
+  metadata       Json?
+  parentTaskId   Int?
+  parentTask     Task?         @relation("SubTasks", fields: [parentTaskId], references: [id])
+  subTasks       Task[]        @relation("SubTasks")
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  assignee       User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator        User          @relation(fields: [creatorId], references: [id])
+
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([conversationId])
 }

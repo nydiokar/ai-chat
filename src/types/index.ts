@@ -121,3 +121,37 @@ export interface MCPTool {
 export interface ToolCallResult {
   content: Array<{ text: string }>;
 }
+
+export * from './task.js';
+export * from './errors.js';
+
+// Message type used in conversations
+export interface Message {
+  id: number;
+  content: string;
+  role: "user" | "system" | "assistant";
+  conversationId: number;
+  createdAt: Date;
+  tokenCount?: number | null;
+  discordUserId?: string | null;
+  discordUsername?: string | null;
+}
+
+// Discord-specific context
+export interface DiscordMessageContext {
+  guildId: string;
+  channelId: string;
+  userId: string;
+  username: string;
+}
+
+// Base configuration interface
+export interface BaseConfig {
+  maxContextMessages: number;
+  maxMessageLength: number;
+  debug: boolean;
+  maxRetries: number;
+  retryDelay: number;
+  timeout: number;
+  rateLimit: number;
+}

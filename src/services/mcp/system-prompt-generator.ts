@@ -43,11 +43,8 @@ export class SystemPromptGenerator {
     async generatePrompt(additionalContext: string = ""): Promise<string> {
         const allTools: MCPTool[] = [];
         
-        // Wait for tools to be initialized
         await new Promise(resolve => setTimeout(resolve, 1000));
-
         const serverIds = this.mcpManager.getServerIds();
-        console.log(`[SystemPromptGenerator] Found servers:`, serverIds);
         
         for (const serverId of serverIds) {
             try {
@@ -56,17 +53,14 @@ export class SystemPromptGenerator {
                     const serverTools = await server.listTools();
                     if (serverTools && serverTools.length > 0) {
                         allTools.push(...serverTools);
-                        console.log(`[SystemPromptGenerator] Found ${serverTools.length} tools for server ${serverId}:`, 
-                            serverTools.map(t => t.name));
                     }
                 }
             } catch (error) {
-                console.error(`[SystemPromptGenerator] Error getting tools for server ${serverId}:`, error);
+                console.error(`Error getting tools for server ${serverId}:`, error);
             }
         }
 
         if (allTools.length === 0) {
-            console.warn('[SystemPromptGenerator] No tools found from any server');
             return `${this.defaultSystemPrompt}\n\nNo tools are currently available.`;
         }
 

@@ -78,7 +78,7 @@ program
             while (retries < defaultConfig.maxRetries && !response) {
               try {
                 debug(`Attempt ${retries + 1} to get AI response`);
-                const result = await service.generateResponse(input, conversation.messages);
+                const result = await service.generateResponse(input, conversation.messages.map(validateMessage));
                 response = result.content;
                 
                 // First save
@@ -155,7 +155,7 @@ program
       console.log('Created at:', conversation.createdAt);
       console.log('\nMessages:\n');
       
-      conversation.messages.forEach((msg: Message) => {
+      conversation.messages.map(validateMessage).forEach((msg: Message) => {
         const role = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
         console.log(`${role}: ${msg.content}\n`);
       });
@@ -200,7 +200,7 @@ program
       console.log(`\nContinuing conversation ${id} (${conversation.model})`);
       console.log('Previous messages:\n');
       
-      conversation.messages.forEach((msg: Message) => {
+      conversation.messages.map(validateMessage).forEach((msg: Message) => {
         const role = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
         console.log(`${role}: ${msg.content}\n`);
       });
@@ -243,7 +243,7 @@ program
             while (retries < defaultConfig.maxRetries && !response) {
               try {
                 debug(`Attempt ${retries + 1} to get AI response`);
-                const result = await service.generateResponse(input, updatedConversation.messages);
+                const result = await service.generateResponse(input, updatedConversation.messages.map(validateMessage));
                 response = result.content;
                 await db.addMessage(conversation.id, result.content, 'assistant', result.tokenCount ?? undefined);
               } catch (error: any) {
@@ -475,24 +475,24 @@ program
           }
 
           try {
-            messages.push({
+            messages.push(validateMessage({
               role: 'user',
               content: input,
               conversationId,
               createdAt: new Date(),
               id: 0
-            });
+            }));
 
-            const response = await aiService.generateResponse(input, messages);
+            const response = await aiService.generateResponse(input, messages.map(validateMessage));
             console.log(`\nAssistant: ${response.content}\n`);
 
-            messages.push({
+            messages.push(validateMessage({
               role: 'assistant',
               content: response.content,
               conversationId,
               createdAt: new Date(),
               id: 0
-            });
+            }));
           } catch (error: any) {
             console.error('Error:', error.message);
           }
@@ -521,3 +521,13 @@ process.on('SIGTERM', async () => {
 });
 
 program.parse();
+
+function validateMessage(msg: any): Message {
+  if (msg.role !== 'user' && msg.role !== 'assistant' && msg.role !== 'system') {
+    throw new Error(`Invalid message role: ${msg.role}`);
+  }
+  return {
+    ...msg,
+    role: msg.role as "user" | "assistant" | "system"
+  };
+}

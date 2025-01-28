@@ -39,12 +39,142 @@ export class DiscordService {
     return DiscordService.instance;
   }
 
+  private async handleTaskCommand(message: DiscordMessage, args: string[]) {
+    if (!args.length) {
+      await this.sendMessage(message.channel as TextChannel, 
+        "```\nTask Commands:\n!task create <title> | <description> - Create new task\n!task list - List your tasks\n!task view <id> - View task details\n!task update <id> <status> - Update task status\n!task assign <id> @user - Assign task to user\n!task delete <id> - Delete task```",
+        message
+      );
+      return;
+    }
+
+    const subCommand = args[0].toLowerCase();
+    const TaskManager = (await import('../tasks/task-manager.js')).TaskManager;
+    const taskManager = TaskManager.getInstance();
+
+    try {
+      switch (subCommand) {
+        case 'create': {
+          const taskData = args.slice(1).join(' ').split('|');
+          if (taskData.length < 2) {
+            throw new Error('Invalid format. Use: !task create <title> | <description>');
+          }
+          const task = await taskManager.createTask({
+            title: taskData[0].trim(),
+            description: taskData[1].trim(),
+            creatorId: message.author.id,
+            tags: [],
+          });
+          await this.sendMessage(message.channel as TextChannel, 
+            `✅ Task #${task.id} created: ${task.title}`, 
+            message
+          );
+          break;
+        }
+        
+        case 'list': {
+          const tasks = await taskManager.getUserTasks(message.author.id);
+          let response = '```\nYour Tasks:\n\n';
+          if (tasks.created.length === 0 && tasks.assigned.length === 0) {
+            response += 'No tasks found.\n';
+          } else {
+            if (tasks.created.length > 0) {
+              response += 'Created by you:\n';
+              tasks.created.forEach(task => {
+                response += `#${task.id} [${task.status}] ${task.title}\n`;
+              });
+            }
+            if (tasks.assigned.length > 0) {
+              response += '\nAssigned to you:\n';
+              tasks.assigned.forEach(task => {
+                response += `#${task.id} [${task.status}] ${task.title}\n`;
+              });
+            }
+          }
+          response += '```';
+          await this.sendMessage(message.channel as TextChannel, response, message);
+          break;
+        }
+
+        case 'view': {
+          const taskId = parseInt(args[1]);
+          if (isNaN(taskId)) {
+            throw new Error('Invalid task ID');
+          }
+          const task = await taskManager.getTaskDetails(taskId);
+          const response = `Task #${task.id}\nTitle: ${task.title}\nStatus: ${task.status}\nDescription: ${task.description}\nCreated by: <@${task.creatorId}>\nAssigned to: ${task.assigneeId ? `<@${task.assigneeId}>` : 'Unassigned'}`;
+          await this.sendMessage(message.channel as TextChannel, response, message);
+          break;
+        }
+
+        case 'update': {
+          const taskId = parseInt(args[1]);
+          const status = args[2]?.toUpperCase() as any;
+          if (isNaN(taskId) || !status) {
+            throw new Error('Invalid task ID or status');
+          }
+          await taskManager.updateTaskStatus(taskId, status, message.author.id);
+          await this.sendMessage(message.channel as TextChannel, 
+            `✅ Task #${taskId} status updated to ${status}`, 
+            message
+          );
+          break;
+        }
+
+        case 'assign': {
+          const taskId = parseInt(args[1]);
+          const mentionedUser = message.mentions.users.first();
+          if (isNaN(taskId) || !mentionedUser) {
+            throw new Error('Invalid task ID or user mention');
+          }
+          await taskManager.assignTask(taskId, mentionedUser.id, message.author.id);
+          await this.sendMessage(message.channel as TextChannel, 
+            `✅ Task #${taskId} assigned to <@${mentionedUser.id}>`, 
+            message
+          );
+          break;
+        }
+
+        case 'delete': {
+          const taskId = parseInt(args[1]);
+          if (isNaN(taskId)) {
+            throw new Error('Invalid task ID');
+          }
+          await taskManager.deleteTask(taskId, message.author.id);
+          await this.sendMessage(message.channel as TextChannel, 
+            `✅ Task #${taskId} deleted`, 
+            message
+          );
+          break;
+        }
+
+        default:
+          await this.sendMessage(message.channel as TextChannel, 
+            '❌ Unknown task command. Use !task for help.', 
+            message
+          );
+      }
+    } catch (error) {
+      await this.sendMessage(message.channel as TextChannel, 
+        `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 
+        message
+      );
+    }
+  }
+
   private setupEventHandlers() {
     this.client.on(Events.ClientReady, () => {
       debug(`Logged in as ${this.client.user?.tag}`);
     });
 
     this.client.on(Events.MessageCreate, async (message: DiscordMessage) => {
+      // Handle task commands
+      if (message.content.startsWith('!task')) {
+        const args = message.content.slice(6).trim().split(/ +/);
+        await this.handleTaskCommand(message, args);
+        return;
+      }
+
       try {
         // Ignore messages from bots and messages that don't mention the bot
         if (message.author.bot || !message.mentions.has(this.client.user!)) {
@@ -97,7 +227,10 @@ export class DiscordService {
         }
 
         // Generate AI response
-        const result = await service.generateResponse(content, conversation.messages);
+        const result = await service.generateResponse(content, conversation.messages.map(msg => ({
+            ...msg,
+            role: msg.role as "user" | "system" | "assistant"
+        })));
 
         // Add AI response to conversation
         await this.db.addMessage(

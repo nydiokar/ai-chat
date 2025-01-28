@@ -26,23 +26,11 @@ export class MCPServerManager extends EventEmitter {
 
   constructor(private db: DatabaseService, private aiService: AIService) {
     super();
-    console.log("[MCPServerManager] Constructor started");
     this.config = getMCPConfig();
-    console.log(
-        "[MCPServerManager] Server configurations:",
-        Object.keys(this.config.mcpServers).map(id => ({
-            id,
-            command: this.config.mcpServers[id].command,
-            args: this.config.mcpServers[id].args
-        }))
-    );
-
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     this.basePath = join(__dirname, "..", "..", "..");
-
     this._startHealthCheck();
-    console.log("[MCPServerManager] Constructor completed");
   }
 
   /**
@@ -78,36 +66,18 @@ export class MCPServerManager extends EventEmitter {
    */
   async startServer(serverId: string, config: MCPServerConfig): Promise<void> {
     try {
-        console.log(
-            `[MCPServerManager] Starting server: ${serverId} with full config:`,
-            JSON.stringify({
-                ...config,
-                env: Object.keys(config.env || {}) // Only log keys, not values
-            }, null, 2)
-        );
+      if (this.hasServer(serverId)) {
+        return;
+      }
 
-        if (this.hasServer(serverId)) {
-            console.log(`[MCPServerManager] Server ${serverId} is already running`);
-            return;
-        }
+      const client = new MCPClientService(config);
+      client.initialize();
+      await client.connect();
 
-        const client = new MCPClientService(config);
-        console.log(`[MCPServerManager] Created MCPClientService for ${serverId}`);
-        
-        client.initialize();
-        console.log(`[MCPServerManager] Initialized MCPClientService for ${serverId}`);
-        
-        await client.connect();
-
-        const tools = await client.listTools();
-        console.log(
-          `[MCPServerManager] Server ${serverId} started with ${tools.length} tools`
-        );
-
-        await this._syncToolsWithDB(serverId, tools);
-        this._servers.set(serverId, client);
-
-        await this._updateServerStatusInDB(serverId, "RUNNING");
+      const tools = await client.listTools();
+      await this._syncToolsWithDB(serverId, tools);
+      this._servers.set(serverId, client);
+      await this._updateServerStatusInDB(serverId, "RUNNING");
     } catch (error) {
       this._servers.delete(serverId);
       throw new MCPError(
@@ -136,8 +106,6 @@ export class MCPServerManager extends EventEmitter {
    */
   async reloadServer(serverId: string): Promise<void> {
     try {
-      console.log(`[MCPServerManager] Reloading server: ${serverId}`);
-
       if (this.hasServer(serverId)) {
         await this.stopServer(serverId);
       }
@@ -148,9 +116,7 @@ export class MCPServerManager extends EventEmitter {
       }
 
       await this.startServer(serverId, config);
-      console.log(`[MCPServerManager] Server ${serverId} reloaded successfully`);
     } catch (error) {
-      console.error(`[MCPServerManager] Failed to reload server ${serverId}:`, error);
       throw new MCPError(
         ErrorType.SERVER_RELOAD_FAILED,
         `Failed to reload server ${serverId}`,
@@ -170,7 +136,6 @@ export class MCPServerManager extends EventEmitter {
       );
     }
     await this._setToolEnabledState(serverId, toolName, true);
-    console.log(`[MCPServerManager] Enabled tool ${toolName} on server ${serverId}`);
   }
 
   /**
@@ -184,7 +149,6 @@ export class MCPServerManager extends EventEmitter {
       );
     }
     await this._setToolEnabledState(serverId, toolName, false);
-    console.log(`[MCPServerManager] Disabled tool ${toolName} on server ${serverId}`);
   }
 
   /**
@@ -232,9 +196,6 @@ export class MCPServerManager extends EventEmitter {
     const handler = this._getToolsHandler(serverId, server);
     try {
       await handler.refreshToolContext(toolName, tool as any & { usage: MCPToolUsage[] });
-      console.log(
-        `[MCPServerManager] Refreshed context for tool ${toolName} on server ${serverId}`
-      );
     } catch (error) {
       throw new MCPError(
         ErrorType.TOOL_CONTEXT_REFRESH_FAILED,
@@ -253,24 +214,13 @@ export class MCPServerManager extends EventEmitter {
         try {
           await server.listTools();
         } catch (error) {
-          console.error(
-            `[MCPServerManager] Server ${serverId} health check failed:`,
-            error
-          );
           try {
-            console.log(
-              `[MCPServerManager] Attempting to restart server ${serverId}`
-            );
             await this.stopServer(serverId);
             const config = this.config.mcpServers[serverId];
             if (config) {
               await this.startServer(serverId, config);
             }
           } catch (restartError) {
-            console.error(
-              `[MCPServerManager] Failed to restart server ${serverId}:`,
-              restartError
-            );
           }
         }
       }
@@ -286,49 +236,46 @@ export class MCPServerManager extends EventEmitter {
     tools: { name: string; description: string }[]
   ): Promise<void> {
     try {
-        // First, ensure the MCPServer record exists
-        await this.db.executePrismaOperation(async (prisma) => {
-            await prisma.mCPServer.upsert({
-                where: { id: serverId },
-                create: {
-                    id: serverId,
-                    name: serverId, // or get this from config
-                    version: "1.0.0", // or get from actual server version
-                    status: "RUNNING"
-                },
-                update: {
-                    status: "RUNNING",
-                    updatedAt: new Date()
-                }
-            });
+      await this.db.executePrismaOperation(async (prisma) => {
+        await prisma.mCPServer.upsert({
+          where: { id: serverId },
+          create: {
+            id: serverId,
+            name: serverId, // or get this from config
+            version: "1.0.0", // or get from actual server version
+            status: "RUNNING"
+          },
+          update: {
+            status: "RUNNING",
+            updatedAt: new Date()
+          }
         });
+      });
 
-        // Now sync the tools
-        await this.db.executePrismaOperation(async (prisma) => {
-            for (const tool of tools) {
-                await prisma.mCPTool.upsert({
-                    where: {
-                        serverId_name: {
-                            serverId: serverId,
-                            name: tool.name
-                        }
-                    },
-                    create: {
-                        id: `${serverId}:${tool.name}`,
-                        serverId: serverId,
-                        name: tool.name,
-                        description: tool.description
-                    },
-                    update: {
-                        description: tool.description,
-                        updatedAt: new Date()
-                    }
-                });
+      await this.db.executePrismaOperation(async (prisma) => {
+        for (const tool of tools) {
+          await prisma.mCPTool.upsert({
+            where: {
+              serverId_name: {
+                serverId: serverId,
+                name: tool.name
+              }
+            },
+            create: {
+              id: `${serverId}:${tool.name}`,
+              serverId: serverId,
+              name: tool.name,
+              description: tool.description
+            },
+            update: {
+              description: tool.description,
+              updatedAt: new Date()
             }
-        });
+          });
+        }
+      });
     } catch (error) {
-        console.error("Error syncing tools with DB:", error);
-        throw error;
+      throw error;
     }
   }
 
@@ -350,11 +297,6 @@ export class MCPServerManager extends EventEmitter {
         });
       });
     } catch (dbError) {
-      console.warn(
-        `Database update failed for server ${serverId}, status: ${status}`,
-        dbError
-      );
-      // We don't throw here; it's not fatal if the DB update fails
     }
   }
 
