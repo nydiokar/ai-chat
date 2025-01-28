@@ -1,33 +1,48 @@
-import { PrismaClient, Prisma, TaskStatus as PrismaTaskStatus, TaskPriority as PrismaTaskPriority } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { DatabaseError } from '../services/db-service.js';
 import { debug } from '../config.js';
 import { 
   Task as TaskType, 
   CreateTaskDTO, 
   UpdateTaskDTO,
-  TaskStatus as TaskStatusType,
-  TaskPriority as TaskPriorityType,
+  TaskStatus,
+  TaskPriority,
   User,
   TaskWithRelations,
-  TaskFilters
+  TaskFilters,
+  TaskHistoryEntry
 } from '../types/task.js';
 
-type PrismaTask = Prisma.TaskGetPayload<{
-  include: {
-    creator: true;
-    assignee: true;
-    subTasks: true;
-    parentTask: true;
-  }
-}>;
+const PrismaTaskStatus = TaskStatus;
+const PrismaTaskPriority = TaskPriority;
 
-function mapPrismaTaskToTask(prismaTask: PrismaTask): TaskWithRelations {
-  const task = {
-    ...prismaTask,
-    status: prismaTask.status as unknown as TaskStatusType,
-    priority: prismaTask.priority as unknown as TaskPriorityType,
+type TaskInclude = Prisma.TaskInclude & {
+  history?: {
+    include: {
+      user: true;
+    }
+  };
+};
+
+const defaultTaskInclude: TaskInclude = {
+  creator: true,
+  assignee: true,
+  subTasks: true,
+  parentTask: true
+};
+
+function mapPrismaTaskToTask(prismaTask: any): TaskWithRelations {
+  return {
+    id: prismaTask.id,
+    title: prismaTask.title,
+    description: prismaTask.description,
+    status: prismaTask.status as TaskStatus,
+    priority: prismaTask.priority as TaskPriority,
+    createdAt: prismaTask.createdAt,
+    updatedAt: prismaTask.updatedAt,
     dueDate: prismaTask.dueDate ?? undefined,
     completedAt: prismaTask.completedAt ?? undefined,
+    creatorId: prismaTask.creatorId,
     assigneeId: prismaTask.assigneeId ?? undefined,
     conversationId: prismaTask.conversationId ?? undefined,
     tags: JSON.parse(prismaTask.tags as string),
@@ -44,10 +59,24 @@ function mapPrismaTaskToTask(prismaTask: PrismaTask): TaskWithRelations {
       preferences: prismaTask.assignee.preferences
         ? JSON.parse(prismaTask.assignee.preferences as string)
         : undefined
-    } : undefined
+    } : undefined,
+    subTasks: prismaTask.subTasks.map((subTask: any) => ({
+      ...subTask,
+      tags: JSON.parse(subTask.tags as string),
+      metadata: subTask.metadata ? JSON.parse(subTask.metadata as string) : undefined
+    })),
+    parentTask: prismaTask.parentTask ? {
+      ...prismaTask.parentTask,
+      tags: JSON.parse(prismaTask.parentTask.tags as string),
+      metadata: prismaTask.parentTask.metadata ? JSON.parse(prismaTask.parentTask.metadata as string) : undefined
+    } : undefined,
+    history: prismaTask.history?.map((entry: any) => ({
+      ...entry,
+      oldValue: entry.oldValue ?? undefined,
+      newValue: entry.newValue ?? undefined,
+      note: entry.note ?? undefined
+    })) ?? []
   };
-
-  return task as unknown as TaskWithRelations;
 }
 
 export class TaskRepository {
@@ -102,6 +131,27 @@ export class TaskRepository {
     throw new DatabaseError(`Task ${operation} failed: ${errorMessage}`, error as Error);
   }
 
+  async addTaskHistory(data: TaskHistoryEntry): Promise<void> {
+    try {
+      await this.validateUser(data.userId);
+      debug(`Adding history entry for task ${data.taskId}`);
+
+      const prisma = this.prisma as any;
+      await prisma.taskHistory.create({
+        data: {
+          taskId: data.taskId,
+          userId: data.userId,
+          action: data.action,
+          oldValue: data.oldValue,
+          newValue: data.newValue,
+          note: data.note
+        }
+      });
+    } catch (error) {
+      throw this.handlePrismaError(error, 'history creation');
+    }
+  }
+
   async createTask(data: CreateTaskDTO): Promise<TaskWithRelations> {
     try {
       this.validateTaskInput(data);
@@ -125,12 +175,7 @@ export class TaskRepository {
           metadata: JSON.stringify(data.metadata || {}),
           parentTaskId: data.parentTaskId
         },
-        include: {
-          creator: true,
-          assignee: true,
-          subTasks: true,
-          parentTask: true
-        }
+        include: defaultTaskInclude
       });
 
       return mapPrismaTaskToTask(task);
@@ -144,12 +189,7 @@ export class TaskRepository {
       debug(`Retrieving task ${id}`);
       const task = await this.prisma.task.findUnique({
         where: { id },
-        include: {
-          creator: true,
-          assignee: true,
-          subTasks: true,
-          parentTask: true
-        }
+        include: defaultTaskInclude
       });
 
       if (!task) {
@@ -171,28 +211,26 @@ export class TaskRepository {
       }
 
       debug(`Updating task ${id}`);
-      const updateData = {
-        title: data.title,
-        description: data.description,
-        status: data.status as PrismaTaskStatus,
-        priority: data.priority as PrismaTaskPriority,
-        dueDate: data.dueDate,
-        assignee: data.assigneeId ? { connect: { id: data.assigneeId } } : undefined,
-        tags: data.tags ? JSON.stringify(data.tags) : undefined,
-        metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
-        updatedAt: new Date(),
-        completedAt: data.status === PrismaTaskStatus.COMPLETED ? new Date() : undefined
+      const updateData: any = {
+        ...(data.title && { title: data.title }),
+        ...(data.description && { description: data.description }),
+        ...(data.status && { status: data.status }),
+        ...(data.priority && { priority: data.priority }),
+        ...(data.dueDate && { dueDate: data.dueDate }),
+        ...(data.assigneeId && { assigneeId: data.assigneeId }),
+        ...(data.tags && { tags: JSON.stringify(data.tags) }),
+        ...(data.metadata && { metadata: JSON.stringify(data.metadata) }),
+        updatedAt: new Date()
       };
+
+      if (data.status === TaskStatus.COMPLETED) {
+        updateData.completedAt = new Date();
+      }
 
       const updatedTask = await this.prisma.task.update({
         where: { id },
         data: updateData,
-        include: {
-          creator: true,
-          assignee: true,
-          subTasks: true,
-          parentTask: true
-        }
+        include: defaultTaskInclude
       });
 
       return mapPrismaTaskToTask(updatedTask);
@@ -223,12 +261,7 @@ export class TaskRepository {
             ...(options.status && { status: options.status }),
             ...(options.priority && { priority: options.priority })
           },
-          include: {
-            creator: true,
-            assignee: true,
-            subTasks: true,
-            parentTask: true
-          },
+          include: defaultTaskInclude,
           take: options.limit ?? 10,
           skip: options.offset ?? 0,
           orderBy: {
@@ -262,22 +295,12 @@ export class TaskRepository {
       const [created, assigned] = await Promise.all([
         this.prisma.task.findMany({
           where: { creatorId: userId },
-          include: {
-            creator: true,
-            assignee: true,
-            subTasks: true,
-            parentTask: true
-          },
+          include: defaultTaskInclude,
           orderBy: { updatedAt: 'desc' }
         }),
         this.prisma.task.findMany({
           where: { assigneeId: userId },
-          include: {
-            creator: true,
-            assignee: true,
-            subTasks: true,
-            parentTask: true
-          },
+          include: defaultTaskInclude,
           orderBy: { updatedAt: 'desc' }
         })
       ]);

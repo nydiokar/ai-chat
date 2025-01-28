@@ -15,6 +15,15 @@ export enum TaskPriority {
   URGENT = 'URGENT'
 }
 
+export enum TaskHistoryAction {
+  CREATED = 'CREATED',
+  STATUS_CHANGED = 'STATUS_CHANGED',
+  ASSIGNED = 'ASSIGNED',
+  UNASSIGNED = 'UNASSIGNED',
+  UPDATED = 'UPDATED',
+  DELETED = 'DELETED'
+}
+
 export interface User {
   id: string;
   username: string;
@@ -22,6 +31,27 @@ export interface User {
   updatedAt: Date;
   isActive: boolean;
   preferences?: Record<string, any>;
+}
+
+export interface TaskHistory {
+  id: number;
+  taskId: number;
+  userId: string;
+  action: TaskHistoryAction;
+  oldValue?: string;
+  newValue?: string;
+  note?: string;
+  createdAt: Date;
+  user: User;
+}
+
+export interface TaskHistoryEntry {
+  taskId: number;
+  userId: string;
+  action: TaskHistoryAction;
+  oldValue?: string;
+  newValue?: string;
+  note?: string;
 }
 
 export interface Task {
@@ -47,6 +77,7 @@ export interface TaskWithRelations extends Task {
   assignee?: User;
   subTasks: Task[];
   parentTask?: Task;
+  history: TaskHistory[];
 }
 
 export interface CreateTaskDTO {

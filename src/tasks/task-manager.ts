@@ -8,7 +8,9 @@ import {
   TaskStatus,
   TaskFilters,
   TaskListResult,
-  UserTasks
+  UserTasks,
+  TaskHistoryAction,
+  TaskHistoryEntry
 } from '../types/task.js';
 
 export class TaskManagerError extends Error {
@@ -50,7 +52,22 @@ export class TaskManager {
   async createTask(taskData: CreateTaskDTO): Promise<TaskWithRelations> {
     try {
       debug('Creating task through TaskManager');
-      return await this.taskRepository.createTask(taskData);
+      const task = await this.taskRepository.createTask(taskData);
+      
+      // Add creation history
+      await this.taskRepository.addTaskHistory({
+        taskId: task.id,
+        userId: taskData.creatorId,
+        action: TaskHistoryAction.CREATED,
+        newValue: JSON.stringify({
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          priority: task.priority
+        })
+      });
+
+      return task;
     } catch (error) {
       throw new TaskManagerError('Failed to create task', error as Error);
     }
@@ -84,6 +101,15 @@ export class TaskManager {
         status,
       };
 
+      // Add status change history
+      await this.taskRepository.addTaskHistory({
+        taskId,
+        userId,
+        action: TaskHistoryAction.STATUS_CHANGED,
+        oldValue: task.status,
+        newValue: status
+      });
+
       return await this.taskRepository.updateTask(taskId, updateData);
     } catch (error) {
       throw new TaskManagerError(`Failed to update task status: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
@@ -103,6 +129,16 @@ export class TaskManager {
       if (task.creatorId !== userId) {
         throw new TaskManagerError('Only task creator can assign tasks');
       }
+
+      // Add assignment history
+      const action = assigneeId ? TaskHistoryAction.ASSIGNED : TaskHistoryAction.UNASSIGNED;
+      await this.taskRepository.addTaskHistory({
+        taskId,
+        userId,
+        action,
+        oldValue: task.assigneeId || 'unassigned',
+        newValue: assigneeId || 'unassigned'
+      });
 
       return await this.taskRepository.updateTask(taskId, { assigneeId });
     } catch (error) {
@@ -156,6 +192,18 @@ export class TaskManager {
       if (task.creatorId !== userId) {
         throw new UnauthorizedTaskActionError();
       }
+
+      // Add deletion history
+      await this.taskRepository.addTaskHistory({
+        taskId,
+        userId,
+        action: TaskHistoryAction.DELETED,
+        oldValue: JSON.stringify({
+          title: task.title,
+          status: task.status,
+          assignee: task.assigneeId
+        })
+      });
 
       await this.taskRepository.deleteTask(taskId);
     } catch (error) {

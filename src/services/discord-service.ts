@@ -3,6 +3,9 @@ import { DatabaseService } from './db-service.js';
 import { AIModel, DiscordMessageContext } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
+import { TaskManager } from '../tasks/task-manager.js';
+import { CommandParserService, CommandParserError } from './command-parser-service.js';
+import { TaskStatus } from '../types/task.js';
 
 import { debug } from '../config.js';
 import { MCPError } from '../types/errors.js';
@@ -13,6 +16,9 @@ export class DiscordService {
   private static instance: DiscordService;
   private readonly defaultModel: AIModel = 'gpt';
   private aiServices: Map<string, AIService> = new Map();
+  private readonly maxContextMessages = 10;
+  private readonly contextRefreshInterval = 30 * 60 * 1000;
+  private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
 
   private constructor() {
     this.client = new Client({
@@ -39,29 +45,15 @@ export class DiscordService {
     return DiscordService.instance;
   }
 
-  private async handleTaskCommand(message: DiscordMessage, args: string[]) {
-    if (!args.length) {
-      await this.sendMessage(message.channel as TextChannel, 
-        "```\nTask Commands:\n!task create <title> | <description> - Create new task\n!task list - List your tasks\n!task view <id> - View task details\n!task update <id> <status> - Update task status\n!task assign <id> @user - Assign task to user\n!task delete <id> - Delete task```",
-        message
-      );
-      return;
-    }
-
-    const subCommand = args[0].toLowerCase();
-    const TaskManager = (await import('../tasks/task-manager.js')).TaskManager;
+  private async handleTaskCommand(message: DiscordMessage, command: { action: string; parameters: any }) {
     const taskManager = TaskManager.getInstance();
 
     try {
-      switch (subCommand) {
+      switch (command.action) {
         case 'create': {
-          const taskData = args.slice(1).join(' ').split('|');
-          if (taskData.length < 2) {
-            throw new Error('Invalid format. Use: !task create <title> | <description>');
-          }
           const task = await taskManager.createTask({
-            title: taskData[0].trim(),
-            description: taskData[1].trim(),
+            title: command.parameters.title,
+            description: command.parameters.description,
             creatorId: message.author.id,
             tags: [],
           });
@@ -97,52 +89,34 @@ export class DiscordService {
         }
 
         case 'view': {
-          const taskId = parseInt(args[1]);
-          if (isNaN(taskId)) {
-            throw new Error('Invalid task ID');
-          }
-          const task = await taskManager.getTaskDetails(taskId);
-          const response = `Task #${task.id}\nTitle: ${task.title}\nStatus: ${task.status}\nDescription: ${task.description}\nCreated by: <@${task.creatorId}>\nAssigned to: ${task.assigneeId ? `<@${task.assigneeId}>` : 'Unassigned'}`;
+          const task = await taskManager.getTaskDetails(command.parameters.id);
+          const response = this.formatTaskDetails(task);
           await this.sendMessage(message.channel as TextChannel, response, message);
           break;
         }
 
         case 'update': {
-          const taskId = parseInt(args[1]);
-          const status = args[2]?.toUpperCase() as any;
-          if (isNaN(taskId) || !status) {
-            throw new Error('Invalid task ID or status');
-          }
-          await taskManager.updateTaskStatus(taskId, status, message.author.id);
+          await taskManager.updateTaskStatus(command.parameters.id, command.parameters.status, message.author.id);
           await this.sendMessage(message.channel as TextChannel, 
-            `✅ Task #${taskId} status updated to ${status}`, 
+            `✅ Task #${command.parameters.id} status updated to ${command.parameters.status}`, 
             message
           );
           break;
         }
 
         case 'assign': {
-          const taskId = parseInt(args[1]);
-          const mentionedUser = message.mentions.users.first();
-          if (isNaN(taskId) || !mentionedUser) {
-            throw new Error('Invalid task ID or user mention');
-          }
-          await taskManager.assignTask(taskId, mentionedUser.id, message.author.id);
+          await taskManager.assignTask(command.parameters.id, command.parameters.assigneeId, message.author.id);
           await this.sendMessage(message.channel as TextChannel, 
-            `✅ Task #${taskId} assigned to <@${mentionedUser.id}>`, 
+            `✅ Task #${command.parameters.id} assigned to <@${command.parameters.assigneeId}>`, 
             message
           );
           break;
         }
 
         case 'delete': {
-          const taskId = parseInt(args[1]);
-          if (isNaN(taskId)) {
-            throw new Error('Invalid task ID');
-          }
-          await taskManager.deleteTask(taskId, message.author.id);
+          await taskManager.deleteTask(command.parameters.id, message.author.id);
           await this.sendMessage(message.channel as TextChannel, 
-            `✅ Task #${taskId} deleted`, 
+            `✅ Task #${command.parameters.id} deleted`, 
             message
           );
           break;
@@ -150,7 +124,7 @@ export class DiscordService {
 
         default:
           await this.sendMessage(message.channel as TextChannel, 
-            '❌ Unknown task command. Use !task for help.', 
+            '❌ Unknown command. Try: create, list, view, update, assign, or delete', 
             message
           );
       }
@@ -162,17 +136,63 @@ export class DiscordService {
     }
   }
 
+  private formatTaskDetails(task: any): string {
+    let response = `**Task #${task.id}**\n`;
+    response += `📌 **Title:** ${task.title}\n`;
+    response += `🔄 **Status:** ${task.status}\n`;
+    response += `📝 **Description:** ${task.description}\n`;
+    response += `👤 **Created by:** <@${task.creatorId}>\n`;
+    response += `👥 **Assigned to:** ${task.assigneeId ? `<@${task.assigneeId}>` : 'Unassigned'}\n`;
+    
+    if (task.history && task.history.length > 0) {
+      response += '\n📋 **Recent History:**\n';
+      task.history.slice(-3).forEach((entry: any) => {
+        const timestamp = new Date(entry.createdAt).toLocaleString();
+        response += `• ${timestamp}: ${this.formatHistoryEntry(entry)}\n`;
+      });
+    }
+
+    return response;
+  }
+
+  private formatHistoryEntry(entry: any): string {
+    switch (entry.action) {
+      case 'CREATED':
+        return 'Task created';
+      case 'STATUS_CHANGED':
+        return `Status changed from ${entry.oldValue} to ${entry.newValue}`;
+      case 'ASSIGNED':
+        return `Assigned to <@${entry.newValue}>`;
+      case 'UNASSIGNED':
+        return 'Unassigned';
+      default:
+        return entry.action;
+    }
+  }
+
   private setupEventHandlers() {
     this.client.on(Events.ClientReady, () => {
       debug(`Logged in as ${this.client.user?.tag}`);
     });
 
     this.client.on(Events.MessageCreate, async (message: DiscordMessage) => {
-      // Handle task commands
-      if (message.content.startsWith('!task')) {
-        const args = message.content.slice(6).trim().split(/ +/);
-        await this.handleTaskCommand(message, args);
-        return;
+      // Handle natural language task commands
+      if (!message.author.bot && 
+          (message.content.toLowerCase().includes('task') || 
+           message.content.startsWith('!'))) {
+        try {
+          const command = CommandParserService.getInstance().parse(message.content);
+          if (command.command === 'task') {
+            await this.handleTaskCommand(message, command);
+            return;
+          }
+        } catch (error) {
+          if (error instanceof CommandParserError) {
+            await this.sendMessage(message.channel as TextChannel, error.message, message);
+            return;
+          }
+          // If not a command parser error, continue to AI handling
+        }
       }
 
       try {
@@ -188,37 +208,34 @@ export class DiscordService {
           username: message.author.username,
         };
 
-        // Get or create session
+        // Handle AI conversation logic...
         let session = await this.db.getActiveSession(discordContext.userId, discordContext.channelId);
         let conversationId: number;
+        let isNewSession = false;
 
         if (!session) {
-          // Create new conversation and session
+          isNewSession = true;
           conversationId = await this.db.createConversation(
             this.defaultModel,
-            undefined,
-            undefined,
+            'New Conversation',
+            'Starting a new conversation',
             discordContext
           );
         } else {
           conversationId = session.conversationId;
+          const contextKey = `${discordContext.guildId}-${discordContext.channelId}-${discordContext.userId}`;
+          if (!this.contextSummaryTasks.has(contextKey)) {
+            const task = setTimeout(() => this.summarizeAndRefreshContext(conversationId), this.contextRefreshInterval);
+            this.contextSummaryTasks.set(contextKey, task);
+          }
         }
 
-        // Remove bot mention from message
         const content = message.content.replace(/<@!\d+>/g, '').trim();
+        await this.db.addMessage(conversationId, content, 'user', undefined, discordContext);
 
-        // Add user message to conversation
-        await this.db.addMessage(
-          conversationId,
-          content,
-          'user',
-          undefined,
-          discordContext
-        );
-
-        // Get or create AI service based on model
         const conversation = await this.db.getConversation(conversationId);
         const serviceKey = `${conversation.model}-${discordContext.channelId}`;
+        const contextMessages = this.prepareContextMessages(conversation.messages, isNewSession);
         
         let service = this.aiServices.get(serviceKey);
         if (!service) {
@@ -226,36 +243,75 @@ export class DiscordService {
           this.aiServices.set(serviceKey, service);
         }
 
-        // Generate AI response
-        const result = await service.generateResponse(content, conversation.messages.map(msg => ({
-            ...msg,
-            role: msg.role as "user" | "system" | "assistant"
+        const result = await service.generateResponse(content, contextMessages.map(msg => ({
+          ...msg,
+          role: msg.role as "user" | "system" | "assistant"
         })));
 
-        // Add AI response to conversation
-        await this.db.addMessage(
-          conversationId,
-          result.content,
-          'assistant',
-          result.tokenCount
-        );
-
-        // Send response to Discord
+        await this.db.addMessage(conversationId, result.content, 'assistant', result.tokenCount);
         await this.sendMessage(message.channel as TextChannel, result.content, message);
 
       } catch (error) {
         console.error('Error handling Discord message:', error);
         const errorMessage = error instanceof MCPError 
-            ? `Error: ${error.message}`
-            : 'Sorry, I encountered an error processing your message.';
+          ? `Error: ${error.message}`
+          : 'Sorry, I encountered an error processing your message.';
         await this.sendMessage(message.channel as TextChannel, errorMessage, message);
       }
     });
 
-    // Handle errors
     this.client.on(Events.Error, (error) => {
       console.error('Discord client error:', error);
     });
+  }
+
+  private prepareContextMessages(messages: any[], isNewSession: boolean) {
+    if (isNewSession) {
+      return [
+        {
+          role: 'system',
+          content: 'You are a helpful assistant. Maintain context of the conversation and provide relevant responses.'
+        },
+        ...messages
+      ];
+    }
+
+    const recentMessages = messages.slice(-this.maxContextMessages);
+    
+    if (messages.length > this.maxContextMessages && messages[0].conversation?.summary) {
+      return [
+        {
+          role: 'system',
+          content: `Previous context: ${messages[0].conversation.summary}\n\nYou are a helpful assistant. Maintain context of the conversation.`
+        },
+        ...recentMessages
+      ];
+    }
+
+    return recentMessages;
+  }
+
+  private async summarizeAndRefreshContext(conversationId: number) {
+    try {
+      const conversation = await this.db.getConversation(conversationId);
+      if (!conversation || conversation.messages.length <= this.maxContextMessages) return;
+
+      const service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek');
+      const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
+      const summary = await service.generateResponse(
+        "Please provide a brief summary of this conversation context that can be used to maintain continuity in future messages. Focus on key points and important details.",
+        oldMessages.map(msg => ({
+          ...msg,
+          role: msg.role as "user" | "system" | "assistant"
+        }))
+      );
+
+      await this.db.updateConversationMetadata(conversationId, {
+        summary: summary.content
+      });
+    } catch (error) {
+      console.error('Error summarizing conversation context:', error);
+    }
   }
 
   async start(token: string) {
@@ -269,13 +325,16 @@ export class DiscordService {
 
   async stop() {
     try {
-      // Cleanup all AI services
+      for (const task of this.contextSummaryTasks.values()) {
+        clearTimeout(task);
+      }
+      this.contextSummaryTasks.clear();
+
       for (const service of this.aiServices.values()) {
         await service.cleanup();
       }
       this.aiServices.clear();
 
-      // Destroy Discord client
       await this.client.destroy();
     } catch (error) {
       console.error('Error stopping Discord client:', error);
@@ -284,67 +343,61 @@ export class DiscordService {
   }
 
   protected async sendMessage(channel: TextChannel, content: string, reference?: Message): Promise<void> {
-    // Split message if it's longer than Discord's limit
-    const MAX_LENGTH = 1900; // Leaving some buffer for safety
+    const MAX_LENGTH = 1900;
     
     if (content.length <= MAX_LENGTH) {
-        await channel.send({
-            content,
-            reply: reference ? { messageReference: reference.id } : undefined
-        });
-        return;
+      await channel.send({
+        content,
+        reply: reference ? { messageReference: reference.id } : undefined
+      });
+      return;
     }
 
-    // Split long messages
     const parts = this.splitMessage(content);
     
-    // Send first part with reference
     await channel.send({
-        content: parts[0],
-        reply: reference ? { messageReference: reference.id } : undefined
+      content: parts[0],
+      reply: reference ? { messageReference: reference.id } : undefined
     });
 
-    // Send remaining parts
     for (let i = 1; i < parts.length; i++) {
-        await channel.send({ content: parts[i] });
+      await channel.send({ content: parts[i] });
     }
   }
 
   private splitMessage(content: string): string[] {
-    const MAX_LENGTH = 1900; // Leaving some buffer for safety
+    const MAX_LENGTH = 1900;
     const parts: string[] = [];
     let currentPart = '';
 
-    // Split by paragraphs first
     const paragraphs = content.split('\n');
 
     for (const paragraph of paragraphs) {
-        if (currentPart.length + paragraph.length + 1 <= MAX_LENGTH) {
-            currentPart += (currentPart ? '\n' : '') + paragraph;
-        } else {
-            if (currentPart) {
-                parts.push(currentPart);
-            }
-            // If a single paragraph is too long, split it by words
-            if (paragraph.length > MAX_LENGTH) {
-                const words = paragraph.split(' ');
-                currentPart = '';
-                for (const word of words) {
-                    if (currentPart.length + word.length + 1 <= MAX_LENGTH) {
-                        currentPart += (currentPart ? ' ' : '') + word;
-                    } else {
-                        parts.push(currentPart);
-                        currentPart = word;
-                    }
-                }
-            } else {
-                currentPart = paragraph;
-            }
+      if (currentPart.length + paragraph.length + 1 <= MAX_LENGTH) {
+        currentPart += (currentPart ? '\n' : '') + paragraph;
+      } else {
+        if (currentPart) {
+          parts.push(currentPart);
         }
+        if (paragraph.length > MAX_LENGTH) {
+          const words = paragraph.split(' ');
+          currentPart = '';
+          for (const word of words) {
+            if (currentPart.length + word.length + 1 <= MAX_LENGTH) {
+              currentPart += (currentPart ? ' ' : '') + word;
+            } else {
+              parts.push(currentPart);
+              currentPart = word;
+            }
+          }
+        } else {
+          currentPart = paragraph;
+        }
+      }
     }
 
     if (currentPart) {
-        parts.push(currentPart);
+      parts.push(currentPart);
     }
 
     return parts;

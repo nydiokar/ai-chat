@@ -130,11 +130,28 @@ enum TaskStatus {
   BLOCKED
 }
 
-enum TaskPriority {
+enum Priority {
   LOW
   MEDIUM
   HIGH
   URGENT
+}
+
+model TaskHistory {
+  id          Int      @id @default(autoincrement())
+  taskId      Int
+  userId      String
+  action      String   // e.g., "CREATED", "STATUS_CHANGED", "ASSIGNED", etc.
+  oldValue    String?  // For storing previous state
+  newValue    String?  // For storing new state
+  note        String?  // Optional note about the change
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model Task {
@@ -158,6 +175,7 @@ model Task {
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
   assignee       User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator        User          @relation(fields: [creatorId], references: [id])
+  history        TaskHistory[] // Relation to task history
 
   @@index([creatorId])
   @@index([assigneeId])
