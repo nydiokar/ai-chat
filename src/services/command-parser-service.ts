@@ -1,7 +1,7 @@
 import { TaskStatus, TaskPriority } from '../types/task.js';
 import { debug } from '../config.js';
 
-interface ParsedCommand {
+export interface ParsedCommand {
   command: string;
   action: string;
   parameters: Record<string, any>;
@@ -43,6 +43,18 @@ export class CommandParserService {
     ],
     delete: [
       /(?:delete|remove) task #?(\d+)/i
+    ],
+    navigation: [
+      /^!rw$/i,           // Rewind
+      /^!fw$/i,           // Forward
+      /^!save(?: (.+))?$/i,  // Save with optional label
+      /^!load (.+)$/i,    // Load with branch ID
+      
+      // Natural language alternatives
+      /(?:go |move )?back(?: to previous)?/i,
+      /(?:go |move )?forward/i,
+      /save(?: this)?(?: conversation)?(?: as (.+))?/i,
+      /load(?: conversation)? (.+)/i
     ]
   };
 
@@ -58,6 +70,12 @@ export class CommandParserService {
   parse(input: string): ParsedCommand {
     debug(`Parsing command: ${input}`);
     
+    // First check for navigation commands as they're simpler
+    if (input.startsWith('!')) {
+      const navigationCommand = this.parseNavigationCommand(input);
+      if (navigationCommand) return navigationCommand;
+    }
+
     // Try each pattern set
     for (const [command, patterns] of Object.entries(this.patterns)) {
       for (const pattern of patterns) {
@@ -105,6 +123,38 @@ export class CommandParserService {
     );
   }
 
+  private parseNavigationCommand(input: string): ParsedCommand | null {
+    const command = input.toLowerCase();
+    
+    if (command === '!rw') {
+      return { command: 'conversation', action: 'rewind', parameters: {} };
+    }
+    
+    if (command === '!fw') {
+      return { command: 'conversation', action: 'forward', parameters: {} };
+    }
+    
+    const saveMatch = command.match(/^!save(?: (.+))?$/);
+    if (saveMatch) {
+      return {
+        command: 'conversation',
+        action: 'save',
+        parameters: { label: saveMatch[1] || null }
+      };
+    }
+    
+    const loadMatch = command.match(/^!load (.+)$/);
+    if (loadMatch) {
+      return {
+        command: 'conversation',
+        action: 'load',
+        parameters: { branchId: loadMatch[1] }
+      };
+    }
+    
+    return null;
+  }
+
   private buildCommand(command: string, match: RegExpMatchArray): ParsedCommand {
     const params: Record<string, any> = {};
 
@@ -138,9 +188,35 @@ export class CommandParserService {
         params.id = parseInt(match[1]);
         return { command: 'task', action: 'delete', parameters: params };
 
+      case 'navigation':
+        // Handle natural language navigation commands
+        if (match[0].includes('back') || match[0].includes('previous')) {
+          return { command: 'conversation', action: 'rewind', parameters: {} };
+        }
+        if (match[0].includes('forward')) {
+          return { command: 'conversation', action: 'forward', parameters: {} };
+        }
+        if (match[0].includes('save')) {
+          return {
+            command: 'conversation',
+            action: 'save',
+            parameters: { label: match[1] || null }
+          };
+        }
+        if (match[0].includes('load')) {
+          return {
+            command: 'conversation',
+            action: 'load',
+            parameters: { branchId: match[1] }
+          };
+        }
+        break;
+
       default:
         throw new CommandParserError('Invalid command type');
     }
+
+    throw new CommandParserError('Invalid command type');
   }
 
   private parseStatus(status: string): TaskStatus {

@@ -30,6 +30,8 @@ model Conversation {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   tokenCount       Int       @default(0)
+  branchId         String?
+  parentMessageId  String?
   discordChannelId String?
   discordGuildId   String?
   messages         Message[]
@@ -37,6 +39,8 @@ model Conversation {
   tasks            Task[]
 
   @@index([createdAt])
+  @@index([branchId])
+  @@index([parentMessageId])
   @@index([discordGuildId, discordChannelId])
 }
 
@@ -118,6 +122,7 @@ model User {
   preferences   Json?
   assignedTasks Task[]   @relation("TaskAssignee")
   tasks         Task[]
+  taskHistory   TaskHistory[]
 
   @@index([username])
 }
@@ -130,7 +135,7 @@ enum TaskStatus {
   BLOCKED
 }
 
-enum Priority {
+enum TaskPriority {
   LOW
   MEDIUM
   HIGH
@@ -152,6 +157,19 @@ model TaskHistory {
   @@index([taskId])
   @@index([userId])
   @@index([createdAt])
+}
+
+model CacheMetrics {
+  key           String   @id
+  hits          Int      @default(0)
+  misses        Int      @default(0)
+  lastAccessed  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([hits])
+  @@index([lastAccessed])
+  @@map("cache_metrics")
 }
 
 model Task {

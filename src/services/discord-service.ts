@@ -4,7 +4,7 @@ import { AIModel, DiscordMessageContext } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
-import { CommandParserService, CommandParserError } from './command-parser-service.js';
+import { CommandParserService, CommandParserError, ParsedCommand } from './command-parser-service.js';
 import { TaskStatus } from '../types/task.js';
 
 import { debug } from '../config.js';
@@ -182,9 +182,13 @@ export class DiscordService {
            message.content.startsWith('!'))) {
         try {
           const command = CommandParserService.getInstance().parse(message.content);
-          if (command.command === 'task') {
-            await this.handleTaskCommand(message, command);
-            return;
+          switch (command.command) {
+            case 'task':
+              await this.handleTaskCommand(message, command);
+              return;
+            case 'conversation':
+              await this.handleConversationCommand(message, command);
+              return;
           }
         } catch (error) {
           if (error instanceof CommandParserError) {
@@ -201,8 +205,14 @@ export class DiscordService {
           return;
         }
 
+        // Ensure we have the required fields
+        if (!message.channelId || !message.guildId) {
+          console.error('Missing required message properties');
+          return;
+        }
+
         const discordContext: DiscordMessageContext = {
-          guildId: message.guildId!,
+          guildId: message.guildId,
           channelId: message.channelId,
           userId: message.author.id,
           username: message.author.username,
@@ -401,5 +411,141 @@ export class DiscordService {
     }
 
     return parts;
+  }
+
+  private async handleConversationCommand(message: Message, command: ParsedCommand) {
+    try {
+        const session = await this.db.getActiveSession(message.author.id, message.channelId);
+        if (!session?.conversation) {
+            await this.sendMessage(message.channel as TextChannel, '❌ No active conversation found');
+            return;
+        }
+
+        switch (command.action) {
+            case 'rewind': {
+                const conversation = await this.db.getConversation(session.conversation.id);
+                if (!conversation.parentMessageId) {
+                    throw new Error('No previous state to rewind to');
+                }
+
+                // Get the parent conversation from branches
+                const branches = await this.db.getBranches(conversation.id);
+                const parentBranch = branches.find(b => b.parentMessageId === conversation.parentMessageId);
+                if (!parentBranch) {
+                    throw new Error('Parent branch not found');
+                }
+
+                // Fetch messages from the parent branch
+                const parentConversation = await this.db.getBranchTree(parentBranch.id);
+                const recentMessages = parentConversation.messages.slice(-3);
+                
+                await this.sendMessage(message.channel as TextChannel, 
+                    '⏪ Rewound to previous state. Recent messages:', message);
+                
+                for (const msg of recentMessages) {
+                    await this.sendMessage(message.channel as TextChannel, 
+                        `${msg.role === 'user' ? '👤' : '🤖'} ${msg.content}`);
+                }
+                break;
+            }
+
+            case 'forward': {
+                const branches = await this.db.getBranches(session.conversation.id);
+                const childBranches = branches.filter(b => b.parentMessageId === session.conversation.parentMessageId);
+                if (!childBranches.length) {
+                    throw new Error('No forward branches available');
+                }
+
+                // Take the most recent branch
+                const forwardBranch = childBranches[childBranches.length - 1];
+                
+                // End current session and create new one
+                await this.db.endSession(session.conversation.id);
+                const newConversationId = await this.db.createConversation(
+                    this.defaultModel,
+                    forwardBranch.title || 'Forward Branch',
+                    undefined,
+                    {
+                        branchId: forwardBranch.branchId || undefined,
+                        parentMessageId: forwardBranch.parentMessageId || undefined
+                    }
+                );
+                
+                // Get messages for the forward branch
+                const forwardConversation = await this.db.getConversation(forwardBranch.id);
+                const messages = forwardConversation.messages;
+                const recentMessages = messages.slice(0, 3);
+                
+                await this.sendMessage(message.channel as TextChannel, 
+                    '⏩ Moved to forward branch. Recent messages:', message);
+                
+                for (const msg of recentMessages) {
+                    await this.sendMessage(message.channel as TextChannel, 
+                        `${msg.role === 'user' ? '👤' : '🤖'} ${msg.content}`);
+                }
+                break;
+            }
+
+            case 'save': {
+                const branchId = crypto.randomUUID();
+                const label = command.parameters.label || new Date().toISOString();
+                
+                // Create a new branch
+                const newConversationId = await this.db.createBranch(
+                    session.conversation.id,
+                    session.conversation.parentMessageId || '',
+                    this.defaultModel,
+                    label
+                );
+
+                await this.sendMessage(message.channel as TextChannel, 
+                    `✅ Conversation state saved!\nBranch ID: \`${branchId}\`\nLabel: ${label}`, 
+                    message);
+                break;
+            }
+
+            case 'load': {
+                const branches = await this.db.getBranches(session.conversation.id);
+                const targetBranch = branches.find(b => b.branchId === command.parameters.branchId);
+                if (!targetBranch) {
+                    throw new Error('Saved state not found');
+                }
+
+                // End current session and create new one
+                await this.db.endSession(session.conversation.id);
+                const newConversationId = await this.db.createConversation(
+                    this.defaultModel,
+                    targetBranch.title || 'Loaded Branch',
+                    undefined,
+                    {
+                        branchId: targetBranch.branchId || undefined,
+                        parentMessageId: targetBranch.parentMessageId || undefined
+                    }
+                );
+                
+                // Get messages for the target branch
+                const targetConversation = await this.db.getConversation(targetBranch.id);
+                const messages = targetConversation.messages;
+                const recentMessages = messages.slice(-3);
+                
+                await this.sendMessage(message.channel as TextChannel, 
+                    `📂 Loaded conversation state: ${targetBranch.title || 'Untitled'}`, message);
+                
+                for (const msg of recentMessages) {
+                    await this.sendMessage(message.channel as TextChannel, 
+                        `${msg.role === 'user' ? '👤' : '🤖'} ${msg.content}`);
+                }
+                break;
+            }
+
+            default:
+                await this.sendMessage(message.channel as TextChannel, 
+                    '❌ Unknown conversation command', message);
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+        await this.sendMessage(message.channel as TextChannel, 
+            `❌ Error: ${errorMessage}`, message);
+    }
   }
 }

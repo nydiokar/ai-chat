@@ -70,10 +70,12 @@ export interface Session {
 }
 
 export interface DiscordMessageContext {
-  guildId: string;
-  channelId: string;
   userId: string;
   username: string;
+  guildId?: string;
+  channelId?: string;  // Make channelId optional
+  branchId?: string;
+  parentMessageId?: string;
 }
 
 export interface ConversationStats {
@@ -137,13 +139,6 @@ export interface Message {
   discordUsername?: string | null;
 }
 
-// Discord-specific context
-export interface DiscordMessageContext {
-  guildId: string;
-  channelId: string;
-  userId: string;
-  username: string;
-}
 
 // Base configuration interface
 export interface BaseConfig {

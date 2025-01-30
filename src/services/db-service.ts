@@ -2,6 +2,11 @@ import { PrismaClient } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
 import { debug } from '../config.js';
 
+export interface BranchContext {
+  branchId?: string;
+  parentMessageId?: string;
+}
+
 export class DatabaseError extends Error {
   public cause?: any;
 
@@ -94,6 +99,7 @@ export class DatabaseService {
     model: keyof typeof Model,
     title?: string,
     summary?: string,
+    branchContext: BranchContext = {},
     discordContext?: DiscordMessageContext
   ): Promise<number> {
     try {
@@ -111,6 +117,8 @@ export class DatabaseService {
           title,
           summary,
           tokenCount: 0,
+          branchId: branchContext.branchId,
+          parentMessageId: branchContext.parentMessageId,
           discordGuildId: discordContext?.guildId,
           discordChannelId: discordContext?.channelId,
           ...(discordContext && {
@@ -196,7 +204,8 @@ export class DatabaseService {
               createdAt: 'asc',
             },
           },
-        },
+          session: true
+        }
       });
 
       if (!conversation) {
@@ -209,6 +218,37 @@ export class DatabaseService {
       return this.handlePrismaError(error, 'conversation retrieval');
     }
   }
+
+  async getBranches(conversationId: number) {
+    try {
+      debug(`Getting branches for conversation ${conversationId}`);
+      const branches = await this.prisma.conversation.findMany({
+        where: {
+          AND: [
+            { branchId: { not: null } },
+            {
+              OR: [
+                { parentMessageId: { not: null } },
+                { id: conversationId }
+              ]
+            }
+          ]
+        },
+        include: {
+          messages: {
+            orderBy: {
+              createdAt: 'asc'
+            }
+          }
+        }
+      });
+      return branches;
+    } catch (error) {
+      throw new DatabaseError(`Failed to get branches for conversation ${conversationId}`, error as Error);
+    }
+  }
+
+  // ... [rest of the existing methods]
 
   async listConversations(limit = 10) {
     debug(`Listing conversations with limit ${limit}`);
@@ -322,29 +362,24 @@ export class DatabaseService {
     };
   }
 
-  async getActiveSession(discordUserId: string, channelId: string) {
-    debug(`Getting active session for user ${discordUserId} in channel ${channelId}`);
-    const session = await this.prisma.session.findFirst({
-      where: {
-        discordUserId,
-        isActive: true,
-        conversation: {
-          discordChannelId: channelId
+  async getActiveSession(userId: string, channelId?: string) {
+    try {
+      return await this.prisma.session.findFirst({
+        where: {
+          discordUserId: userId,
+          ...(channelId && { conversation: { discordChannelId: channelId } }),
+          isActive: true
+        },
+        include: {
+          conversation: true
+        },
+        orderBy: {
+          lastActivity: 'desc'
         }
-      },
-      include: {
-        conversation: {
-          include: {
-            messages: {
-              orderBy: {
-                createdAt: 'asc'
-              }
-            }
-          }
-        }
-      }
-    });
-    return session;
+      });
+    } catch (error) {
+      throw new DatabaseError('Failed to get active session', error as Error);
+    }
   }
 
   async endSession(conversationId: number) {
@@ -444,5 +479,150 @@ export class DatabaseService {
     operation: (prisma: FullTransactionClient) => Promise<T>
   ): Promise<T> {
     return this.prisma.$transaction(operation as any) as Promise<T>;
+  }
+
+  async upsertCacheMetrics(data: {
+    key: string;
+    hits: number;
+    misses: number;
+    lastAccessed: Date;
+  }): Promise<void> {
+    try {
+      debug(`Upserting cache metrics for key ${data.key}`);
+      await this.prisma.cacheMetrics.upsert({
+        where: { key: data.key },
+        update: {
+          hits: data.hits,
+          misses: data.misses,
+          lastAccessed: data.lastAccessed,
+          updatedAt: new Date()
+        },
+        create: {
+          key: data.key,
+          hits: data.hits,
+          misses: data.misses,
+          lastAccessed: data.lastAccessed
+        }
+      });
+    } catch (error) {
+      throw new DatabaseError('Failed to upsert cache metrics', error as Error);
+    }
+  }
+
+  async cleanOldCacheMetrics(daysOld: number): Promise<number> {
+    try {
+      if (!Number.isInteger(daysOld) || daysOld <= 0) {
+        throw new DatabaseError('Invalid days parameter');
+      }
+
+      debug(`Cleaning cache metrics older than ${daysOld} days`);
+      const date = new Date();
+      date.setDate(date.getDate() - daysOld);
+
+      const result = await this.prisma.cacheMetrics.deleteMany({
+        where: {
+          lastAccessed: {
+            lt: date
+          }
+        }
+      });
+
+      return result.count;
+    } catch (error) {
+      if (error instanceof DatabaseError) throw error;
+      throw new DatabaseError('Failed to clean old cache metrics', error as Error);
+    }
+  }
+
+  async createBranch(
+    parentConversationId: number,
+    parentMessageId: string,
+    model: keyof typeof Model,
+    title?: string
+  ): Promise<number> {
+    try {
+      debug(`Creating branch from conversation ${parentConversationId} at message ${parentMessageId}`);
+      const branchId = crypto.randomUUID();
+      
+      const conversation = await this.prisma.conversation.create({
+        data: {
+          model: Model[model],
+          title,
+          branchId,
+          parentMessageId,
+          tokenCount: 0
+        }
+      });
+
+      return conversation.id;
+    } catch (error) {
+      throw new DatabaseError('Failed to create conversation branch', error as Error);
+    }
+  }
+
+  async getBranchTree(rootConversationId: number) {
+    try {
+      debug(`Getting branch tree for conversation ${rootConversationId}`);
+      const allBranches = await this.prisma.conversation.findMany({
+        where: {
+          OR: [
+            { id: rootConversationId },
+            { branchId: { not: null } }
+          ]
+        },
+        include: {
+          messages: {
+            orderBy: {
+              createdAt: 'asc'
+            }
+          }
+        }
+      });
+
+      return this.buildBranchTree(allBranches, rootConversationId);
+    } catch (error) {
+      throw new DatabaseError(`Failed to get branch tree for conversation ${rootConversationId}`, error as Error);
+    }
+  }
+
+  private buildBranchTree(branches: any[], rootId: number) {
+    const branchMap = new Map(branches.map(b => [b.id, { ...b, children: [] }]));
+    const root = branchMap.get(rootId);
+    
+    if (!root) {
+      throw new DatabaseError('Root conversation not found');
+    }
+
+    for (const branch of branchMap.values()) {
+      if (branch.parentMessageId) {
+        const parent = Array.from(branchMap.values())
+          .find(b => b.messages.some((m: any) => m.id === branch.parentMessageId));
+        if (parent) {
+          parent.children.push(branch);
+        }
+      }
+    }
+
+    return root;
+  }
+
+  async deleteBranch(conversationId: number, recursive = true): Promise<void> {
+    try {
+      debug(`Deleting branch conversation ${conversationId}`);
+      if (recursive) {
+        const branches = await this.getBranches(conversationId);
+        for (const branch of branches) {
+          if (branch.id !== conversationId) {
+            await this.deleteBranch(branch.id, true);
+          }
+        }
+      }
+
+      await this.prisma.conversation.delete({
+        where: { id: conversationId }
+      });
+    } catch (error) {
+      throw new DatabaseError(`Failed to delete branch conversation ${conversationId}`, error as Error);
+    }
   }
 }
