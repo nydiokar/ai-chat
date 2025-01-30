@@ -1,5 +1,5 @@
-import { TaskStatus, TaskPriority } from '../types/task.js';
-import { debug } from '../config.js';
+import { TaskStatus } from '../types/task.js';
+import { debug } from './config.js';
 
 export interface ParsedCommand {
   command: string;

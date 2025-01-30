@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
-import { debug } from '../config.js';
+import { debug } from '../utils/config.js';
 
 export interface BranchContext {
   branchId?: string;
@@ -150,6 +150,22 @@ export class DatabaseService {
 
       debug(`Adding message to conversation ${conversationId}`);
       await this.prisma.$transaction(async (prisma) => {
+        // If Discord context exists, ensure user record exists
+        if (discordContext?.userId) {
+          await prisma.user.upsert({
+            where: { id: discordContext.userId },
+            update: { 
+              username: discordContext.username,
+              isActive: true
+            },
+            create: {
+              id: discordContext.userId,
+              username: discordContext.username,
+              isActive: true
+            }
+          });
+        }
+
         const message = await prisma.message.create({
           data: {
             content,

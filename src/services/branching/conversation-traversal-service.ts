@@ -1,5 +1,5 @@
-import { DatabaseService } from './db-service.js';
-import { debug } from '../config.js';
+import { DatabaseService } from '../db-service.js';
+import { debug } from '../../utils/config.js';
 import crypto from 'crypto';
 
 export class ConversationTraversalError extends Error {
@@ -89,21 +89,28 @@ export class ConversationTraversalService {
         }
     }
 
-    private isMessageInBranchPath(messages: any[], messageId: string, targetParentId: string): boolean {
-        let currentId = messageId;
+    private isMessageInBranchPath(messages: any[], messageId: string | number, targetParentId: string): boolean {
+        // Convert IDs to strings for comparison
+        const currentId = messageId.toString();
+        const targetId = targetParentId.toString();
         
-        while (currentId) {
-            if (currentId === targetParentId) {
-                return true;
-            }
-            const message = messages.find(m => m.id === currentId);
-            if (!message) {
-                break;
-            }
-            currentId = message.parentMessageId;
+        // Start from the target message and work backwards
+        let currentMessage = messages.find(m => m.id.toString() === currentId);
+        if (!currentMessage) {
+            return false;
         }
-        
-        return false;
+
+        // Build a map of message IDs in the ancestry path from target back to root
+        const ancestryPath = new Set<string>();
+        let message = messages.find(m => m.id.toString() === targetId);
+        while (message) {
+            ancestryPath.add(message.id.toString());
+            if (!message.parentMessageId) break;
+            message = messages.find(m => m.id.toString() === message.parentMessageId.toString());
+        }
+
+        // Check if the current message is in the ancestry path
+        return ancestryPath.has(currentId);
     }
 
     async getBranches(conversationId: number) {

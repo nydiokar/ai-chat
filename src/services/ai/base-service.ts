@@ -1,5 +1,5 @@
 import { Message, MessageRole } from '../../types/index.js';
-import { defaultConfig, debug } from '../../config.js';
+import { defaultConfig, debug } from '../../utils/config.js';
 import { DatabaseService } from '../db-service.js';
 import { MCPServerManager } from '../mcp/mcp-server-manager.js';
 import { SystemPromptGenerator } from '../mcp/system-prompt-generator.js';

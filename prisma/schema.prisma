@@ -16,10 +16,14 @@ model Message {
   tokenCount      Int?
   discordUserId   String?
   discordUsername String?
+  parentMessageId Int?
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parentMessage   Message?     @relation("MessageThread", fields: [parentMessageId], references: [id])
+  childMessages   Message[]    @relation("MessageThread")
 
   @@index([conversationId, createdAt])
   @@index([discordUserId])
+  @@index([parentMessageId])
 }
 
 model Conversation {
@@ -146,10 +150,10 @@ model TaskHistory {
   id          Int      @id @default(autoincrement())
   taskId      Int
   userId      String
-  action      String   // e.g., "CREATED", "STATUS_CHANGED", "ASSIGNED", etc.
-  oldValue    String?  // For storing previous state
-  newValue    String?  // For storing new state
-  note        String?  // Optional note about the change
+  action      String
+  oldValue    String?
+  newValue    String?
+  note        String?
   createdAt   DateTime @default(now())
   task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id])
@@ -193,7 +197,7 @@ model Task {
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
   assignee       User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator        User          @relation(fields: [creatorId], references: [id])
-  history        TaskHistory[] // Relation to task history
+  history        TaskHistory[]
 
   @@index([creatorId])
   @@index([assigneeId])

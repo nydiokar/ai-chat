@@ -1,6 +1,6 @@
 import { TaskRepository } from '../tasks/task-repository.js';
-import { DatabaseError } from '../services/db-service.js';
-import { debug } from '../config.js';
+
+import { debug } from '../utils/config.js';
 import {
   CreateTaskDTO,
   UpdateTaskDTO,
@@ -10,7 +10,6 @@ import {
   TaskListResult,
   UserTasks,
   TaskHistoryAction,
-  TaskHistoryEntry
 } from '../types/task.js';
 
 export class TaskManagerError extends Error {

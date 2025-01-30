@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { DatabaseError } from '../services/db-service.js';
-import { debug } from '../config.js';
+import { debug } from '../utils/config.js';
 import { 
   Task as TaskType, 
   CreateTaskDTO, 

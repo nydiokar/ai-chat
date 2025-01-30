@@ -4,10 +4,10 @@ import { AIModel, DiscordMessageContext } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
-import { CommandParserService, CommandParserError, ParsedCommand } from './command-parser-service.js';
-import { TaskStatus } from '../types/task.js';
+import { CommandParserService, CommandParserError, ParsedCommand } from '../utils/command-parser-service.js';
 
-import { debug } from '../config.js';
+
+import { debug } from '../utils/config.js';
 import { MCPError } from '../types/errors.js';
 
 export class DiscordService {
@@ -67,21 +67,43 @@ export class DiscordService {
         case 'list': {
           const tasks = await taskManager.getUserTasks(message.author.id);
           let response = '```\nYour Tasks:\n\n';
+          
           if (tasks.created.length === 0 && tasks.assigned.length === 0) {
-            response += 'No tasks found.\n';
+              response += '📝 No tasks found.\n';
           } else {
-            if (tasks.created.length > 0) {
-              response += 'Created by you:\n';
-              tasks.created.forEach(task => {
-                response += `#${task.id} [${task.status}] ${task.title}\n`;
-              });
-            }
-            if (tasks.assigned.length > 0) {
-              response += '\nAssigned to you:\n';
-              tasks.assigned.forEach(task => {
-                response += `#${task.id} [${task.status}] ${task.title}\n`;
-              });
-            }
+              if (tasks.created.length > 0) {
+                  response += '✨ Created by you:\n';
+                  tasks.created.forEach(task => {
+                      const formatDate = (date: Date | string) => {
+                          return new Date(date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                          });
+                      };
+
+                      response += `#\n${task.id}. ${task.title}
+    📋 What to do: ${task.description || 'No description provided'}
+    ${this.getStatusEmoji(task.status)} Since ${formatDate(task.createdAt)}\n`;
+                  });
+              }
+              
+              if (tasks.assigned.length > 0) {
+                  response += '\n�� Assigned to you:\n';
+                  tasks.assigned.forEach(task => {
+                      const formatDate = (date: Date | string) => {
+                          return new Date(date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                          });
+                      };
+
+                      response += `\n${task.id}. ${task.title}
+    📋 What to do: "${task.description || 'No description provided'}"
+    ${this.getStatusEmoji(task.status)} Status since ${formatDate(task.createdAt)}\n`;
+                  });
+              }
           }
           response += '```';
           await this.sendMessage(message.channel as TextChannel, response, message);
@@ -437,6 +459,28 @@ export class DiscordService {
 
                 // Fetch messages from the parent branch
                 const parentConversation = await this.db.getBranchTree(parentBranch.id);
+                
+                // End current session
+                await this.db.endSession(session.conversation.id);
+                
+                // Create new conversation with session and use the ID
+                await this.db.createConversation(
+                    this.defaultModel,
+                    parentBranch.title || 'Rewound Branch',
+                    message.channelId,  // Pass channelId directly
+                    {
+                        branchId: parentBranch.branchId || undefined,
+                        parentMessageId: parentBranch.parentMessageId || undefined
+                    },
+                    { // Add Discord context
+                        userId: message.author.id,
+                        username: message.author.username,
+                        channelId: message.channelId,
+                        guildId: message.guildId || undefined
+                    }
+                );
+
+                // Get the parent conversation to show recent messages
                 const recentMessages = parentConversation.messages.slice(-3);
                 
                 await this.sendMessage(message.channel as TextChannel, 
@@ -459,8 +503,10 @@ export class DiscordService {
                 // Take the most recent branch
                 const forwardBranch = childBranches[childBranches.length - 1];
                 
-                // End current session and create new one
+                // End current session
                 await this.db.endSession(session.conversation.id);
+                
+                // Create and start new session
                 const newConversationId = await this.db.createConversation(
                     this.defaultModel,
                     forwardBranch.title || 'Forward Branch',
@@ -468,8 +514,17 @@ export class DiscordService {
                     {
                         branchId: forwardBranch.branchId || undefined,
                         parentMessageId: forwardBranch.parentMessageId || undefined
+                    },
+                    { // Add Discord context for session creation
+                        userId: message.author.id,
+                        username: message.author.username,
+                        channelId: message.channelId,
+                        guildId: message.guildId || undefined
                     }
                 );
+
+                // Start new session with the new conversation
+                await this.db.createConversation(this.defaultModel, message.author.id, message.channelId);
                 
                 // Get messages for the forward branch
                 const forwardConversation = await this.db.getConversation(forwardBranch.id);
@@ -498,6 +553,10 @@ export class DiscordService {
                     label
                 );
 
+                // Update the current session to use the new branch
+                await this.db.endSession(session.conversation.id);
+                await this.db.createConversation(this.defaultModel, message.author.id, message.channelId);
+
                 await this.sendMessage(message.channel as TextChannel, 
                     `✅ Conversation state saved!\nBranch ID: \`${branchId}\`\nLabel: ${label}`, 
                     message);
@@ -511,8 +570,10 @@ export class DiscordService {
                     throw new Error('Saved state not found');
                 }
 
-                // End current session and create new one
+                // End current session
                 await this.db.endSession(session.conversation.id);
+                
+                // Create and start new session
                 const newConversationId = await this.db.createConversation(
                     this.defaultModel,
                     targetBranch.title || 'Loaded Branch',
@@ -522,6 +583,9 @@ export class DiscordService {
                         parentMessageId: targetBranch.parentMessageId || undefined
                     }
                 );
+
+                // Start new session with the new conversation
+                await this.db.createConversation(this.defaultModel, message.author.id, message.channelId);
                 
                 // Get messages for the target branch
                 const targetConversation = await this.db.getConversation(targetBranch.id);
@@ -546,6 +610,23 @@ export class DiscordService {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
         await this.sendMessage(message.channel as TextChannel, 
             `❌ Error: ${errorMessage}`, message);
+    }
+  }
+
+  private getStatusEmoji(status: string): string {
+    switch (status.toUpperCase()) {
+        case 'OPEN':
+            return '🟢 OPEN';
+        case 'IN_PROGRESS':
+            return '🔵 IN PROGRESS';
+        case 'BLOCKED':
+            return '🔴 BLOCKED';
+        case 'COMPLETED':
+            return '✅ COMPLETED';
+        case 'CLOSED':
+            return '⭕ CLOSED';
+        default:
+            return '❓';
     }
   }
 }

@@ -4,8 +4,7 @@ import { MCPTool, MCPToolContext } from "../../types/index.js";
 import { MCPServerConfig } from "../../types/mcp-config.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
-import { join } from "path";
-import { statSync } from 'fs';
+
 
 // Define response schemas
 const ToolListResponseSchema = z.object({
@@ -34,18 +33,11 @@ export class MCPClientService {
 
     constructor(config: MCPServerConfig) {
         this.config = config;
+        // Only pass the environment variables specified in the config
         this.transport = new StdioClientTransport({
             command: this.config.command,
             args: this.config.args,
-            env: {
-                ...Object.entries(process.env).reduce((acc, [key, value]) => {
-                    if (value !== undefined) {
-                        acc[key] = value;
-                    }
-                    return acc;
-                }, {} as Record<string, string>),
-                ...this.config.env
-            },
+            env: this.config.env,
             stderr: 'inherit'
         });
 
@@ -112,7 +104,9 @@ export class MCPClientService {
 
     async callTool(name: string, args: any, context?: MCPToolContext): Promise<string> {
         try {
-            console.log(`[MCPClientService] Calling tool ${name} with args:`, args);
+            // Sanitize args for logging by removing potential sensitive data
+            const sanitizedArgs = this.sanitizeArgs(args);
+            console.log(`[MCPClientService] Calling tool ${name} with args:`, sanitizedArgs);
             
             // Enhance arguments with context if available
             const enhancedArgs = context ? {
@@ -132,7 +126,9 @@ export class MCPClientService {
                 }
             }, ToolCallResponseSchema);
             
-            console.log(`[MCPClientService] Tool result:`, result);
+            // Sanitize result before logging
+            const sanitizedResult = this.sanitizeResult(result);
+            console.log(`[MCPClientService] Tool result:`, sanitizedResult);
             
             if ('error' in result) {
                 throw MCPError.toolExecutionFailed(result.error);
@@ -146,7 +142,11 @@ export class MCPClientService {
 
     // Brave Search specific methods
     async webSearch(query: string, count: number = 10): Promise<string> {
-        return this.callTool('brave_web_search', { query, count });
+        return this.callTool('brave_web_search', { 
+            query: `${query} after:${new Date().toISOString().split('T')[0]}`,
+            count,
+            freshness: 'day'
+        });
     }
 
     async localSearch(query: string, count: number = 5): Promise<string> {
@@ -172,5 +172,27 @@ export class MCPClientService {
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval as unknown as number);
         }
+    }
+
+    private sanitizeArgs(args: any): any {
+        const sanitized = { ...args };
+        const sensitiveFields = ['token', 'key', 'password', 'secret'];
+        for (const field of sensitiveFields) {
+            if (field in sanitized) {
+                sanitized[field] = '[REDACTED]';
+            }
+        }
+        return sanitized;
+    }
+
+    private sanitizeResult(result: any): any {
+        const sanitized = JSON.parse(JSON.stringify(result));
+        if (sanitized.content) {
+            sanitized.content = sanitized.content.map((item: any) => ({
+                ...item,
+                text: item.text.substring(0, 100) + (item.text.length > 100 ? '...' : '')
+            }));
+        }
+        return sanitized;
     }
 }

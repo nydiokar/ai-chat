@@ -1,4 +1,4 @@
-import { mcpConfig } from '../tools/tools.js';
+import { mcpConfig } from '../utils/tools.js';
 
 // Configuration interfaces
 export interface MCPToolConfig {

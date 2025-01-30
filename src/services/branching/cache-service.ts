@@ -1,7 +1,7 @@
 import Keyv from 'keyv';
 import { KeyvFile } from 'keyv-file';
-import { DatabaseService } from './db-service.js';
-import { debug } from '../config.js';
+import { DatabaseService } from '../db-service.js';
+import { debug } from '../../utils/config.js';
 import { Message } from 'discord.js';
 
 interface CacheConfig {
@@ -199,8 +199,19 @@ export class CacheService {
 
     async createBranch(parentId: string | null, messages: Message[]): Promise<ConversationBranch> {
         try {
+            // First, verify parent exists if provided
+            let parentBranch: ConversationBranch | null = null;
+            if (parentId) {
+                parentBranch = await this.getBranch(parentId);
+                if (!parentBranch) {
+                    throw new CacheError(`Parent branch not found: ${parentId}`);
+                }
+            }
+
+            // Create new branch
+            const branchId = crypto.randomUUID();
             const branch: ConversationBranch = {
-                id: crypto.randomUUID(),
+                id: branchId,
                 parent: parentId || undefined,
                 children: [],
                 messages,
@@ -210,16 +221,30 @@ export class CacheService {
                 }
             };
 
-            if (parentId) {
-                const parentBranch = await this.getBranch(parentId);
-                if (parentBranch) {
-                    parentBranch.children.push(branch.id);
-                    await this.cache.set(`branch:${parentId}`, parentBranch);
+            // Save new branch
+            const branchSaved = await this.cache.set(`branch:${branchId}`, branch);
+            if (!branchSaved) {
+                throw new CacheError('Failed to save branch');
+            }
+
+            // Update parent's children list
+            if (parentBranch) {
+                parentBranch.children = [...parentBranch.children, branchId];
+                const parentUpdated = await this.cache.set(`branch:${parentId}`, parentBranch);
+                if (!parentUpdated) {
+                    // Rollback branch creation if parent update fails
+                    await this.cache.delete(`branch:${branchId}`);
+                    throw new CacheError('Failed to update parent branch');
                 }
             }
 
-            await this.cache.set(`branch:${branch.id}`, branch);
-            return branch;
+            // Re-fetch and return the branch to ensure consistency
+            const finalBranch = await this.getBranch(branchId);
+            if (!finalBranch) {
+                throw new CacheError('Failed to retrieve created branch');
+            }
+
+            return finalBranch;
         } catch (error) {
             throw new CacheError('Failed to create branch', error);
         }

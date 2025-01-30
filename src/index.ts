@@ -6,7 +6,7 @@ import { AnthropicService } from './services/ai/anthropic-service.js';
 import { DatabaseService } from './services/db-service.js';
 import { Message } from './types/index.js';
 import { createInterface } from 'readline';
-import { defaultConfig, validateInput, debug, validateEnvironment } from './config.js';
+import { defaultConfig, validateInput, debug, validateEnvironment } from './utils/config.js';
 
 import { MCPServerManager } from './services/mcp/mcp-server-manager.js';
 import { AIServiceFactory } from './services/ai-service-factory.js';
@@ -381,7 +381,6 @@ program
       console.log(`\nStarting new MCP-enabled chat session`);
       console.log('Available commands:');
       console.log('  /search <query>  - Perform a web search');
-      console.log('  /local <query>   - Search for local businesses');
       console.log('Type "exit" to end the conversation\n');
 
       const readline = createInterface({

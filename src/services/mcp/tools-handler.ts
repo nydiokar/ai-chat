@@ -15,8 +15,10 @@ export class ToolsHandler {
         private db: DatabaseService
     ) {
         this.availableTools = new Set();
+        this.toolContexts = new Map();
         this.initializeTools();
-        this.loadPersistedContexts();
+        // Clear old contexts first
+        this.clearOldContexts().then(() => this.loadPersistedContexts());
     }
 
     private async loadPersistedContexts(): Promise<void> {
@@ -199,13 +201,27 @@ export class ToolsHandler {
             console.log('[ToolsHandler] No tools available, attempting to initialize...');
             await this.initializeTools();
             
-            // Double check tools were initialized
             if (this.availableTools.size === 0) {
                 console.warn('[ToolsHandler] Still no tools available after initialization');
                 return "I apologize, but I'm currently unable to access my tools. Please try again in a moment.";
             }
         }
 
+        // Add stricter validation for GitHub-related queries
+        if (query.toLowerCase().includes('github')) {
+            const githubCommands = ['issues', 'pulls', 'repos', 'users', 'commits'];
+            const hasValidCommand = githubCommands.some(cmd => query.toLowerCase().includes(cmd));
+            
+            if (!hasValidCommand) {
+                return `I apologize, but I need more specific parameters for GitHub queries. Please specify what you're looking for:
+                - For issues: Include 'issues' in your query
+                - For pull requests: Include 'pulls' in your query
+                - For repositories: Include 'repos' in your query
+                - For users: Include 'users' in your query
+                - For commits: Include 'commits' in your query`;
+            }
+        }
+        
         console.log(`[ToolsHandler] Processing query: ${query}`);
         
         // Try both formats
@@ -277,5 +293,18 @@ export class ToolsHandler {
         const response = await this.ai.generateResponse(query, messages);
         await this.db.addMessage(conversationId, response.content, 'assistant');
         return response.content;
+    }
+
+    private async clearOldContexts(): Promise<void> {
+        try {
+            await this.db.executePrismaOperation(async (prisma) => {
+                await prisma.$executeRaw`
+                    DELETE FROM MCPToolContext 
+                    WHERE lastRefreshed < datetime('now', '-1 day')
+                `;
+            });
+        } catch (error) {
+            console.error('[ToolsHandler] Failed to clear old contexts:', error);
+        }
     }
 }

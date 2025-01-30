@@ -15,6 +15,6 @@
   "include": [
     "src/**/*",
     "src/**/*.json"
-  ],
+, "tests/bot.test.ts", "tests/mcp-integration.test.ts"  ],
   "exclude": ["node_modules", "dist"]
 }
