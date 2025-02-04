@@ -1,7 +1,17 @@
+/**
+ * @fileoverview Manages conversation branching and traversal functionality.
+ * This service enables creating and managing conversation branches, similar to Git branches.
+ * It supports features like forking conversations, tracking message ancestry, and managing branch relationships.
+ */
+
 import { DatabaseService } from '../db-service.js';
 import { debug } from '../../utils/config.js';
 import crypto from 'crypto';
 
+/**
+ * Custom error class for handling conversation traversal operations.
+ * Provides detailed context about what went wrong during branching operations.
+ */
 export class ConversationTraversalError extends Error {
     constructor(message: string, public cause?: unknown) {
         super(message);
@@ -10,6 +20,10 @@ export class ConversationTraversalError extends Error {
     }
 }
 
+/**
+ * Service responsible for managing conversation branches and message traversal.
+ * Implements the Singleton pattern to ensure consistent state management.
+ */
 export class ConversationTraversalService {
     private static instance: ConversationTraversalService;
     private readonly db: DatabaseService;
@@ -25,6 +39,12 @@ export class ConversationTraversalService {
         return ConversationTraversalService.instance;
     }
 
+    /**
+     * Retrieves all messages for a specific conversation.
+     * @param conversationId - Unique identifier of the conversation
+     * @returns Array of messages in the conversation
+     * @throws ConversationTraversalError if retrieval fails
+     */
     async getMessagesForConversation(conversationId: number) {
         try {
             debug(`Getting messages for conversation ${conversationId}`);
@@ -35,6 +55,16 @@ export class ConversationTraversalService {
         }
     }
 
+    /**
+     * Creates a new conversation branch from an existing conversation.
+     * Copies messages up to the parent message to maintain conversation context.
+     * 
+     * @param sourceConversationId - ID of the conversation to branch from
+     * @param parentMessageId - Message ID where the branch should start
+     * @param title - Optional title for the new branch
+     * @returns Object containing new branch details (conversationId, branchId, parentMessageId)
+     * @throws ConversationTraversalError if branch creation fails
+     */
     async createBranch(
         sourceConversationId: number,
         parentMessageId: string,
@@ -89,6 +119,16 @@ export class ConversationTraversalService {
         }
     }
 
+    /**
+     * Determines if a message is part of the ancestry path leading to a target message.
+     * Used to identify which messages should be included when creating a new branch.
+     * 
+     * @param messages - Array of all messages in the conversation
+     * @param messageId - ID of the message to check
+     * @param targetParentId - ID of the target ancestor message
+     * @returns boolean indicating if the message is in the branch path
+     * @private
+     */
     private isMessageInBranchPath(messages: any[], messageId: string | number, targetParentId: string): boolean {
         // Convert IDs to strings for comparison
         const currentId = messageId.toString();
@@ -113,6 +153,14 @@ export class ConversationTraversalService {
         return ancestryPath.has(currentId);
     }
 
+    /**
+     * Retrieves all branches created from a specific conversation.
+     * Includes branch metadata like creation time and title.
+     * 
+     * @param conversationId - ID of the conversation to get branches for
+     * @returns Array of branch information including IDs and metadata
+     * @throws ConversationTraversalError if branch retrieval fails
+     */
     async getBranches(conversationId: number) {
         try {
             debug(`Getting branches for conversation ${conversationId}`);
@@ -151,6 +199,14 @@ export class ConversationTraversalService {
         }
     }
 
+    /**
+     * Retrieves the parent branch information for a given conversation.
+     * Used for navigating the branch hierarchy and maintaining relationships.
+     * 
+     * @param conversationId - ID of the conversation to find parent for
+     * @returns Parent branch information or null if conversation has no parent
+     * @throws ConversationTraversalError if parent lookup fails
+     */
     async getParentBranch(conversationId: number) {
         try {
             debug(`Getting parent branch for conversation ${conversationId}`);

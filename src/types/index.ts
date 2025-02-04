@@ -55,6 +55,7 @@ export interface Conversation {
   tokenCount: number;
   discordGuildId?: string;
   discordChannelId?: string;
+  parentMessageId?: string;
   messages: Message[];
   session?: Session;
 }
@@ -127,19 +128,6 @@ export interface ToolCallResult {
 export * from './task.js';
 export * from './errors.js';
 
-// Message type used in conversations
-export interface Message {
-  id: number;
-  content: string;
-  role: "user" | "system" | "assistant";
-  conversationId: number;
-  createdAt: Date;
-  tokenCount?: number | null;
-  discordUserId?: string | null;
-  discordUsername?: string | null;
-}
-
-
 // Base configuration interface
 export interface BaseConfig {
   maxContextMessages: number;
@@ -149,4 +137,13 @@ export interface BaseConfig {
   retryDelay: number;
   timeout: number;
   rateLimit: number;
+}
+
+export type MessageContext = DiscordMessageContext | CLIMessageContext;
+
+export interface CLIMessageContext {
+    channelId: string;
+    userId: string;
+    messageId: string;
+    guildId?: string;
 }

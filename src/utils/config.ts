@@ -10,11 +10,11 @@ export interface BaseConfig {
     enabled: boolean;
     cleanupInterval: number;  // Hours before inactive sessions are cleaned up
     sessionTimeout: number;   // Hours before a session is considered inactive
-  };
-  mcp: {
-    enabled: boolean;
-    authToken?: string;
-    logLevel?: 'error' | 'warn' | 'info' | 'debug';
+    mcp: {  // MCP under Discord since it should only be used there
+      enabled: boolean;
+      authToken?: string;
+      logLevel?: 'error' | 'warn' | 'info' | 'debug';
+    };
   };
 }
 
@@ -29,38 +29,44 @@ export const defaultConfig: BaseConfig = {
     enabled: process.env.DISCORD_ENABLED === 'true',
     cleanupInterval: 24,     // Clean up sessions every 24 hours
     sessionTimeout: 1,       // Sessions inactive for 1 hour are closed
-  },
-  mcp: {
-    enabled: true,
-    authToken: process.env.MCP_AUTH_TOKEN,
-    logLevel: (process.env.MCP_LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug'
+    mcp: {
+      enabled: process.env.DISCORD_ENABLED === 'true' && process.env.MCP_ENABLED === 'true',
+      authToken: process.env.MCP_AUTH_TOKEN,
+      logLevel: (process.env.MCP_LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug'
+    }
   }
 };
 
 export function validateEnvironment(): void {
-  const required = [
-    'OPENAI_API_KEY',
-    'ANTHROPIC_API_KEY',
-    'DATABASE_URL'
-  ];
-
+  // Only validate DATABASE_URL by default
+  const required = ['DATABASE_URL'];
+  
+  // Check for model-specific API keys only if they're being used
+  const model = process.env.MODEL || 'gpt';
+  if (model === 'gpt') required.push('OPENAI_API_KEY');
+  if (model === 'claude') required.push('ANTHROPIC_API_KEY');
+  if (model === 'deepseek') required.push('DEEPSEEK_API_KEY');
+  
+  // Validate Discord and MCP if Discord is enabled
   if (process.env.DISCORD_ENABLED === 'true') {
     required.push('DISCORD_TOKEN');
+    
+    // Only validate MCP if Discord is enabled and MCP is explicitly enabled
+    if (process.env.MCP_ENABLED === 'true') {
+      required.push('MCP_AUTH_TOKEN');
+      
+      // Validate MCP log level if specified
+      const validLogLevels = ['error', 'warn', 'info', 'debug'];
+      if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
+        throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
+      }
+    }
   }
   
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-  }
-
-  // Validate MCP-specific configurations
-  if (process.env.MCP_ENABLED === 'true') {
-    // Validate MCP log level if specified
-    const validLogLevels = ['error', 'warn', 'info', 'debug'];
-    if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
-      throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
-    }
   }
 }
 

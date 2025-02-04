@@ -1,15 +1,28 @@
+/**
+ * @fileoverview Implements a caching layer for conversation branches and messages.
+ * Provides performance optimization through file-based caching using Keyv.
+ * Includes metrics tracking and branch relationship management.
+ */
+
 import Keyv from 'keyv';
 import { KeyvFile } from 'keyv-file';
 import { DatabaseService } from '../db-service.js';
 import { debug } from '../../utils/config.js';
 import { Message } from 'discord.js';
 
+/**
+ * Configuration options for the cache service
+ */
 interface CacheConfig {
     filename: string;
     namespace?: string;
     ttl?: number;
 }
 
+/**
+ * Generic structure for cached items with metadata
+ * @template T The type of data being cached
+ */
 interface CacheEntry<T> {
     data: T;
     expires: number;
@@ -19,12 +32,18 @@ interface CacheEntry<T> {
     };
 }
 
+/**
+ * Metrics for monitoring cache performance
+ */
 interface CacheMetrics {
     hits: number;
     misses: number;
     lastAccessed: Date;
 }
 
+/**
+ * Metadata associated with conversation branches
+ */
 interface BranchMetadata {
     created: Date;
     lastAccessed: Date;
@@ -32,6 +51,9 @@ interface BranchMetadata {
     parent?: string;
 }
 
+/**
+ * Structure representing a conversation branch with messages and metadata
+ */
 interface ConversationBranch {
     id: string;
     parent?: string;
@@ -40,6 +62,9 @@ interface ConversationBranch {
     metadata: BranchMetadata;
 }
 
+/**
+ * Custom error class for cache-related operations
+ */
 export class CacheError extends Error {
     constructor(message: string, public cause?: unknown) {
         super(message);
@@ -48,6 +73,10 @@ export class CacheError extends Error {
     }
 }
 
+/**
+ * Service managing cache operations for conversation branches
+ * Implements file-based caching with metrics tracking and error handling
+ */
 export class CacheService {
     private static instance: CacheService;
     private readonly cache: Keyv;
@@ -89,6 +118,12 @@ export class CacheService {
         return CacheService.instance;
     }
 
+    /**
+     * Updates cache metrics for monitoring and optimization
+     * @param key - Cache key being accessed
+     * @param hit - Whether the access was a cache hit
+     * @private
+     */
     private async updateMetrics(key: string, hit: boolean): Promise<void> {
         try {
             const existingMetrics = (await this.metricsCache.get(key)) as CacheMetrics | undefined;
@@ -121,6 +156,13 @@ export class CacheService {
         }
     }
 
+    /**
+     * Retrieves a value from cache with type safety
+     * @template T Type of cached value
+     * @param key Cache key to retrieve
+     * @returns Promise resolving to cached value or null if not found
+     * @throws CacheError if retrieval fails
+     */
     async get<T>(key: string): Promise<T | null> {
         try {
             const cached = await this.cache.get(key) as CacheEntry<T>;
@@ -139,6 +181,16 @@ export class CacheService {
         }
     }
 
+    /**
+     * Stores a value in cache with optional metadata and TTL
+     * @template T Type of value to cache
+     * @param key Cache key
+     * @param data Value to store
+     * @param metadata Optional metadata about the cached item
+     * @param ttl Optional time-to-live in milliseconds
+     * @returns Promise resolving to boolean indicating success
+     * @throws CacheError if storage fails
+     */
     async set<T>(
         key: string, 
         data: T, 
@@ -197,6 +249,15 @@ export class CacheService {
         }
     }
 
+    /**
+     * Creates a new conversation branch in cache
+     * Handles parent-child relationships and ensures data consistency
+     * 
+     * @param parentId Optional ID of parent branch
+     * @param messages Initial messages for the branch
+     * @returns Promise resolving to the created branch
+     * @throws CacheError if branch creation fails
+     */
     async createBranch(parentId: string | null, messages: Message[]): Promise<ConversationBranch> {
         try {
             // First, verify parent exists if provided

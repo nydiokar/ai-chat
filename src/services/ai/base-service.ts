@@ -36,7 +36,7 @@ export abstract class BaseAIService implements AIService {
     private initialized: boolean = false;
 
     constructor() {
-        if (defaultConfig.mcp.enabled) {
+        if (defaultConfig.discord.mcp.enabled) {
             const db = DatabaseService.getInstance();
             this.mcpManager = new MCPServerManager(db, this);
             this.initPromise = this.initializeMCP();

@@ -38,7 +38,6 @@ export interface MCPConfig {
 }
 
 export function getMCPConfig(): MCPConfig {
-    console.log('[getMCPConfig] Loading config:', JSON.stringify(mcpConfig, null, 2));
     return mcpConfig;
 }
 

@@ -8,14 +8,13 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
   - Command-line interface for direct chat
   - Discord bot for team collaboration
 - AI Integration:
-  - Chat with OpenAI's GPT or Anthropic's Claude
+  - Chat with OpenAI's GPT, Anthropic's Claude, or DeepSeek
   - Smart context management
   - Automatic retry on API rate limits
 - Conversation Management:
   - Local storage using SQLite
   - List, show, continue, and delete conversations
-  - Session tracking for Discord users
-  - Automatic cleanup of inactive sessions
+  - Branching conversations with rewind/forward functionality
 - User Experience:
   - Input validation and error handling
   - Debug mode for troubleshooting
@@ -25,8 +24,9 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
 
 - Node.js (v16 or higher)
 - npm
-- OpenAI API key
-- Anthropic API key
+- OpenAI API key (for GPT)
+- Anthropic API key (for Claude)
+- DeepSeek API key (for DeepSeek)
 
 ## Installation
 
@@ -41,11 +41,12 @@ cd them
 npm install
 ```
 
-3. Create a `.env` file in the root directory with your API keys and configuration:
+3. Create a `.env` file in the root directory with your API keys:
 ```env
-# API Keys
+# Required API Keys (add the ones you plan to use)
 OPENAI_API_KEY=your_openai_key_here
 ANTHROPIC_API_KEY=your_anthropic_key_here
+DEEPSEEK_API_KEY=your_deepseek_key_here
 
 # Debug Mode (Optional)
 DEBUG=true
@@ -138,8 +139,13 @@ pm2 save
 The CLI interface is separate from the Discord bot and can be used independently:
 
 ```bash
-# Start a new chat
+# Start a new chat (default model is gpt)
 them chat
+
+# Start a chat with specific model
+them chat -m claude
+them chat -m gpt
+them chat -m deepseek
 
 # List recent conversations
 them list
@@ -178,7 +184,7 @@ them delete <id>
 
 ## Configuration
 
-The application can be configured through environment variables and the config file:
+The application can be configured through environment variables:
 
 ### General Settings
 - `DEBUG=true` - Enable debug logging
@@ -187,13 +193,6 @@ The application can be configured through environment variables and the config f
 - `MAX_RETRIES=3` - Number of retry attempts for rate-limited API calls
 - `RETRY_DELAY=1000` - Delay between retries in milliseconds
 
-### Discord Settings
-- `DISCORD_ENABLED=true` - Enable Discord bot functionality
-- `DISCORD_TOKEN` - Your Discord bot token
-- Session Management:
-  - `cleanupInterval: 24` - Hours between inactive session cleanup (default: 24)
-  - `sessionTimeout: 1` - Hours before a session is considered inactive (default: 1)
-
 ## Debug Mode
 
 Enable debug mode by setting `DEBUG=true` in your `.env` file. This will log:
@@ -201,8 +200,6 @@ Enable debug mode by setting `DEBUG=true` in your `.env` file. This will log:
 - Database operations
 - Error details
 - Conversation flow
-- Discord bot events and operations
-- Session management activities
 
 ## License
 

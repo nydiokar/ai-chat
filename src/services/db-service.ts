@@ -641,4 +641,40 @@ export class DatabaseService {
       throw new DatabaseError(`Failed to delete branch conversation ${conversationId}`, error as Error);
     }
   }
+
+  async saveConversationState(id: string, state: any): Promise<void> {
+    await this.prisma.conversation.update({
+      where: { id: Number(id) },
+      data: {
+        title: state.name?.slice(0, this.MAX_TITLE_LENGTH),
+        summary: JSON.stringify(state.data)?.slice(0, this.MAX_SUMMARY_LENGTH)
+      }
+    });
+  }
+
+  async loadConversationState(name: string): Promise<any> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { title: name },
+      include: { messages: true }
+    });
+    
+    return conversation ? {
+      data: conversation.summary ? JSON.parse(conversation.summary) : null,
+      messages: conversation.messages
+    } : null;
+  }
+
+  async getSiblingMessages(parentId: string): Promise<any[]> {
+    return await this.prisma.message.findMany({
+      where: { parentMessageId: Number(parentId) }
+    });
+  }
+
+  async switchToAlternative(conversationId: string, messageId: string): Promise<void> {
+    await this.prisma.conversation.update({
+      where: { id: Number(conversationId) },
+      data: { parentMessageId: messageId }
+    });
+  }
 }
+
