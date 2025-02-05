@@ -20,6 +20,9 @@ model Message {
   discordChannelId String?
   contextId       String?      // Link to ConversationContext
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parentMessage   Message?     @relation("MessageThread", fields: [parentMessageId], references: [id])
+  childMessages   Message[]    @relation("MessageThread")
+  context         ConversationContext? @relation(fields: [contextId], references: [id])
   context         ConversationContext? @relation(fields: [contextId], references: [id])
 
   @@index([conversationId, createdAt])
