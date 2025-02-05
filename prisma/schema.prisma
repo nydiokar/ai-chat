@@ -17,13 +17,16 @@ model Message {
   discordUserId   String?
   discordUsername String?
   parentMessageId Int?
+  contextId       String?      // Link to ConversationContext
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   parentMessage   Message?     @relation("MessageThread", fields: [parentMessageId], references: [id])
   childMessages   Message[]    @relation("MessageThread")
+  context         ConversationContext? @relation(fields: [contextId], references: [id])
 
   @@index([conversationId, createdAt])
   @@index([discordUserId])
   @@index([parentMessageId])
+  @@index([contextId])
 }
 
 model Conversation {
@@ -41,6 +44,7 @@ model Conversation {
   messages         Message[]
   session          Session?
   tasks            Task[]
+  contexts         ConversationContext[] // Link to ConversationContext
 
   @@index([createdAt])
   @@index([branchId])
@@ -118,15 +122,17 @@ model MCPToolUsage {
 }
 
 model User {
-  id            String   @id
-  username      String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  isActive      Boolean  @default(true)
-  preferences   Json?
-  assignedTasks Task[]   @relation("TaskAssignee")
-  tasks         Task[]
-  taskHistory   TaskHistory[]
+  id                String               @id
+  username          String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  isActive          Boolean             @default(true)
+  preferences       Json?
+  assignedTasks     Task[]              @relation("TaskAssignee")
+  tasks             Task[]
+  taskHistory       TaskHistory[]
+  commandPatterns   CommandUsagePattern[]
+  memoryPreferences UserMemoryPreferences?
 
   @@index([username])
 }
@@ -204,4 +210,60 @@ model Task {
   @@index([status])
   @@index([dueDate])
   @@index([conversationId])
+}
+
+// Memory System Models
+
+model ConversationContext {
+  id             String    @id @default(cuid())
+  conversationId Int
+  topics         Json      // This should be properly typed as string[]
+  entities       Json      // This should be properly typed as string[]
+  summary        String
+  timestamp      DateTime  @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messages       Message[]
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+model EntityRelationship {
+  id           String   @id @default(cuid())
+  sourceId     String
+  targetId     String
+  relationType String
+  strength     Float
+  lastUpdated  DateTime @default(now())
+
+  @@unique([sourceId, targetId, relationType])
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([lastUpdated])
+}
+
+model CommandUsagePattern {
+  id          String   @id @default(cuid())
+  userId      String
+  commandName String
+  frequency   Int      @default(0)
+  lastUsed    DateTime @default(now())
+  successRate Float    @default(0)
+  contexts    Json     // This should be properly typed as string[]
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commandName])
+  @@index([userId])
+  @@index([lastUsed])
+  @@index([frequency])
+}
+
+model UserMemoryPreferences {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  settings      Json     // This should be properly typed as Record<string, any>
+  lastUpdated   DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastUpdated])
 }
