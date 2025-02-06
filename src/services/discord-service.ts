@@ -374,7 +374,7 @@ export class DiscordService {
     }
   }
 
-  protected async sendMessage(channel: TextChannel, content: string, reference?: Message): Promise<void> {
+  public async sendMessage(channel: TextChannel, content: string, reference?: Message): Promise<void> {
     const MAX_LENGTH = 1900;
     
     if (content.length <= MAX_LENGTH) {

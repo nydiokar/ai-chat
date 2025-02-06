@@ -19,7 +19,8 @@ export enum TaskHistoryAction {
   ASSIGNED = 'ASSIGNED',
   UNASSIGNED = 'UNASSIGNED',
   UPDATED = 'UPDATED',
-  DELETED = 'DELETED'
+  DELETED = 'DELETED',
+  SPAWN = 'SPAWN'
 }
 
 export enum RecurrenceType {
@@ -134,6 +135,7 @@ export interface TaskFilters {
   isRecurring?: boolean;
   limit?: number;
   offset?: number;
+  parentTaskId?: number;
 }
 
 export interface TaskListResult {
