@@ -1,8 +1,8 @@
 import { Message, MessageRole } from '../../types/index.js';
 import { defaultConfig, debug } from '../../utils/config.js';
 import { DatabaseService } from '../db-service.js';
-import { MCPServerManager } from '../mcp/mcp-server-manager.js';
-import { SystemPromptGenerator } from '../mcp/system-prompt-generator.js';
+import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
+import { SystemPromptGenerator } from '../../system-prompt-generator.js';
 import { getMCPConfig } from '../../types/mcp-config.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';

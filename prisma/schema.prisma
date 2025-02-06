@@ -183,33 +183,40 @@ model CacheMetrics {
 }
 
 model Task {
-  id             Int           @id @default(autoincrement())
-  title          String
-  description    String
-  status         TaskStatus    @default(OPEN)
-  priority       TaskPriority  @default(MEDIUM)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  dueDate        DateTime?
-  completedAt    DateTime?
-  creatorId      String
-  assigneeId     String?
-  conversationId Int?
-  tags           Json
-  metadata       Json?
-  parentTaskId   Int?
-  parentTask     Task?         @relation("SubTasks", fields: [parentTaskId], references: [id])
-  subTasks       Task[]        @relation("SubTasks")
-  conversation   Conversation? @relation(fields: [conversationId], references: [id])
-  assignee       User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  creator        User          @relation(fields: [creatorId], references: [id])
-  history        TaskHistory[]
+  id                Int           @id @default(autoincrement())
+  title             String
+  description       String
+  status            TaskStatus    @default(OPEN)
+  priority          TaskPriority  @default(MEDIUM)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  dueDate           DateTime?
+  completedAt       DateTime?
+  creatorId         String
+  assigneeId        String?
+  conversationId    Int?
+  tags              Json
+  metadata          Json?
+  parentTaskId      Int?
+  isRecurring       Boolean       @default(false)
+  recurrencePattern Json?         // Stores RecurrencePattern as JSON
+  originalTaskId    Int?          // For recurring instances, references template task
+  parentTask        Task?         @relation("SubTasks", fields: [parentTaskId], references: [id])
+  subTasks          Task[]        @relation("SubTasks")
+  templateTask      Task?         @relation("RecurringInstances", fields: [originalTaskId], references: [id])
+  recurringInstances Task[]       @relation("RecurringInstances")
+  conversation      Conversation? @relation(fields: [conversationId], references: [id])
+  assignee          User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator           User          @relation(fields: [creatorId], references: [id])
+  history           TaskHistory[]
 
   @@index([creatorId])
   @@index([assigneeId])
   @@index([status])
   @@index([dueDate])
   @@index([conversationId])
+  @@index([isRecurring])
+  @@index([originalTaskId])
 }
 
 // Memory System Models

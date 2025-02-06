@@ -1,4 +1,4 @@
 export * from './base-service.js';
-export * from './openai-service.js';
-export * from './anthropic-service.js'; 
-export * from './deepseek-service.js';
+export * from './openai.js';
+export * from './anthropic.js'; 
+export * from './deepseek.js';

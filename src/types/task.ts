@@ -1,4 +1,3 @@
-
 export enum TaskStatus {
   OPEN = 'OPEN',
   IN_PROGRESS = 'IN_PROGRESS',
@@ -21,6 +20,23 @@ export enum TaskHistoryAction {
   UNASSIGNED = 'UNASSIGNED',
   UPDATED = 'UPDATED',
   DELETED = 'DELETED'
+}
+
+export enum RecurrenceType {
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
+  CUSTOM = 'CUSTOM'
+}
+
+export interface RecurrencePattern {
+  type: RecurrenceType;
+  interval: number; // 1 for daily, 2 for every other day, etc.
+  daysOfWeek?: number[]; // 0-6 for weekly recurrence
+  dayOfMonth?: number; // 1-31 for monthly recurrence
+  endDate?: Date;
+  endAfterOccurrences?: number;
+  customPattern?: string; // For custom cron-like patterns
 }
 
 export interface User {
@@ -69,6 +85,9 @@ export interface Task {
   tags: Record<string, any>;
   metadata?: Record<string, any>;
   parentTaskId?: number;
+  isRecurring?: boolean;
+  recurrencePattern?: RecurrencePattern;
+  originalTaskId?: number; // For recurring task instances, points to the template task
 }
 
 export interface TaskWithRelations extends Task {
@@ -77,6 +96,7 @@ export interface TaskWithRelations extends Task {
   subTasks: Task[];
   parentTask?: Task;
   history: TaskHistory[];
+  recurringInstances?: Task[]; // Only populated for template tasks
 }
 
 export interface CreateTaskDTO {
@@ -90,6 +110,8 @@ export interface CreateTaskDTO {
   tags?: string[];
   metadata?: Record<string, any>;
   parentTaskId?: number;
+  isRecurring?: boolean;
+  recurrencePattern?: RecurrencePattern;
 }
 
 export interface UpdateTaskDTO {
@@ -101,6 +123,7 @@ export interface UpdateTaskDTO {
   assigneeId?: string;
   tags?: string[];
   metadata?: Record<string, any>;
+  recurrencePattern?: RecurrencePattern;
 }
 
 export interface TaskFilters {
@@ -108,6 +131,7 @@ export interface TaskFilters {
   assigneeId?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
+  isRecurring?: boolean;
   limit?: number;
   offset?: number;
 }

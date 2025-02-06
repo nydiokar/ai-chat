@@ -1,5 +1,5 @@
-import { MCPTool } from "../../types/index.js";
-import { MCPServerManager } from "./mcp-server-manager.js";
+import { MCPTool } from "./types/index.js";
+import { MCPServerManager } from "./tools/mcp/mcp-server-manager.js";
 
 export class SystemPromptGenerator {
     private readonly defaultSystemPrompt = `You are Brony, an intelligent AI assistant with access to various tools to help answer queries effectively.

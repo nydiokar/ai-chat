@@ -1,12 +1,12 @@
 import dotenv from 'dotenv';
 dotenv.config(); // Load environment variables first
 
-import { MCPServerManager } from "../services/mcp/mcp-server-manager.js";
+import { MCPServerManager } from "../tools/mcp/mcp-server-manager.js";
 import { DatabaseService } from "../services/db-service.js";
 import { AIServiceFactory } from "../services/ai-service-factory.js";
 import { assert } from "chai";
 import { describe, it, before, after } from "mocha";
-import { mcpConfig } from "../utils/tools.js";
+import { mcpConfig } from "../tools/mcp/mcp_config.js";
 import { MCPError, ErrorType } from '../types/errors.js';
 
 describe('MCP Integration Tests', () => {

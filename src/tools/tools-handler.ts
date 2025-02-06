@@ -1,9 +1,9 @@
-import { Message, MCPToolContext, MCPToolUsageHistory } from '../../types/index.js';
-import { AIService } from '../ai/base-service.js';
-import { MCPClientService } from './mcp-client-service.js';
-import { DatabaseService } from '../db-service.js';
-import { MCPError } from '../../types/errors.js';
-import { ToolWithUsage } from '../../types/mcp-config.js';
+import { Message, MCPToolContext, MCPToolUsageHistory } from '../types/index.js';
+import { AIService } from '../services/ai/base-service.js';
+import { MCPClientService } from './mcp/mcp-client-service.js';
+import { DatabaseService } from '../services/db-service.js';
+import { MCPError } from '../types/errors.js';
+import { ToolWithUsage } from '../types/mcp-config.js';
 
 export class ToolsHandler {
     private availableTools: Set<string>;

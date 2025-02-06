@@ -1,11 +1,11 @@
 import dotenv from 'dotenv';
 dotenv.config(); // Load environment variables first
 
-import { DatabaseService } from "../db-service.js";
+import { DatabaseService } from "../../services/db-service.js";
 import { MCPClientService } from "./mcp-client-service.js";
 import EventEmitter from "events";
-import { ToolsHandler } from "./tools-handler.js";
-import { AIService } from "../ai/base-service.js";
+import { ToolsHandler } from "../tools-handler.js";
+import { AIService } from "../../services/ai/base-service.js";
 import {
   getMCPConfig,
   MCPConfig,

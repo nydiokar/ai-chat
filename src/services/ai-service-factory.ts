@@ -1,9 +1,9 @@
 import { AIService } from './ai/base-service.js';
-import { OpenAIService } from './ai/openai-service.js';
-import { AnthropicService } from './ai/anthropic-service.js';
+import { OpenAIService } from './ai/openai.js';
+import { AnthropicService } from './ai/anthropic.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { handleError } from '../utils/error-handler.js';
-import { DeepseekService } from './ai/deepseek-service.js';
+import { DeepseekService } from './ai/deepseek.js';
 
 export class AIServiceFactory {
     static create(model: 'gpt' | 'claude' | 'deepseek' = 'gpt'): AIService {

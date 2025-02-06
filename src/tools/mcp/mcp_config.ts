@@ -1,4 +1,4 @@
-import { MCPConfig } from "../types/mcp-config";
+import { MCPConfig } from "../../types/mcp-config";
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
