@@ -1,34 +1,38 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { TaskNotificationService } from './task-notification.service.js';
-import { DiscordService } from '../discord-service.js';
-import { TaskWithRelations, TaskStatus, TaskPriority, User } from '../../types/task.js';
+import { NotificationService } from './notification.service.js';
+import { TaskWithRelations, TaskStatus, TaskPriority, DependencyType } from '../../types/task.js';
+import { PrismaClient } from '@prisma/client';
 
 describe('TaskNotificationService', () => {
   let notificationService: TaskNotificationService;
-  let discordServiceStub: sinon.SinonStubbedInstance<DiscordService>;
+  let notificationServiceStub: sinon.SinonStubbedInstance<NotificationService>;
+  let prismaStub: sinon.SinonStubbedInstance<PrismaClient>;
 
   beforeEach(() => {
-    discordServiceStub = sinon.createStubInstance(DiscordService);
+    notificationServiceStub = sinon.createStubInstance(NotificationService);
+    const findUniqueTaskStub = sinon.stub();
+    const disconnectStub = sinon.stub().resolves();
+
+    prismaStub = {
+      task: {
+        findUnique: findUniqueTaskStub,
+      },
+      $disconnect: disconnectStub,
+    } as any;
+
+    findUniqueTaskStub.resolves(null);
+
     (TaskNotificationService as any).instance = null;
     notificationService = TaskNotificationService.getInstance();
-    (notificationService as any).discordService = discordServiceStub;
+    (notificationService as any).notificationService = notificationServiceStub;
+    (notificationService as any).prisma = prismaStub;
   });
 
   afterEach(() => {
     sinon.restore();
   });
-
-  const mockUser: User = {
-    id: 'user1',
-    username: 'testuser',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    isActive: true,
-    preferences: {
-      discordChannelId: 'channel123'
-    }
-  };
 
   const mockTask: TaskWithRelations = {
     id: 1,
@@ -39,107 +43,194 @@ describe('TaskNotificationService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
     dueDate: new Date(),
-    creatorId: mockUser.id,
-    creator: mockUser,
-    assignee: mockUser,
-    tags: [],
+    creatorId: 'user1',
+    creator: {
+      id: 'user1',
+      username: 'testuser',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isActive: true
+    },
+    assigneeId: 'user1',
+    assignee: {
+      id: 'user1',
+      username: 'testuser',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isActive: true
+    },
+    tags: {},
     subTasks: [],
-    history: []
+    history: [],
+    blockedBy: [],
+    blocking: []
   };
 
   describe('notifyTaskSpawned', () => {
     it('should send notification when task is spawned', async () => {
       await notificationService.notifyTaskSpawned(mockTask);
-
-      expect(discordServiceStub.sendMessage.calledOnce).to.be.true;
-      const message = discordServiceStub.sendMessage.firstCall.args[1];
+      expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
+      const message = notificationServiceStub.sendNotification.firstCall.args[1];
       expect(message).to.include('New recurring task instance created');
       expect(message).to.include(mockTask.title);
     });
-
-    it('should not send notification when assignee is missing', async () => {
-      const taskWithoutAssignee = { ...mockTask, assignee: undefined };
-      await notificationService.notifyTaskSpawned(taskWithoutAssignee);
-
-      expect(discordServiceStub.sendMessage.called).to.be.false;
-    });
   });
 
-  describe('notifyTaskDueSoon', () => {
-    it('should send notification about approaching due date', async () => {
-      const daysUntilDue = 2;
-      await notificationService.notifyTaskDueSoon(mockTask, daysUntilDue);
-
-      expect(discordServiceStub.sendMessage.calledOnce).to.be.true;
-      const message = discordServiceStub.sendMessage.firstCall.args[1];
-      expect(message).to.include(`Task due in ${daysUntilDue} days`);
-      expect(message).to.include(mockTask.title);
-    });
-
-    it('should handle singular day correctly', async () => {
-      await notificationService.notifyTaskDueSoon(mockTask, 1);
-
-      expect(discordServiceStub.sendMessage.calledOnce).to.be.true;
-      const message = discordServiceStub.sendMessage.firstCall.args[1];
-      expect(message).to.include('Task due in 1 day');
-    });
-
-    it('should not send notification when task has no due date', async () => {
-      const taskWithoutDueDate = { ...mockTask, dueDate: undefined };
-      await notificationService.notifyTaskDueSoon(taskWithoutDueDate, 1);
-
-      expect(discordServiceStub.sendMessage.called).to.be.false;
-    });
-  });
-
-  describe('notifyTaskCompleted', () => {
-    it('should notify creator and assignee when task is completed', async () => {
-      const completedBy = { 
-        ...mockUser, 
-        id: 'user2', 
-        username: 'completer' 
-      };
-
-      const taskWithDifferentUsers = {
+  describe('notifyDependencyStatusChange', () => {
+    it('should notify about unblocked tasks when task is completed', async () => {
+      const blockedTask = {
         ...mockTask,
-        creatorId: 'user1',
-        creator: mockUser,
-        assignee: { 
-          ...mockUser, 
-          id: 'user3', 
-          username: 'assignee',
-          preferences: { discordChannelId: 'channel456' }
-        }
+        id: 2,
+        assigneeId: 'user2'
       };
 
-      await notificationService.notifyTaskCompleted(taskWithDifferentUsers, completedBy);
+      (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
 
-      expect(discordServiceStub.sendMessage.calledTwice).to.be.true;
-      
-      const creatorMessage = discordServiceStub.sendMessage.firstCall.args[1];
-      expect(creatorMessage).to.include('Task completed');
-      expect(creatorMessage).to.include(completedBy.username);
-      expect(discordServiceStub.sendMessage.firstCall.args[0]).to.equal('channel123');
+      const taskWithDependencies = {
+        ...mockTask,
+        blocking: [{
+          id: 1,
+          blockedTaskId: 2,
+          blockerTaskId: 1,
+          dependencyType: DependencyType.BLOCKS,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }]
+      };
 
-      const assigneeMessage = discordServiceStub.sendMessage.secondCall.args[1];
-      expect(assigneeMessage).to.include('Task completed');
-      expect(assigneeMessage).to.include(completedBy.username);
-      expect(discordServiceStub.sendMessage.secondCall.args[0]).to.equal('channel456');
+      await notificationService.notifyDependencyStatusChange(taskWithDependencies, true);
+
+      expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
+      const message = notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include('unblocking your task');
     });
 
-    it('should send only one notification when creator and assignee are the same', async () => {
-      await notificationService.notifyTaskCompleted(mockTask, mockUser);
+    it('should notify about parallel tasks', async () => {
+      const blockedTask = {
+        ...mockTask,
+        id: 2,
+        assigneeId: 'user2'
+      };
 
-      expect(discordServiceStub.sendMessage.calledOnce).to.be.true;
+      (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
+
+      const taskWithParallel = {
+        ...mockTask,
+        blocking: [{
+          id: 1,
+          blockedTaskId: 2,
+          blockerTaskId: 1,
+          dependencyType: DependencyType.PARALLEL,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }]
+      };
+
+      await notificationService.notifyDependencyStatusChange(taskWithParallel, false);
+
+      expect(notificationServiceStub.sendNotification.calledTwice).to.be.true;
+      const message = notificationServiceStub.sendNotification.secondCall.args[1];
+      expect(message).to.include('can be worked on in parallel');
+    });
+  });
+
+  describe('notifyHealthIssues', () => {
+    it('should identify and notify about approaching deadlines', async () => {
+      const blockedTask = {
+        ...mockTask,
+        id: 2,
+        dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
+        assigneeId: 'user2'
+      };
+
+      (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
+
+      const taskWithBlocking = {
+        ...mockTask,
+        status: TaskStatus.OPEN,
+        blocking: [{
+          id: 1,
+          blockedTaskId: 2,
+          blockerTaskId: 1,
+          dependencyType: DependencyType.BLOCKS,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }]
+      };
+
+      await notificationService.notifyHealthIssues(taskWithBlocking);
+
+      expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
+      const message = notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include('blocked and due in 2 days');
     });
 
-    it('should handle missing Discord channel gracefully', async () => {
-      const userWithoutDiscord = { ...mockUser, preferences: {} };
-      const taskWithoutDiscord = { ...mockTask, creator: userWithoutDiscord };
+    it('should identify and notify about long-running blocked tasks', async () => {
+      const oneWeekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      const blockerTask = { ...mockTask, title: 'Blocker Task' };
       
-      await notificationService.notifyTaskCompleted(taskWithoutDiscord, mockUser);
-      
-      expect(discordServiceStub.sendMessage.called).to.be.false;
+      const taskToCheck = {
+        ...mockTask,
+        status: TaskStatus.BLOCKED,
+        updatedAt: oneWeekAgo,
+        blockedBy: [{
+          id: 1,
+          blockedTaskId: 1,
+          blockerTaskId: 2,
+          dependencyType: DependencyType.BLOCKS,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }]
+      };
+
+      (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockerTask);
+
+      await notificationService.notifyHealthIssues(taskToCheck);
+
+      expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
+      const message = notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include('has been blocked for 8 days');
+    });
+  });
+
+  describe('notifyImpactAnalysis', () => {
+    it('should analyze and notify about task impact', async () => {
+      const blockedTask = {
+        ...mockTask,
+        id: 2,
+        assigneeId: 'user2'
+      };
+
+      (prismaStub.task.findUnique as sinon.SinonStub)
+        .withArgs(sinon.match({ where: { id: 2 } }))
+        .resolves(blockedTask);
+
+      const taskWithDependencies = {
+        ...mockTask,
+        blocking: [{
+          id: 1,
+          blockedTaskId: 2,
+          blockerTaskId: 1,
+          dependencyType: DependencyType.BLOCKS,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }]
+      };
+
+      await notificationService.notifyImpactAnalysis(taskWithDependencies);
+
+      expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
+      const message = notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include('Impact Analysis');
+      expect(message).to.include('Blocked Tasks: 1');
+      expect(message).to.include('Affected Users: 1');
+    });
+  });
+
+  describe('cleanup', () => {
+    it('should disconnect from Prisma when cleaned up', async () => {
+      await notificationService.cleanup();
+      expect(prismaStub.$disconnect.calledOnce).to.be.true;
     });
   });
 });

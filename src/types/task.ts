@@ -70,6 +70,19 @@ export interface TaskHistoryEntry {
   note?: string;
 }
 
+export interface TaskDependency {
+  id: number;
+  blockedTaskId: number;
+  blockerTaskId: number;
+  dependencyType: string;
+  metadata?: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
+  // Optional populated task data
+  blockedTask?: Task;
+  blockerTask?: Task;
+}
+
 export interface Task {
   id: number;
   title: string;
@@ -98,6 +111,16 @@ export interface TaskWithRelations extends Task {
   parentTask?: Task;
   history: TaskHistory[];
   recurringInstances?: Task[]; // Only populated for template tasks
+  blockedBy: TaskDependency[]; // Tasks that block this task
+  blocking: TaskDependency[]; // Tasks that this task blocks
+}
+
+export enum DependencyType {
+  BLOCKS = 'BLOCKS',        // Complete blocker - task cannot start until blocker is done
+  REQUIRED = 'REQUIRED',    // Required but can be worked on in parallel
+  RELATED = 'RELATED',     // Informational relationship only
+  SEQUENTIAL = 'SEQUENTIAL', // Must be completed in sequence
+  PARALLEL = 'PARALLEL'     // Can be worked on simultaneously
 }
 
 export interface CreateTaskDTO {
@@ -113,6 +136,11 @@ export interface CreateTaskDTO {
   parentTaskId?: number;
   isRecurring?: boolean;
   recurrencePattern?: RecurrencePattern;
+  dependencies?: {
+    blockerTaskIds: number[];
+    dependencyType?: DependencyType;
+    metadata?: Record<string, any>;
+  };
 }
 
 export interface UpdateTaskDTO {

@@ -43,6 +43,8 @@ function mapPrismaTaskToTask(prismaTask: any): TaskWithRelations {
     dueDate: prismaTask.dueDate ?? undefined,
     completedAt: prismaTask.completedAt ?? undefined,
     creatorId: prismaTask.creatorId,
+    blockedBy: [], // Add missing dependency arrays
+    blocking: [],
     assigneeId: prismaTask.assigneeId ?? undefined,
     conversationId: prismaTask.conversationId ?? undefined,
     tags: JSON.parse(prismaTask.tags as string),

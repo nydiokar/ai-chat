@@ -47,6 +47,8 @@ describe('TaskSpawningService', () => {
         description: 'A task that recurs',
         status: TaskStatus.OPEN,
         priority: TaskPriority.MEDIUM, 
+        blockedBy: [], // Add missing dependency arrays
+        blocking: [],
         createdAt: new Date(),
         updatedAt: new Date(),
         creatorId: 'user1',
@@ -104,6 +106,8 @@ describe('TaskSpawningService', () => {
         parentTaskId: expectedTaskInstance.parentTaskId,
         tags: expectedTaskInstance.tags as Record<string, any>,
         metadata: expectedTaskInstance.metadata,
+        blockedBy: [], // Add missing dependency arrays
+        blocking: [],
         updatedAt: new Date(),
         creator: parentTask.creator,
 
@@ -134,6 +138,8 @@ describe('TaskSpawningService', () => {
         description: 'A task that recurs daily',
         status: TaskStatus.OPEN,
         priority: TaskPriority.MEDIUM,
+        blockedBy: [], // Add missing dependency arrays
+        blocking: [],
         createdAt: new Date(),
         tags: [],
         updatedAt: new Date(),
@@ -193,6 +199,8 @@ describe('TaskSpawningService', () => {
         description: 'A task to complete',
         status: TaskStatus.COMPLETED,
         priority: TaskPriority.MEDIUM,
+        blockedBy: [], // Add missing dependency arrays
+        blocking: [],
         createdAt: new Date(),
         updatedAt: new Date(),
         tags: [],
