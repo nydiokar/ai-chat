@@ -70,11 +70,64 @@ export interface MemoryPerformanceMetrics {
   lastResetTimestamp: Date;
 }
 
+export interface TopicContext {
+  name: string;
+  confidence: number;
+  firstMentioned: Date;
+  lastMentioned: Date;
+  messageReferences: string[];
+}
+
+export interface ContextScore {
+  relevance: number;
+  recency: number;
+  topicContinuity: number;
+  finalScore: number;
+}
+
+export interface ContextDecayParams {
+  baseHalfLife: number;  // Base time in ms for score to decay by 50%
+  topicMultiplier: number;  // Multiplier based on topic relevance
+  interactionBoost: number;  // Boost factor for recent interactions
+}
+
 export interface ConversationMetadata {
   title?: string;
   summary?: string;
   model: keyof typeof Model;
   tokenCount: number;
+}
+
+export interface EntityReference {
+  type: 'pronoun' | 'implicit' | 'explicit';
+  sourceId: string;  // ID of the referencing message/context
+  targetId: string;  // ID of the referenced entity/message
+  confidence: number;
+  context?: string;  // Surrounding context that helps understand the reference
+  resolvedValue?: string;  // The actual entity being referenced
+}
+
+export interface ReferenceChain {
+  id: string;
+  references: EntityReference[];
+  rootEntityId: string;  // The original entity being referenced
+  lastUpdated: Date;
+  conversationIds: number[];  // Conversations where this reference chain appears
+}
+
+export interface ReferenceVisualization {
+  nodes: Array<{
+    id: string;
+    type: 'entity' | 'message' | 'context';
+    label: string;
+    data?: any;
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    type: EntityReference['type'];
+    confidence: number;
+  }>;
 }
 
 export interface ConversationMessage {
