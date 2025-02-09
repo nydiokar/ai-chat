@@ -1,4 +1,5 @@
-import { Message } from '@prisma/client';
+import type { Message } from '@prisma/client';
+import { Model, Role } from './index.js';
 
 export interface UserPreferences {
   id: string;
@@ -67,4 +68,21 @@ export interface MemoryPerformanceMetrics {
   averageQueryTime: number;
   cacheHitRate: number;
   lastResetTimestamp: Date;
+}
+
+export interface ConversationMetadata {
+  title?: string;
+  summary?: string;
+  model: keyof typeof Model;
+  tokenCount: number;
+}
+
+export interface ConversationMessage {
+  content: string;
+  role: keyof typeof Role;
+  tokenCount?: number;
+  metadata?: {
+      discordUserId?: string;
+      discordUsername?: string;
+  };
 }

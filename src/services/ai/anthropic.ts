@@ -70,7 +70,7 @@ export class AnthropicService extends BaseAIService {
         const functionCallMatch = content.match(/Use tool: (\w+)\nArguments: ({[^}]+})/);
 
         if (functionCallMatch) {
-            const [_, functionName, argsString] = functionCallMatch;
+            const [functionName, argsString] = functionCallMatch;
             try {
                 const functionArgs = JSON.parse(argsString);
                 const result = await server.callTool(functionName, functionArgs);
@@ -138,7 +138,7 @@ export class AnthropicService extends BaseAIService {
 
     protected async makeApiCall(
         messages: ChatCompletionMessageParam[],
-        temperature: number
+        temperature: number = 0.7
     ) {
         // Convert OpenAI-style messages to Anthropic format
         let prompt = '';
@@ -155,8 +155,10 @@ export class AnthropicService extends BaseAIService {
         const completion = await this.client.messages.create({
             model: this.modelName,
             max_tokens: 1000,
+            temperature: temperature,
             messages: [{ role: 'user', content: prompt }]
         });
+
 
         const content = completion.content[0].type === 'text' ? completion.content[0].text : '';
         const message: ChatCompletionMessageParam = {

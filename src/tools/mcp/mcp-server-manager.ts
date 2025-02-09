@@ -181,7 +181,7 @@ export class MCPServerManager extends EventEmitter {
       throw new MCPError(
         ErrorType.TOOL_EXECUTION_FAILED,
         `Failed to execute tool query on server ${serverId}`,
-        error
+        error instanceof Error ? error : new Error(String(error))
       );
     }
   }
@@ -221,6 +221,7 @@ export class MCPServerManager extends EventEmitter {
               await this.startServer(serverId, config);
             }
           } catch (restartError) {
+            console.error(`Failed to restart server ${serverId}:`, restartError);
           }
         }
       }
@@ -235,48 +236,44 @@ export class MCPServerManager extends EventEmitter {
     serverId: string,
     tools: { name: string; description: string }[]
   ): Promise<void> {
-    try {
-      await this.db.executePrismaOperation(async (prisma) => {
-        await prisma.mCPServer.upsert({
-          where: { id: serverId },
+    await this.db.executePrismaOperation(async (prisma) => {
+      await prisma.mCPServer.upsert({
+        where: { id: serverId },
+        create: {
+          id: serverId,
+          name: serverId,
+          version: "1.0.0",
+          status: "RUNNING"
+        },
+        update: {
+          status: "RUNNING",
+          updatedAt: new Date()
+        }
+      });
+    });
+
+    await this.db.executePrismaOperation(async (prisma) => {
+      for (const tool of tools) {
+        await prisma.mCPTool.upsert({
+          where: {
+            serverId_name: {
+              serverId: serverId,
+              name: tool.name
+            }
+          },
           create: {
-            id: serverId,
-            name: serverId, // or get this from config
-            version: "1.0.0", // or get from actual server version
-            status: "RUNNING"
+            id: `${serverId}:${tool.name}`,
+            serverId: serverId,
+            name: tool.name,
+            description: tool.description
           },
           update: {
-            status: "RUNNING",
+            description: tool.description,
             updatedAt: new Date()
           }
         });
-      });
-
-      await this.db.executePrismaOperation(async (prisma) => {
-        for (const tool of tools) {
-          await prisma.mCPTool.upsert({
-            where: {
-              serverId_name: {
-                serverId: serverId,
-                name: tool.name
-              }
-            },
-            create: {
-              id: `${serverId}:${tool.name}`,
-              serverId: serverId,
-              name: tool.name,
-              description: tool.description
-            },
-            update: {
-              description: tool.description,
-              updatedAt: new Date()
-            }
-          });
-        }
-      });
-    } catch (error) {
-      throw error;
-    }
+      }
+    });
   }
 
   /**
@@ -297,6 +294,7 @@ export class MCPServerManager extends EventEmitter {
         });
       });
     } catch (dbError) {
+      console.error(`Failed to update server status in DB for ${serverId}:`, dbError);
     }
   }
 

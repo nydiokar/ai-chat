@@ -1,6 +1,5 @@
-import { DependencyType, Task, TaskDependency, TaskStatus } from '../../types/task';
+import { DependencyType, Task, TaskDependency, TaskStatus, TaskHistoryAction } from '../../types/task';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { TaskHistoryAction } from '../../types/task';
 
 // Helper function to convert Prisma Task to our Task type
 function convertPrismaTask(prismaTask: any): Task {
@@ -152,8 +151,13 @@ export class TaskDependencyService {
       dependency => dependency.blockerTask.status !== TaskStatus.COMPLETED
     );
 
-    // For parallel tasks, we don't block unless it's a blocking dependency
-    const shouldBeBlocked = hasActiveBlockers && blockingDeps.length > 0;
+    // Check if parallel dependencies are satisfied
+    const hasIncompleteParallel = parallelDeps.length > 0 && parallelDeps.some(
+      dependency => dependency.blockerTask.status !== TaskStatus.COMPLETED
+    );
+
+    // Block if either blocking deps are active or parallel deps are incomplete
+    const shouldBeBlocked = (hasActiveBlockers && blockingDeps.length > 0) || hasIncompleteParallel;
 
     // Update task status if needed
     if (shouldBeBlocked && task.status !== TaskStatus.BLOCKED) {

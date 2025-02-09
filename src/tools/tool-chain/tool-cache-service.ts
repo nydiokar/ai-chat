@@ -1,7 +1,6 @@
 import NodeCache from 'node-cache';
 import crypto from 'crypto';
 import winston from 'winston';
-import { performance } from 'perf_hooks';
 
 export interface CacheConfig {
   defaultTTL?: number;

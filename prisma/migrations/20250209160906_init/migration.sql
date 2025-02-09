@@ -8,10 +8,8 @@ CREATE TABLE "Message" (
     "tokenCount" INTEGER,
     "discordUserId" TEXT,
     "discordUsername" TEXT,
-    "parentMessageId" INTEGER,
     "contextId" TEXT,
     CONSTRAINT "Message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Message_parentMessageId_fkey" FOREIGN KEY ("parentMessageId") REFERENCES "Message" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Message_contextId_fkey" FOREIGN KEY ("contextId") REFERENCES "ConversationContext" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -24,8 +22,6 @@ CREATE TABLE "Conversation" (
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "tokenCount" INTEGER NOT NULL DEFAULT 0,
-    "branchId" TEXT,
-    "parentMessageId" TEXT,
     "discordChannelId" TEXT,
     "discordGuildId" TEXT
 );
@@ -140,10 +136,27 @@ CREATE TABLE "Task" (
     "tags" JSONB NOT NULL,
     "metadata" JSONB,
     "parentTaskId" INTEGER,
+    "isRecurring" BOOLEAN NOT NULL DEFAULT false,
+    "recurrencePattern" JSONB,
+    "originalTaskId" INTEGER,
     CONSTRAINT "Task_parentTaskId_fkey" FOREIGN KEY ("parentTaskId") REFERENCES "Task" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "Task_originalTaskId_fkey" FOREIGN KEY ("originalTaskId") REFERENCES "Task" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Task_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Task_assigneeId_fkey" FOREIGN KEY ("assigneeId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Task_creatorId_fkey" FOREIGN KEY ("creatorId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "TaskDependency" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "blockedTaskId" INTEGER NOT NULL,
+    "blockerTaskId" INTEGER NOT NULL,
+    "dependencyType" TEXT NOT NULL DEFAULT 'BLOCKS',
+    "metadata" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "TaskDependency_blockedTaskId_fkey" FOREIGN KEY ("blockedTaskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "TaskDependency_blockerTaskId_fkey" FOREIGN KEY ("blockerTaskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -195,19 +208,10 @@ CREATE INDEX "Message_conversationId_createdAt_idx" ON "Message"("conversationId
 CREATE INDEX "Message_discordUserId_idx" ON "Message"("discordUserId");
 
 -- CreateIndex
-CREATE INDEX "Message_parentMessageId_idx" ON "Message"("parentMessageId");
-
--- CreateIndex
 CREATE INDEX "Message_contextId_idx" ON "Message"("contextId");
 
 -- CreateIndex
 CREATE INDEX "Conversation_createdAt_idx" ON "Conversation"("createdAt");
-
--- CreateIndex
-CREATE INDEX "Conversation_branchId_idx" ON "Conversation"("branchId");
-
--- CreateIndex
-CREATE INDEX "Conversation_parentMessageId_idx" ON "Conversation"("parentMessageId");
 
 -- CreateIndex
 CREATE INDEX "Conversation_discordGuildId_discordChannelId_idx" ON "Conversation"("discordGuildId", "discordChannelId");
@@ -274,6 +278,21 @@ CREATE INDEX "Task_dueDate_idx" ON "Task"("dueDate");
 
 -- CreateIndex
 CREATE INDEX "Task_conversationId_idx" ON "Task"("conversationId");
+
+-- CreateIndex
+CREATE INDEX "Task_isRecurring_idx" ON "Task"("isRecurring");
+
+-- CreateIndex
+CREATE INDEX "Task_originalTaskId_idx" ON "Task"("originalTaskId");
+
+-- CreateIndex
+CREATE INDEX "TaskDependency_blockedTaskId_idx" ON "TaskDependency"("blockedTaskId");
+
+-- CreateIndex
+CREATE INDEX "TaskDependency_blockerTaskId_idx" ON "TaskDependency"("blockerTaskId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TaskDependency_blockedTaskId_blockerTaskId_key" ON "TaskDependency"("blockedTaskId", "blockerTaskId");
 
 -- CreateIndex
 CREATE INDEX "ConversationContext_conversationId_idx" ON "ConversationContext"("conversationId");

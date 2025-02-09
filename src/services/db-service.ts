@@ -2,11 +2,6 @@ import { PrismaClient } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
 import { debug } from '../utils/config.js';
 
-export interface BranchContext {
-  branchId?: string;
-  parentMessageId?: string;
-}
-
 export class DatabaseError extends Error {
   public cause?: any;
 
@@ -99,7 +94,6 @@ export class DatabaseService {
     model: keyof typeof Model,
     title?: string,
     summary?: string,
-    branchContext: BranchContext = {},
     discordContext?: DiscordMessageContext
   ): Promise<number> {
     try {
@@ -117,8 +111,6 @@ export class DatabaseService {
           title,
           summary,
           tokenCount: 0,
-          branchId: branchContext.branchId,
-          parentMessageId: branchContext.parentMessageId,
           discordGuildId: discordContext?.guildId,
           discordChannelId: discordContext?.channelId,
           ...(discordContext && {
@@ -234,37 +226,6 @@ export class DatabaseService {
       return this.handlePrismaError(error, 'conversation retrieval');
     }
   }
-
-  async getBranches(conversationId: number) {
-    try {
-      debug(`Getting branches for conversation ${conversationId}`);
-      const branches = await this.prisma.conversation.findMany({
-        where: {
-          AND: [
-            { branchId: { not: null } },
-            {
-              OR: [
-                { parentMessageId: { not: null } },
-                { id: conversationId }
-              ]
-            }
-          ]
-        },
-        include: {
-          messages: {
-            orderBy: {
-              createdAt: 'asc'
-            }
-          }
-        }
-      });
-      return branches;
-    } catch (error) {
-      throw new DatabaseError(`Failed to get branches for conversation ${conversationId}`, error as Error);
-    }
-  }
-
-  // ... [rest of the existing methods]
 
   async listConversations(limit = 10) {
     debug(`Listing conversations with limit ${limit}`);
@@ -549,132 +510,4 @@ export class DatabaseService {
       throw new DatabaseError('Failed to clean old cache metrics', error as Error);
     }
   }
-
-  async createBranch(
-    parentConversationId: number,
-    parentMessageId: string,
-    model: keyof typeof Model,
-    title?: string
-  ): Promise<number> {
-    try {
-      debug(`Creating branch from conversation ${parentConversationId} at message ${parentMessageId}`);
-      const branchId = crypto.randomUUID();
-      
-      const conversation = await this.prisma.conversation.create({
-        data: {
-          model: Model[model],
-          title,
-          branchId,
-          parentMessageId,
-          tokenCount: 0
-        }
-      });
-
-      return conversation.id;
-    } catch (error) {
-      throw new DatabaseError('Failed to create conversation branch', error as Error);
-    }
-  }
-
-  async getBranchTree(rootConversationId: number) {
-    try {
-      debug(`Getting branch tree for conversation ${rootConversationId}`);
-      const allBranches = await this.prisma.conversation.findMany({
-        where: {
-          OR: [
-            { id: rootConversationId },
-            { branchId: { not: null } }
-          ]
-        },
-        include: {
-          messages: {
-            orderBy: {
-              createdAt: 'asc'
-            }
-          }
-        }
-      });
-
-      return this.buildBranchTree(allBranches, rootConversationId);
-    } catch (error) {
-      throw new DatabaseError(`Failed to get branch tree for conversation ${rootConversationId}`, error as Error);
-    }
-  }
-
-  private buildBranchTree(branches: any[], rootId: number) {
-    const branchMap = new Map(branches.map(b => [b.id, { ...b, children: [] }]));
-    const root = branchMap.get(rootId);
-    
-    if (!root) {
-      throw new DatabaseError('Root conversation not found');
-    }
-
-    for (const branch of branchMap.values()) {
-      if (branch.parentMessageId) {
-        const parent = Array.from(branchMap.values())
-          .find(b => b.messages.some((m: any) => m.id === branch.parentMessageId));
-        if (parent) {
-          parent.children.push(branch);
-        }
-      }
-    }
-
-    return root;
-  }
-
-  async deleteBranch(conversationId: number, recursive = true): Promise<void> {
-    try {
-      debug(`Deleting branch conversation ${conversationId}`);
-      if (recursive) {
-        const branches = await this.getBranches(conversationId);
-        for (const branch of branches) {
-          if (branch.id !== conversationId) {
-            await this.deleteBranch(branch.id, true);
-          }
-        }
-      }
-
-      await this.prisma.conversation.delete({
-        where: { id: conversationId }
-      });
-    } catch (error) {
-      throw new DatabaseError(`Failed to delete branch conversation ${conversationId}`, error as Error);
-    }
-  }
-
-  async saveConversationState(id: string, state: any): Promise<void> {
-    await this.prisma.conversation.update({
-      where: { id: Number(id) },
-      data: {
-        title: state.name?.slice(0, this.MAX_TITLE_LENGTH),
-        summary: JSON.stringify(state.data)?.slice(0, this.MAX_SUMMARY_LENGTH)
-      }
-    });
-  }
-
-  async loadConversationState(name: string): Promise<any> {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { title: name },
-      include: { messages: true }
-    });
-    
-    return conversation ? {
-      data: conversation.summary ? JSON.parse(conversation.summary) : null,
-      messages: conversation.messages
-    } : null;
-  }
-
-  async getSiblingMessages(parentId: string): Promise<any[]> {
-    return await this.prisma.message.findMany({
-      where: { parentMessageId: Number(parentId) }
-    });
-  }
-
-  async switchToAlternative(conversationId: string, messageId: string): Promise<void> {
-    await this.prisma.conversation.update({
-      where: { id: Number(conversationId) },
-      data: { parentMessageId: messageId }
-    });
-  }
 }
-

@@ -38,7 +38,6 @@ export class RecurrencePatternService {
    * - An asterisk (*) for any value
    */
   private static validateCustomPattern(pattern: RecurrencePattern): boolean {
-    // Custom patterns use cron format, so interval validation is skipped
     if (!pattern.customPattern || !pattern.customPattern.trim()) {
       return false;
     }
@@ -48,59 +47,64 @@ export class RecurrencePatternService {
       return false;
     }
 
-    const [minute, hour, day, month, dayOfWeek] = parts;
+    // First validate the format of each part
     const validators = [
-      { value: minute, min: 0, max: 59 },
-      { value: hour, min: 0, max: 23 },
-      { value: day, min: 1, max: 31 },
-      { value: month, min: 1, max: 12 },
-      { value: dayOfWeek, min: 0, max: 6 }
+      { pattern: parts[0], min: 0, max: 59 },  // minutes
+      { pattern: parts[1], min: 0, max: 23 },  // hours
+      { pattern: parts[2], min: 1, max: 31 },  // days
+      { pattern: parts[3], min: 1, max: 12 },  // months
+      { pattern: parts[4], min: 0, max: 6 }    // days of week
     ];
 
-    const isValid = validators.every(({ value, min, max }) => {
-      // Handle asterisk
-      if (value === '*') {
-        return true;
-      }
-
-      // Handle lists (e.g., "1,3,5")
-      if (value.includes(',')) {
-        return value.split(',').every(v => this.isValidNumberInRange(v, min, max));
-      }
-
-      // Handle step values (e.g., "*/2")
-      if (value.includes('/')) {
-        const [base, step] = value.split('/');
-        if (base !== '*') {
+    // First pass: validate format using isValidNumberInRange
+    for (const { pattern: part, min, max } of validators) {
+      if (part === '*') continue;
+      
+      if (part.includes(',')) {
+        if (!part.split(',').every(v => this.isValidNumberInRange(v, min, max))) {
           return false;
         }
-        return this.isValidNumberInRange(step, 1, max - min + 1);
+      } else if (part.includes('/')) {
+        const [base, step] = part.split('/');
+        if (base !== '*' || !this.isValidNumberInRange(step, 1, max - min + 1)) {
+          return false;
+        }
+      } else if (part.includes('-')) {
+        const [start, end] = part.split('-');
+        if (!this.isValidNumberInRange(start, min, max) || 
+            !this.isValidNumberInRange(end, min, max) ||
+            parseInt(start) >= parseInt(end)) {
+          return false;
+        }
+      } else if (!this.isValidNumberInRange(part, min, max)) {
+        return false;
       }
+    }
 
-      // Handle ranges (e.g., "1-5")
-      if (value.includes('-')) {
-        const [start, end] = value.split('-');
-        return this.isValidNumberInRange(start, min, max) && 
-               this.isValidNumberInRange(end, min, max) &&
-               parseInt(start) < parseInt(end);
+    // Second pass: verify at least one valid value exists for each part
+    return validators.every(({ pattern: part, min, max }) => {
+      for (let value = min; value <= max; value++) {
+        if (this.matchesPattern(part, value, min, max)) {
+          return true;
+        }
       }
-
-      // Handle single numbers
-      return this.isValidNumberInRange(value, min, max);
+      return false;
     });
-
-    // For custom patterns, we ignore the interval check
-    return isValid;
   }
 
-  private static isValidNumberInRange(value: string, min: number, max: number): boolean {
-    const num = parseInt(value);
-    return !isNaN(num) && num >= min && num <= max;
+  private static dateMatchesCustomPattern(date: Date, customPattern: string): boolean {
+    const parts = customPattern.trim().split(/\s+/);
+    if (parts.length !== 5) {
+      return false;
+    }
+
+    return this.matchesPattern(parts[0], date.getUTCMinutes(), 0, 59) &&
+           this.matchesPattern(parts[1], date.getUTCHours(), 0, 23) &&
+           this.matchesPattern(parts[2], date.getUTCDate(), 1, 31) &&
+           this.matchesPattern(parts[3], date.getUTCMonth() + 1, 1, 12) &&
+           this.matchesPattern(parts[4], date.getUTCDay(), 0, 6);
   }
 
-  /**
-   * Parses a custom pattern value to get the next value after the current one
-   */
   /**
    * Parses a custom pattern value to get the next value after the current one
    */
@@ -207,50 +211,39 @@ export class RecurrencePatternService {
     let nextDate = new Date(utcLastOccurrence);
 
     switch (pattern.type) {
-      case RecurrenceType.DAILY: {
-        // Simple date comparison - no time components
-        const currentDay = new Date(Date.UTC(
-          lastOccurrence.getUTCFullYear(),
-          lastOccurrence.getUTCMonth(),
-          lastOccurrence.getUTCDate()
-        ));
-        
-        console.log('DAILY - Current day:', currentDay.toISOString());
+        case RecurrenceType.DAILY: {
+            // Reset time components for daily pattern
+            nextDate.setUTCHours(0, 0, 0, 0);
+            
+            console.log('DAILY - Current day:', nextDate.toISOString());
 
-        // If we have an end date, check if we're already there
-        if (pattern.endDate) {
-          const endDay = new Date(Date.UTC(
-            pattern.endDate.getUTCFullYear(),
-            pattern.endDate.getUTCMonth(),
-            pattern.endDate.getUTCDate()
-          ));
-          console.log('DAILY - End day:', endDay.toISOString());
+            if (pattern.endDate) {
+                const endDay = this.toUTC(pattern.endDate);
+                endDay.setUTCHours(0, 0, 0, 0);
+                console.log('DAILY - End day:', endDay.toISOString());
 
-          if (currentDay.getTime() >= endDay.getTime()) {
-            console.log('DAILY - At or past end date');
-            return null;
-          }
+                if (nextDate.getTime() >= endDay.getTime()) {
+                    console.log('DAILY - At or past end date');
+                    return null;
+                }
+            }
+
+            nextDate.setUTCDate(nextDate.getUTCDate() + pattern.interval);
+            console.log('DAILY - Next day:', nextDate.toISOString());
+
+            return nextDate;
         }
-
-        // Calculate next day
-        const nextDay = new Date(currentDay);
-        nextDay.setUTCDate(currentDay.getUTCDate() + pattern.interval);
-        console.log('DAILY - Next day:', nextDay.toISOString());
-
-        return nextDay;
-      }
 
       case RecurrenceType.WEEKLY: {
         if (!pattern.daysOfWeek || pattern.daysOfWeek.length === 0) {
           return null;
         }
 
-        let result = new Date(utcLastOccurrence);
-        result = this.setUTCTime(result); // Reset time to midnight UTC
+        nextDate = this.setUTCTime(nextDate); // Reset time to midnight UTC
 
         // Find the next valid day of week
         const sortedDays = [...pattern.daysOfWeek].sort((a, b) => a - b);
-        const currentDayOfWeek = result.getUTCDay();
+        const currentDayOfWeek = nextDate.getUTCDay();
         
         // Find the next day in the current week
         const nextDayThisWeek = sortedDays.find(day => day > currentDayOfWeek);
@@ -258,22 +251,22 @@ export class RecurrencePatternService {
         if (nextDayThisWeek !== undefined) {
           // We found a day later this week
           const daysToAdd = nextDayThisWeek - currentDayOfWeek;
-          result.setUTCDate(result.getUTCDate() + daysToAdd);
+          nextDate.setUTCDate(nextDate.getUTCDate() + daysToAdd);
         } else {
           // Move to first allowed day in next week
           const daysUntilNextWeek = 7 - currentDayOfWeek + sortedDays[0];
-          result.setUTCDate(result.getUTCDate() + daysUntilNextWeek);
+          nextDate.setUTCDate(nextDate.getUTCDate() + daysUntilNextWeek);
         }
 
         // Adjust for interval by moving forward if needed
-        const weeksSinceStart = Math.floor((result.getTime() - utcLastOccurrence.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        const weeksSinceStart = Math.floor((nextDate.getTime() - utcLastOccurrence.getTime()) / (7 * 24 * 60 * 60 * 1000));
         if (weeksSinceStart % pattern.interval !== 0) {
           // Move to next valid interval
           const weeksToAdd = pattern.interval - (weeksSinceStart % pattern.interval);
-          result.setUTCDate(result.getUTCDate() + (weeksToAdd * 7));
+          nextDate.setUTCDate(nextDate.getUTCDate() + (weeksToAdd * 7));
         }
 
-        return result;
+        return nextDate;
       }
 
       case RecurrenceType.MONTHLY: {
@@ -281,26 +274,25 @@ export class RecurrencePatternService {
           return null;
         }
 
-        const result = new Date(utcLastOccurrence);
-        result.setUTCDate(1); // Move to first of month to avoid skipping months
-        result.setUTCMonth(result.getUTCMonth() + pattern.interval);
-        result.setUTCHours(0, 0, 0, 0);
+        nextDate = this.setUTCTime(nextDate); // Reset time to midnight UTC
+        nextDate.setUTCDate(1); // Move to first of month to avoid skipping months
+        nextDate.setUTCMonth(nextDate.getUTCMonth() + pattern.interval);
 
         // Adjust to the desired day of month
-        const maxDays = new Date(result.getUTCFullYear(), result.getUTCMonth() + 1, 0).getDate();
+        const maxDays = new Date(nextDate.getUTCFullYear(), nextDate.getUTCMonth() + 1, 0).getDate();
         const targetDay = Math.min(pattern.dayOfMonth, maxDays);
-        result.setUTCDate(targetDay);
+        nextDate.setUTCDate(targetDay);
 
         // If we ended up with a date before or equal to the last occurrence,
         // move forward another interval
-        if (result <= utcLastOccurrence) {
-          result.setUTCDate(1);
-          result.setUTCMonth(result.getUTCMonth() + pattern.interval);
-          const nextMaxDays = new Date(result.getUTCFullYear(), result.getUTCMonth() + 1, 0).getDate();
-          result.setUTCDate(Math.min(pattern.dayOfMonth, nextMaxDays));
+        if (nextDate <= utcLastOccurrence) {
+          nextDate.setUTCDate(1);
+          nextDate.setUTCMonth(nextDate.getUTCMonth() + pattern.interval);
+          const nextMaxDays = new Date(nextDate.getUTCFullYear(), nextDate.getUTCMonth() + 1, 0).getDate();
+          nextDate.setUTCDate(Math.min(pattern.dayOfMonth, nextMaxDays));
         }
 
-        return result;
+        return nextDate;
       }
 
       case RecurrenceType.CUSTOM: {
@@ -313,64 +305,26 @@ export class RecurrencePatternService {
           return null;
         }
 
-        const result = new Date(utcLastOccurrence);
-        result.setUTCSeconds(0, 0);
+        nextDate.setUTCSeconds(0, 0); // Reset seconds for custom pattern
 
-        const [minutePattern, hourPattern, dayPattern, monthPattern, dowPattern] = parts;
-        
-        // Handle minute patterns first
-        if (minutePattern === '*') {
-          result.setUTCMinutes(result.getUTCMinutes() + 1);
-        } else if (minutePattern.includes('/')) {
-          const [, step] = minutePattern.split('/');
-          const stepNum = parseInt(step);
-          const currentMinute = result.getUTCMinutes();
-          const nextStep = Math.ceil((currentMinute + 1) / stepNum) * stepNum;
-          result.setUTCMinutes(nextStep);
-        } else if (minutePattern.includes(',')) {
-          const values = minutePattern.split(',').map(Number).sort((a, b) => a - b);
-          const currentMinute = result.getUTCMinutes();
-          const nextMinute = values.find(m => m > currentMinute) ?? values[0];
-          if (nextMinute <= currentMinute) {
-            result.setUTCHours(result.getUTCHours() + 1);
+        // Try the next few minutes until we find a matching date
+        for (let attempts = 0; attempts < 1440; attempts++) { // Max 24 hours of attempts
+          // First use parseCustomPatternPart to get next values
+          const nextMinute = this.parseCustomPatternPart(parts[0], nextDate.getUTCMinutes(), 0, 59);
+          if (nextMinute === null) {
+            nextDate.setUTCHours(nextDate.getUTCHours() + 1);
+            nextDate.setUTCMinutes(0);
+          } else {
+            nextDate.setUTCMinutes(nextMinute);
           }
-          result.setUTCMinutes(nextMinute);
-        } else {
-          const specificMinute = parseInt(minutePattern);
-          if (!isNaN(specificMinute)) {
-            result.setUTCMinutes(specificMinute);
+
+          // Verify the entire date matches the pattern
+          if (this.dateMatchesCustomPattern(nextDate, pattern.customPattern)) {
+            return nextDate;
           }
         }
 
-        // Handle hour pattern
-        if (hourPattern !== '*') {
-          const hour = parseInt(hourPattern);
-          if (!isNaN(hour)) {
-            result.setUTCHours(hour);
-          }
-        }
-
-          // Handle weekday pattern
-          if (dowPattern.includes('-')) {
-            const [start, end] = dowPattern.split('-').map(Number);
-            const currentDOW = result.getUTCDay();
-            const currentHour = result.getUTCHours();
-            const targetHour = parseInt(hourPattern);
-            
-            if (currentDOW < start) {
-              // Move to next valid weekday
-              result.setUTCDate(result.getUTCDate() + (start - currentDOW));
-            } else if (currentDOW > end || 
-                      (currentDOW === end && currentHour >= targetHour)) {
-              // Move to start of next week
-              result.setUTCDate(result.getUTCDate() + ((7 - currentDOW) + start));
-            } else if (currentHour >= targetHour && currentDOW < end) {
-              // Move to next day if we're past the target hour
-              result.setUTCDate(result.getUTCDate() + 1);
-            }
-          }
-
-        return result;
+        return null; // No matching date found within 24 hours
       }
 
       default:
@@ -484,23 +438,33 @@ export class RecurrencePatternService {
     return !isNaN(num) && num >= min && num <= max ? num : null;
   }
 
+  private static isValidNumberInRange(value: string, min: number, max: number): boolean {
+    const num = parseInt(value);
+    return !isNaN(num) && num >= min && num <= max;
+  }
+
   private static matchesPattern(pattern: string, value: number, min: number, max: number): boolean {
+    if (value < min || value > max) return false;
+    
     if (pattern === '*') return true;
     
     if (pattern.includes(',')) {
-      return pattern.split(',').map(Number).includes(value);
+      const values = pattern.split(',').map(Number);
+      return values.every(v => v >= min && v <= max) && values.includes(value);
     }
     
     if (pattern.includes('/')) {
       const [, step] = pattern.split('/');
-      return value % parseInt(step) === 0;
+      const stepNum = parseInt(step);
+      return stepNum >= min && stepNum <= (max - min) && value % stepNum === 0;
     }
     
     if (pattern.includes('-')) {
       const [start, end] = pattern.split('-').map(Number);
-      return value >= start && value <= end;
+      return start >= min && end <= max && value >= start && value <= end;
     }
     
-    return parseInt(pattern) === value;
+    const num = parseInt(pattern);
+    return !isNaN(num) && num >= min && num <= max && num === value;
   }
 }

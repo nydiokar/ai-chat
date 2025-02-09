@@ -142,8 +142,9 @@ export class ToolChainExecutor {
       // Execute tool and validate result
       const result = await toolFunction(inputParams);
       
-      // Add debug logging
+      // Add debug logging with chain context
       this.logger.debug('Tool execution result', {
+        chainId: chainConfig.id,
         toolName: tool.name,
         inputParams,
         result
@@ -163,6 +164,7 @@ export class ToolChainExecutor {
       };
     } catch (error) {
       this.logger.error('Tool execution error', {
+        chainId: chainConfig.id,
         toolName: tool.name,
         error: error instanceof Error ? error.message : String(error)
       });

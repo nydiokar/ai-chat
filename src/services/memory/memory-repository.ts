@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, Message } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import {
   UserPreferences,
   ConversationContext,
@@ -18,6 +18,7 @@ export class MemoryRepository {
   private _logger: winston.Logger;
   private _memoryCache: NodeCache;
   private _performanceMetrics: MemoryPerformanceMetrics;
+  private readonly MAX_CACHE_SIZE = 1000; // Add configurable limit
 
   private constructor() {
     this._prisma = new PrismaClient();
@@ -373,6 +374,13 @@ export class MemoryRepository {
       }
 
       memories.sort((a, b) => b.score - a.score);
+      // Add cache size check and eviction
+      const stats = this._memoryCache.getStats();
+      if (stats && stats.keys >= this.MAX_CACHE_SIZE) {
+        // Evict oldest entries
+        const keysToEvict = Array.from(this._memoryCache.keys()).slice(0, 100);
+        keysToEvict.forEach(key => this._memoryCache.del(key));
+      }
 
       // Cache the result
       this._memoryCache.set(cacheKey, memories);

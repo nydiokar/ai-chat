@@ -56,7 +56,7 @@ export class MCPClientService {
             }
             
             await this.client.connect(this.transport);
-            const response = await this.client.request({
+            await this.client.request({
                 method: 'tools/list',
                 params: {}
             }, ToolListResponseSchema);

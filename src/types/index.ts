@@ -55,7 +55,6 @@ export interface Conversation {
   tokenCount: number;
   discordGuildId?: string;
   discordChannelId?: string;
-  parentMessageId?: string;
   messages: Message[];
   session?: Session;
 }
@@ -75,8 +74,6 @@ export interface DiscordMessageContext {
   username: string;
   guildId?: string;
   channelId?: string;  // Make channelId optional
-  branchId?: string;
-  parentMessageId?: string;
 }
 
 export interface ConversationStats {

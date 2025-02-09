@@ -16,11 +16,25 @@ async function startDiscordBot() {
 
   try {
     const discord = DiscordService.getInstance();
+    // MCP initialization logging
+    debug('=================================');
+    debug('Initializing MCP configuration...');
+    
+    if (defaultConfig.discord.mcp.enabled) {
+      debug(`MCP is enabled with config: ${JSON.stringify({
+        authToken: defaultConfig.discord.mcp.authToken ? 'Present' : 'Missing',
+        logLevel: defaultConfig.discord.mcp.logLevel
+      }, null, 2)}`);
+    } else {
+      debug('MCP is disabled in configuration');
+    }
+    debug('=================================');
+
     await discord.start(process.env.DISCORD_TOKEN!);
-    console.log('=================================');
-    console.log('Discord bot started successfully');
-    console.log(`Bot name: ${discord.getClient().user?.tag}`);
-    console.log('=================================');
+    debug('=================================');
+    debug('Discord bot started successfully');
+    debug(`Bot name: ${discord.getClient().user?.tag}`);
+    debug('=================================');
     
     // Set up session cleanup interval
     setInterval(async () => {
@@ -38,18 +52,18 @@ async function startDiscordBot() {
 
 // Graceful shutdown handlers
 process.on('SIGINT', async () => {
-  console.log('\nGracefully shutting down...');
+  debug('\nGracefully shutting down...');
   await DiscordService.getInstance().stop();
   await db.disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\nGracefully shutting down...');
+  debug('\nGracefully shutting down...');
   await DiscordService.getInstance().stop();
   await db.disconnect();
   process.exit(0);
 });
 
 // Start the bot
-startDiscordBot(); 
+startDiscordBot();

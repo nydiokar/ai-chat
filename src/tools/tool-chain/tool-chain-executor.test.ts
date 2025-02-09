@@ -1,6 +1,7 @@
 import { expect } from 'chai';
-import { ToolChainExecutor, ToolExecutionResult } from './tool-chain-executor';
-import { ToolChainConfig, ToolChainConfigBuilder } from './tool-chain-config';
+import { ToolChainExecutor } from './tool-chain-executor';
+import { ToolChainConfigBuilder } from './tool-chain-config';
+
 
 describe('ToolChainExecutor', () => {
   let executor: ToolChainExecutor;

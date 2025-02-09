@@ -142,8 +142,6 @@ Completion time: ${new Date().toLocaleString()}`;
   async notifyHealthIssues(task: TaskWithRelations): Promise<void> {
     if (!task.assigneeId) return;
 
-    const healthIssues = [];
-
     // Check for approaching deadlines in dependent tasks
     const blockedTasks = task.blocking || [];
     for (const dependency of blockedTasks) {

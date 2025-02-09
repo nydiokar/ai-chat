@@ -234,14 +234,14 @@ export class ToolsHandler {
         // For error handling, also match just the tool name in "Use tool-name"
         const errorMatch = !toolMatch && query.match(/Use (\S+)/);
         if (errorMatch) {
-            const [_, toolName] = errorMatch;
+            const [toolName] = errorMatch;
             if (!this.availableTools.has(toolName)) {
                 throw MCPError.toolNotFound(toolName);
             }
         }
         
         if (toolMatch) {
-            const [_, toolName, argsStr] = toolMatch;
+            const [toolName, argsStr] = toolMatch;
             console.log(`[ToolsHandler] Matched tool command: ${toolName}`);
             
             if (!this.availableTools.has(toolName)) {
