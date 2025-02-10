@@ -65,6 +65,7 @@
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
+    "uuid": "^11.0.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

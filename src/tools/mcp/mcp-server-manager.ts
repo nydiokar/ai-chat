@@ -12,12 +12,12 @@ import {
   MCPServerConfig,
   MCPToolConfig,
   ToolWithUsage
-} from "../../types/mcp-config.js";
+} from "../../types/tools.js";
 import { MCPError, ErrorType } from "../../types/errors.js";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
-import { MCPToolUsage } from '@prisma/client';
+import { ToolUsage } from '@prisma/client';
 export class MCPServerManager extends EventEmitter {
   private readonly _servers: Map<string, MCPClientService> = new Map();
   private readonly _toolsHandlers: Map<string, ToolsHandler> = new Map();
@@ -195,7 +195,7 @@ export class MCPServerManager extends EventEmitter {
 
     const handler = this._getToolsHandler(serverId, server);
     try {
-      await handler.refreshToolContext(toolName, tool as any & { usage: MCPToolUsage[] });
+      await handler.refreshToolContext(toolName, tool as any & { usage: ToolUsage[] });
     } catch (error) {
       throw new MCPError(
         ErrorType.TOOL_CONTEXT_REFRESH_FAILED,

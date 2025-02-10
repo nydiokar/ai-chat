@@ -16,11 +16,23 @@ export interface MCPServerConfig {
 }
 
 // For database operations
-export interface MCPToolUsage {
-    input: any;
-    output: any;
-    createdAt: Date;
+export interface ToolUsage {
+    id: number;
+    toolId: string;
+    mcpToolId?: string;
+    input: Record<string, unknown>;
+    output: string;
+    error?: string;
+    duration: number;
     status: string;
+    createdAt: Date;
+}
+
+export interface ToolUsageHistory {
+    args: Record<string, unknown>;
+    result: string;
+    timestamp: Date;
+    success: boolean;
 }
 
 export interface MCPToolModel {
@@ -44,7 +56,7 @@ export function getMCPConfig(): MCPConfig {
 // Type for database operations that include usage
 export interface ToolWithUsage extends MCPToolConfig {
     id: string;
-    usage: MCPToolUsage[];
+    usage: ToolUsage[];
 }
 
 // List of configured MCP server IDs

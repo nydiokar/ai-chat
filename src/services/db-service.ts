@@ -28,7 +28,7 @@ type TransactionClient = Omit<
 type FullTransactionClient = TransactionClient & {
   mCPServer: PrismaClient['mCPServer'];
   mCPTool: PrismaClient['mCPTool'];
-  mCPToolUsage: PrismaClient['mCPToolUsage'];
+  toolUsage: PrismaClient['toolUsage'];
 };
 
 export class DatabaseService {

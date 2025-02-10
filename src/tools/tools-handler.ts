@@ -1,9 +1,9 @@
-import { Message, MCPToolContext, MCPToolUsageHistory } from '../types/index.js';
+import { Message, MCPToolContext, ToolUsage } from '../types/index.js';
 import { AIService } from '../services/ai/base-service.js';
 import { MCPClientService } from './mcp/mcp-client-service.js';
 import { DatabaseService } from '../services/db-service.js';
 import { MCPError } from '../types/errors.js';
-import { ToolWithUsage } from '../types/mcp-config.js';
+import { ToolUsageHistory, ToolWithUsage } from '../types/tools.js';
 
 export class ToolsHandler {
     private availableTools: Set<string>;
@@ -134,7 +134,7 @@ export class ToolsHandler {
                 result: u.output,
                 timestamp: u.createdAt,
                 success: u.status === 'success'
-            } as MCPToolUsageHistory)),
+            } as ToolUsageHistory)),
             patterns: await this.analyzeUsagePatterns(tool.id)
         };
 
@@ -154,7 +154,7 @@ export class ToolsHandler {
 
     private async analyzeUsagePatterns(toolId: string): Promise<any> {
         const usage = await this.db.executePrismaOperation(prisma =>
-            prisma.mCPToolUsage.findMany({
+            prisma.toolUsage.findMany({
                 where: {
                     toolId,
                     status: 'success'
@@ -165,32 +165,39 @@ export class ToolsHandler {
         );
 
         // Analyze common input patterns
-        const inputPatterns = usage.reduce((acc, u) => {
-            const inputKeys = Object.keys(u.input as object);
-            inputKeys.forEach(key => {
-                if (!acc[key]) acc[key] = [];
-                acc[key].push((u.input as any)[key]);
-            });
-            return acc;
-        }, {} as Record<string, any[]>);
+        // Define interfaces for better type safety
+        interface ToolUsageRecord extends ToolUsage {
+            input: Record<string, unknown>;
+        }
 
-        // Calculate frequency of values for each input parameter
-        const patterns = Object.entries(inputPatterns).reduce((acc, [key, values]) => {
-            const frequency = values.reduce((freq, val) => {
+        const inputPatterns = (usage as ToolUsageRecord[]).reduce((acc: Record<string, unknown[]>, u) => {
+            if (u.input) {
+                const inputKeys = Object.keys(u.input);
+                inputKeys.forEach(key => {
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(u.input[key]);
+                });
+            }
+            return acc;
+        }, {});
+
+        // Calculate frequency of values for each input parameter with proper typing
+        const patterns = Object.entries(inputPatterns).reduce((acc: Record<string, { mostCommon: unknown[]; uniqueValues: number }>, [key, values]) => {
+            const frequency = (values as unknown[]).reduce((freq: Record<string, number>, val) => {
                 const strVal = JSON.stringify(val);
                 freq[strVal] = (freq[strVal] || 0) + 1;
                 return freq;
-            }, {} as Record<string, number>);
+            }, {});
 
             acc[key] = {
                 mostCommon: Object.entries(frequency)
-                    .sort(([,a], [,b]) => (b as number) - (a as number))
+                    .sort(([,a], [,b]) => b - a)
                     .slice(0, 3)
                     .map(([val]) => JSON.parse(val)),
                 uniqueValues: new Set(values.map(v => JSON.stringify(v))).size
             };
             return acc;
-        }, {} as Record<string, { mostCommon: any[]; uniqueValues: number }>);
+        }, {});
 
         return patterns;
     }
@@ -262,7 +269,7 @@ export class ToolsHandler {
                 console.log(`[ToolsHandler] Tool execution successful`);
                 
                 await this.db.executePrismaOperation(prisma => 
-                    prisma.mCPToolUsage.create({
+                    prisma.toolUsage.create({
                         data: {
                             toolId: toolName,
                             conversationId,

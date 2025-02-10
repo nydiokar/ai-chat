@@ -3,10 +3,10 @@ import { defaultConfig, debug } from '../../utils/config.js';
 import { DatabaseService } from '../db-service.js';
 import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
 import { SystemPromptGenerator } from '../../system-prompt-generator.js';
-import { getMCPConfig } from '../../types/mcp-config.js';
+import { getMCPConfig } from '../../types/tools.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
-import { MCP_SERVER_IDS } from '../../types/mcp-config.js';
+import { MCP_SERVER_IDS } from '../../types/tools.js';
 
 const MAX_CONTEXT_MESSAGES = defaultConfig.maxContextMessages;
 

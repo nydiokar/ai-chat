@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCPTool, MCPToolContext } from "../../types/index.js";
-import { MCPServerConfig } from "../../types/mcp-config.js";
+import { MCPServerConfig } from "../../types/tools.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
 

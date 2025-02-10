@@ -1,4 +1,4 @@
-import { MCPServerConfig } from "./mcp-config";
+import { MCPServerConfig, ToolUsage, ToolUsageHistory } from "./tools.js";
 
 export enum Role {
   user = 'user',
@@ -15,24 +15,19 @@ export enum Model {
 export type MessageRole = keyof typeof Role;
 export type AIModel = keyof typeof Model;
 
-export interface MCPToolUsageHistory {
-    args: any;
-    result: string | null;
-    timestamp: Date;
-    success: boolean;
-}
-
 export interface MCPToolContext {
     lastRefreshed: Date;
     refreshCount: number;
-    history: MCPToolUsageHistory[];
+    history: ToolUsageHistory[];
     patterns?: Record<string, {
-        mostCommon: any[];
+        mostCommon: unknown[];
         uniqueValues: number;
     }>;
-    currentArgs?: any;
+    currentArgs?: Record<string, unknown>;
     successRate?: number;
 }
+
+export { ToolUsage, ToolUsageHistory };
 
 export interface Message {
   id: number;

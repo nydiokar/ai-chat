@@ -67,6 +67,22 @@ model MCPServer {
   tools     MCPTool[]
 }
 
+model Tool {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  toolType      String   // 'MCP', 'SYSTEM', 'CUSTOM'
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  mcpTool       MCPTool? 
+  usage         ToolUsage[]
+
+  @@index([toolType])
+  @@index([createdAt])
+}
+
 model MCPTool {
   id          String          @id
   serverId    String
@@ -77,7 +93,9 @@ model MCPTool {
   updatedAt   DateTime        @updatedAt
   server      MCPServer       @relation(fields: [serverId], references: [id], onDelete: Cascade)
   context     MCPToolContext?
-  usage       MCPToolUsage[]
+  usage       ToolUsage[]
+  tool        Tool?           @relation(fields: [toolId], references: [id])
+  toolId      String?         @unique
 
   @@unique([serverId, name])
   @@index([serverId])
@@ -96,7 +114,7 @@ model MCPToolContext {
   @@index([toolId])
 }
 
-model MCPToolUsage {
+model ToolUsage {
   id             Int      @id @default(autoincrement())
   toolId         String
   conversationId Int
@@ -106,13 +124,16 @@ model MCPToolUsage {
   duration       Int
   status         String
   createdAt      DateTime @default(now())
-  mcpTool        MCPTool  @relation(fields: [toolId], references: [id])
+  tool           Tool     @relation(fields: [toolId], references: [id])
+  mcpTool        MCPTool? @relation(fields: [mcpToolId], references: [id])
+  mcpToolId      String?
 
   @@index([toolId])
   @@index([conversationId])
   @@index([createdAt])
 }
 
+// Remaining existing models stay unchanged
 model User {
   id                String               @id
   username          String
@@ -172,6 +193,20 @@ model CacheMetrics {
   @@index([hits])
   @@index([lastAccessed])
   @@map("cache_metrics")
+}
+
+model QueryMetrics {
+  id            Int      @id @default(autoincrement())
+  queryHash     String   @unique
+  queryString   String
+  executionTime Int      // in milliseconds
+  rowCount      Int?
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([executionTime])
+  @@index([timestamp])
 }
 
 model Task {
@@ -273,6 +308,19 @@ model CommandUsagePattern {
   @@index([userId])
   @@index([lastUsed])
   @@index([frequency])
+}
+
+model PerformanceMetric {
+  id              String   @id @default(uuid())
+  timestamp       DateTime
+  cpuUsage        Float
+  memoryTotal     BigInt
+  memoryFree      BigInt
+  totalToolCalls  Int
+  toolSuccessRate Float
+  averageQueryTime Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model UserMemoryPreferences {
