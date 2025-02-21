@@ -4,9 +4,10 @@ import { AnthropicService } from './ai/anthropic.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { handleError } from '../utils/error-handler.js';
 import { DeepseekService } from './ai/deepseek.js';
+import { OllamaService } from './ai/ollama.js';
 
 export class AIServiceFactory {
-    static create(model: 'gpt' | 'claude' | 'deepseek' = 'gpt'): AIService {
+    static create(model: 'gpt' | 'claude' | 'deepseek' | 'ollama' = 'gpt'): AIService {
         try {
             switch (model) {
                 case 'gpt':
@@ -15,6 +16,8 @@ export class AIServiceFactory {
                     return new AnthropicService();
                 case 'deepseek':
                     return new DeepseekService();
+                case 'ollama':
+                    return new OllamaService();
                 default:
                     throw new MCPError(ErrorType.INVALID_MODEL, `Invalid model type: ${model}`);
             }
@@ -22,4 +25,4 @@ export class AIServiceFactory {
             return handleError(error);
         }
     }
-} 
+}

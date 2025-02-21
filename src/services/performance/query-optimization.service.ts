@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
-import { DatabaseService } from './db-service.js';
-import { debug } from '../utils/config.js';
+import { DatabaseService } from '../db-service.js';
+import { debug } from '../../utils/config.js';
 
 interface QueryMonitoringData {
   queryString: string;

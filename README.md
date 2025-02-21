@@ -8,7 +8,7 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
   - Command-line interface for direct chat
   - Discord bot for team collaboration
 - AI Integration:
-  - Chat with OpenAI's GPT, Anthropic's Claude, or DeepSeek
+- Chat with OpenAI's GPT, Anthropic's Claude, DeepSeek, or local Ollama models
   - Smart context management
   - Automatic retry on API rate limits
 - Conversation Management:
@@ -27,6 +27,7 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
 - OpenAI API key (for GPT)
 - Anthropic API key (for Claude)
 - DeepSeek API key (for DeepSeek)
+- Ollama (for local model inference)
 
 ## Installation
 
@@ -43,10 +44,17 @@ npm install
 
 3. Create a `.env` file in the root directory with your API keys:
 ```env
+# Model Selection
+MODEL=gpt  # Options: gpt, claude, deepseek, ollama
+
 # Required API Keys (add the ones you plan to use)
 OPENAI_API_KEY=your_openai_key_here
 ANTHROPIC_API_KEY=your_anthropic_key_here
 DEEPSEEK_API_KEY=your_deepseek_key_here
+
+# Ollama Configuration (if using Ollama)
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama2:13b-instruct-q8_0  # or any other installed model
 
 # Debug Mode (Optional)
 DEBUG=true
@@ -146,6 +154,7 @@ them chat
 them chat -m claude
 them chat -m gpt
 them chat -m deepseek
+them chat -m ollama
 
 # List recent conversations
 them list
@@ -185,6 +194,37 @@ them delete <id>
 ## Configuration
 
 The application can be configured through environment variables:
+
+### Using Ollama
+
+To use Ollama with the bot:
+
+1. Install Ollama from [ollama.ai](https://ollama.ai)
+2. Pull your desired model:
+   ```bash
+   ollama pull llama2:13b-instruct-q8_0
+   ```
+3. Configure in your .env file:
+   ```env
+   MODEL=ollama
+   OLLAMA_HOST=http://localhost:11434
+   OLLAMA_MODEL=llama2:13b-instruct-q8_0
+   ```
+
+### Model Selection
+
+The default model can be configured in two ways:
+
+1. Environment Variable (applies to both CLI and Discord bot):
+   ```env
+   MODEL=gpt  # Options: gpt, claude, deepseek, ollama
+   ```
+   This setting will be used whenever a specific model is not provided.
+
+2. Command Line (overrides environment setting):
+   ```bash
+   them chat -m ollama
+   ```
 
 ### General Settings
 - `DEBUG=true` - Enable debug logging

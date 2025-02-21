@@ -6,6 +6,7 @@ export interface BaseConfig {
   maxRetries: number;
   retryDelay: number;
   rateLimitDelay: number;
+  defaultModel: 'gpt' | 'claude' | 'deepseek' | 'ollama';
   discord: {
     enabled: boolean;
     cleanupInterval: number;  // Hours before inactive sessions are cleaned up
@@ -19,6 +20,7 @@ export interface BaseConfig {
 }
 
 export const defaultConfig: BaseConfig = {
+  defaultModel: (process.env.MODEL || 'gpt') as 'gpt' | 'claude' | 'deepseek' | 'ollama',
   maxContextMessages: 10,
   maxMessageLength: 4000,
   debug: process.env.DEBUG === 'true',
@@ -46,6 +48,11 @@ export function validateEnvironment(): void {
   if (model === 'gpt') required.push('OPENAI_API_KEY');
   if (model === 'claude') required.push('ANTHROPIC_API_KEY');
   if (model === 'deepseek') required.push('DEEPSEEK_API_KEY');
+  // Ollama runs locally, so we don't require API keys but can optionally set host
+  if (model === 'ollama') {
+    process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+    process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama2:13b-instruct-q8_0';
+  }
   
   // Validate Discord and MCP if Discord is enabled
   if (process.env.DISCORD_ENABLED === 'true') {

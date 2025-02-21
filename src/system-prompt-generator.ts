@@ -1,49 +1,48 @@
 import { MCPTool } from "./types/index.js";
 import { MCPServerManager } from "./tools/mcp/mcp-server-manager.js";
+import { PromptMiddleware } from "./services/prompt/prompt-middleware.js";
+import { PromptRepository } from "./services/prompt/prompt-repository.js";
+import { PromptContext, PromptType, ToolUsagePrompt } from "./types/prompts.js";
+import { ToolsHandler } from "./tools/tools-handler.js";
 
 export class SystemPromptGenerator {
-    private readonly defaultSystemPrompt = `You are Brony, an intelligent AI assistant with access to various tools to help answer queries effectively.
-    When you need to use a tool, format your response exactly like this: [Calling tool <tool-name> with args <json-args>]
+    private readonly middleware: PromptMiddleware;
+    private readonly repository: PromptRepository;
+    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
 
-    CRITICAL INSTRUCTIONS:
-    1. ALWAYS execute the tool immediately after explaining what you're going to do
-    2. DO NOT stop at just explaining - you must include the tool call in your response
-    3. Format tool calls exactly as shown in the examples - no variations allowed
-    4. After explaining your intent, IMMEDIATELY follow with the tool call on the next line
-    5. ALWAYS check if there's a specific tool for your task before falling back to search
+    constructor(
+        private mcpManager: MCPServerManager,
+        private toolsHandler: ToolsHandler
+    ) {
+        this.repository = new PromptRepository();
+        this.middleware = new PromptMiddleware(this.repository);
+        this.initializeToolPrompts();
+    }
 
-    Example correct responses:
-    "I'll get the details of issue #123 from the repository.
-    [Calling tool get_issue with args {"repository": "owner/repo", "issue_number": 123}]"
-
-    "Since there's no specific tool for this, I'll search the web for information.
-    [Calling tool brave_web_search with args {"query": "latest news", "count": 5}]"
-
-    Example incorrect response (DO NOT DO THIS):
-    "I can look that up for you." (WRONG - missing tool call)
-
-    Important:
-    1. Always explain what you're going to do before using a tool
-    2. IMMEDIATELY follow with the tool call - no exceptions
-    3. After getting tool results, explain them clearly to the user
-    4. Use proper JSON format for arguments as shown in the examples
-    5. Only use available tools
-    6. Tool selection priority:
-       - First try to use specific tools designed for the task (e.g., GitHub tools for repo operations)
-       - Only use search tools when no specific tool exists for the task
-       - Use brave_web_search for general web queries when no better tool is available
-    7. Format your responses in a Discord-friendly way:
-       - Use clear sections with headings when appropriate
-       - Break long responses into readable chunks
-       - Use bullet points for lists of information
-    8. IMPORTANT: Always use the exact tool names as listed in "Available Tools" below`;
-
-    constructor(private mcpManager: MCPServerManager) {}
-
-    async generatePrompt(additionalContext: string = ""): Promise<string> {
-        const allTools: MCPTool[] = [];
+    private initializeToolPrompts(): void {
+        const toolPrompt: ToolUsagePrompt = {
+            type: PromptType.TOOL_USAGE,
+            content: `When using tools:
+1. Always explain intention before use
+2. Format calls as: [Calling tool <name> with args <json>]
+3. Use exact tool names
+4. Handle errors appropriately`,
+            priority: 2,
+            tools: ['*'],
+            usagePatterns: {
+                bestPractices: ['Verify tools before use', 'Use specific tools first'],
+                commonErrors: ['Incorrect formatting', 'Missing args']
+            },
+            shouldApply: (context: PromptContext) => 
+                context.tools !== undefined && context.tools.length > 0
+        };
         
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        this.repository.addPrompt(toolPrompt);
+    }
+
+    async generatePrompt(additionalContext: string = "", request?: string): Promise<string> {
+        // Gather available tools
+        const tools: MCPTool[] = [];
         const serverIds = this.mcpManager.getServerIds();
         
         for (const serverId of serverIds) {
@@ -51,60 +50,68 @@ export class SystemPromptGenerator {
                 const server = this.mcpManager.getServerByIds(serverId);
                 if (server) {
                     const serverTools = await server.listTools();
-                    if (serverTools && serverTools.length > 0) {
-                        allTools.push(...serverTools);
-                    }
+                    tools.push(...(serverTools || []));
                 }
             } catch (error) {
                 console.error(`Error getting tools for server ${serverId}:`, error);
             }
         }
 
-        if (allTools.length === 0) {
-            return `${this.defaultSystemPrompt}\n\nNo tools are currently available.`;
-        }
-
-        const toolsContext = await Promise.all(allTools.map(async tool => {
-            const schema = JSON.stringify(tool.inputSchema, null, 2);
-            const server = this.mcpManager.getServerByIds(tool.server.name);
-            
-            let contextInfo = '';
-            if (server) {
-                const toolHandler = this.mcpManager.getToolsHandler(tool.server.name);
-                if (toolHandler) {
-                    try {
-                        const context = await toolHandler.getToolContext(tool.name);
-                        if (context) {
-                            const successRate = context.successRate ?? 1; // Default to 100% if no data
-                            contextInfo = `\nUsage Patterns:
+        // Generate tool context if tools available
+        const toolsContext: string[] = [];
+        if (tools.length > 0) {
+            try {
+                // Use ToolsHandler to get tool contexts with caching and persistence
+                const contextPromises = tools.map(async tool => {
+                    const context = await this.toolsHandler.getToolContext(tool.name);
+                    const schema = JSON.stringify(tool.inputSchema, null, 2);
+                    
+                    let contextInfo = '';
+                    if (context) {
+                        const successRate = context.successRate ?? 1;
+                        contextInfo = `\nUsage Patterns:
 - Success Rate: ${(successRate * 100).toFixed(1)}%
-${context.patterns ? Object.entries(context.patterns).map(([param, data]) => 
-`- Common ${param} values: ${(data as any).mostCommon?.slice(0, 2)?.join(', ') || 'No common values'}`
-).join('\n') : ''}`;
-                        }
-                    } catch (error) {
-                        console.warn(`[SystemPromptGenerator] Failed to get context for tool ${tool.name}:`, error);
+${context.patterns ? Object.entries(context.patterns)
+    .map(([param, data]) => `- Common ${param} values: ${(data as any).mostCommon?.slice(0, 2)?.join(', ') || 'No common values'}`)
+    .join('\n') : ''}`;
                     }
-                }
-            }
 
-            return `Tool: ${tool.name}
+                    return `Tool: ${tool.name}
 Description: ${tool.description}
 Input Schema: ${schema}${contextInfo}`;
-        }));
+                });
 
-        const prompt = `${this.defaultSystemPrompt}
+                const results = await Promise.allSettled(contextPromises);
+                results.forEach((result, index) => {
+                    if (result.status === 'fulfilled') {
+                        toolsContext.push(result.value);
+                    } else {
+                        console.error(`Failed to get context for tool ${tools[index].name}:`, result.reason);
+                        // Add minimal tool info as fallback
+                        toolsContext.push(`Tool: ${tools[index].name}
+Description: ${tools[index].description}`);
+                    }
+                });
+            } catch (error) {
+                console.error('[SystemPromptGenerator] Error getting tool contexts:', error);
+            }
+        }
 
-Available Tools:
-${toolsContext.join('\n\n')}
+        // Build prompt context and get appropriate prompts
+        const prompts = await this.middleware.processRequest(request || '', {
+            requestType: request ? await this.middleware.analyzeRequestType(request) : undefined,
+            tools: tools.map(t => t.name),
+            complexity: request ? await this.middleware.analyzeComplexity(request) : 'low'
+        });
 
-When using tools:
-1. Consider their success rates and common usage patterns
-2. Prefer well-performing tools over those with low success rates
-3. Use common parameter values when appropriate
+        // Combine all parts
+        const parts = [
+            this.defaultIdentity,
+            prompts,
+            tools.length > 0 ? '\nAvailable Tools:\n' + toolsContext.join('\n\n') : 'No tools available.',
+            additionalContext
+        ].filter(Boolean);
 
-${additionalContext}`.trim();
-
-        return prompt;
+        return parts.join('\n\n');
     }
 }

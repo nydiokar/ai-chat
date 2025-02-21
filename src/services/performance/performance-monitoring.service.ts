@@ -1,8 +1,35 @@
 import { performance } from 'perf_hooks';
-import { DatabaseService } from './db-service.js';
+import { DatabaseService } from '../db-service.js';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
 import { Prisma, PrismaClient } from '@prisma/client';
+
+// Performance monitoring middleware for Prisma
+const prismaPerformanceMiddleware: Prisma.Middleware = async (params, next) => {
+  const start = performance.now();
+  const result = await next(params);
+  const duration = performance.now() - start;
+  
+  try {
+    // Only log if query took longer than 100ms
+    if (duration > 100) {
+      const queryHash = JSON.stringify(params);
+      await DatabaseService.getInstance().prisma.queryMetrics.create({
+        data: {
+          queryHash,
+          queryString: JSON.stringify(params),
+          executionTime: Math.round(duration),
+          rowCount: Array.isArray(result) ? result.length : 1
+        }
+      });
+    }
+  } catch (error) {
+    // Log error but don't interrupt the original query
+    console.error('Error logging query metrics:', error);
+  }
+  
+  return result;
+};
 
 interface ToolUsageStats {
   name: string;
@@ -48,6 +75,9 @@ export class PerformanceMonitoringService {
   private constructor() {
     this.dbService = DatabaseService.getInstance();
     this.prisma = this.dbService.prisma;
+    
+    // Apply performance monitoring middleware
+    this.prisma.$use(prismaPerformanceMiddleware);
   }
 
   static getInstance(): PerformanceMonitoringService {
@@ -57,7 +87,8 @@ export class PerformanceMonitoringService {
     return PerformanceMonitoringService.instance;
   }
 
-  private async collectSystemMetrics(): Promise<PerformanceMetrics> {
+  private async collectSystemMetrics(): Promise<PerformanceMetrics & { collectionDuration: number }> {
+    const start = performance.now();
     const cpus = os.cpus();
     const totalCpuUsage = cpus.reduce((acc: number, cpu) => {
       const total = Object.values(cpu.times).reduce((a: number, b: number) => a + b, 0);
@@ -73,6 +104,7 @@ export class PerformanceMonitoringService {
 
     const toolUsageStats = await this.collectToolUsageStats();
     const queryPerformance = await this.collectQueryPerformance();
+    const collectionDuration = performance.now() - start;
 
     return {
       id: uuidv4(),
@@ -80,7 +112,8 @@ export class PerformanceMonitoringService {
       cpuUsage: totalCpuUsage,
       memoryUsage,
       toolUsageStats,
-      queryPerformance
+      queryPerformance,
+      collectionDuration: Math.round(collectionDuration)
     };
   }
 
@@ -202,9 +235,10 @@ export class PerformanceMonitoringService {
   }
 
   async generatePerformanceDashboard(): Promise<PerformanceMetrics> {
-    const metrics = await this.collectSystemMetrics();
+    const metricsWithDuration = await this.collectSystemMetrics();
+    const { collectionDuration, ...metrics } = metricsWithDuration;
     
-    // Store metrics in database for historical tracking
+    // Store metrics in database for historical tracking including collection duration
     await this.dbService.executePrismaOperation(async (prisma) => {
       await prisma.performanceMetric.create({
         data: {
@@ -214,10 +248,17 @@ export class PerformanceMonitoringService {
           memoryFree: BigInt(metrics.memoryUsage.free),
           totalToolCalls: metrics.toolUsageStats.totalToolCalls,
           toolSuccessRate: metrics.toolUsageStats.successRate,
+          // Keep the actual query performance metrics
           averageQueryTime: metrics.queryPerformance.averageQueryTime
         }
       });
     });
+
+    // Log both metrics collection time and query performance
+    console.log(`Performance metrics collected in ${Math.round(collectionDuration)}ms`);
+    if (metrics.queryPerformance.averageQueryTime > 0) {
+      console.log(`Average query time: ${metrics.queryPerformance.averageQueryTime}ms`);
+    }
 
     return metrics;
   }

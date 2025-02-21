@@ -1,4 +1,4 @@
-import { DiscordService } from '../discord-service.js';
+import { DiscordService } from './discord-service.js';
 import { PrismaClient } from '@prisma/client';
 
 export interface NotificationChannel {

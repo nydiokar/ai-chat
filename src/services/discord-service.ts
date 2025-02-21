@@ -6,15 +6,13 @@ import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
 
-
-import { debug } from '../utils/config.js';
+import { debug, defaultConfig } from '../utils/config.js';
 import { MCPError } from '../types/errors.js';
 
 export class DiscordService {
   private client: Client;
   private db: DatabaseService;
   private static instance: DiscordService;
-  private readonly defaultModel: AIModel = 'gpt';
   private aiServices: Map<string, AIService> = new Map();
   private readonly maxContextMessages = 10;
   private readonly contextRefreshInterval = 30 * 60 * 1000;
@@ -245,7 +243,7 @@ export class DiscordService {
         if (!session) {
           isNewSession = true;
           conversationId = await this.db.createConversation(
-            this.defaultModel,
+            defaultConfig.defaultModel,
             'New Conversation',
             'Starting a new conversation',
             discordContext
@@ -268,7 +266,7 @@ export class DiscordService {
         
         let service = this.aiServices.get(serviceKey);
         if (!service) {
-          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek');
+          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
           this.aiServices.set(serviceKey, service);
         }
 
@@ -325,7 +323,7 @@ export class DiscordService {
       const conversation = await this.db.getConversation(conversationId);
       if (!conversation || conversation.messages.length <= this.maxContextMessages) return;
 
-      const service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek');
+      const service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
       const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
       const summary = await service.generateResponse(
         "Please provide a brief summary of this conversation context that can be used to maintain continuity in future messages. Focus on key points and important details.",

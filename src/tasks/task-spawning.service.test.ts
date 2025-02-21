@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { TaskSpawningService } from './task-spawning.service.js';
-import { TaskRepository } from '../../tasks/task-repository.js';
+import { TaskRepository } from '../tasks/task-repository.js';
 import { RecurrencePatternService } from './recurrence-pattern.service.js';
 import { 
   TaskWithRelations, 
@@ -11,7 +11,7 @@ import {
   TaskHistoryAction,
   CreateTaskDTO,
   TaskPriority
-} from '../../types/task.js';
+} from '../types/task.js';
 
 describe('TaskSpawningService', () => {
   let taskSpawningService: TaskSpawningService;
