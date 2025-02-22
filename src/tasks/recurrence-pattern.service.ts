@@ -1,4 +1,4 @@
-import { RecurrencePattern, RecurrenceType } from '../../types/task.js';
+import { RecurrencePattern, RecurrenceType } from '../types/task.js';
 
 export class RecurrencePatternService {
   private static isValidDayOfMonth(day: number): boolean {

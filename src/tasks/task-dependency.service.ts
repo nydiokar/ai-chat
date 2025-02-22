@@ -1,4 +1,4 @@
-import { DependencyType, Task, TaskDependency, TaskStatus, TaskHistoryAction } from '../../types/task';
+import { DependencyType, Task, TaskDependency, TaskStatus, TaskHistoryAction } from '../types/task';
 import { PrismaClient, Prisma } from '@prisma/client';
 
 // Helper function to convert Prisma Task to our Task type

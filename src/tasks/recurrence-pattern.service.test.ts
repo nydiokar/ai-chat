@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { RecurrencePatternService } from './recurrence-pattern.service.js';
-import { RecurrencePattern, RecurrenceType } from '../../types/task.js';
+import { RecurrencePattern, RecurrenceType } from '../types/task.js';
 
 describe('RecurrencePatternService', () => {
   let clock: sinon.SinonFakeTimers;

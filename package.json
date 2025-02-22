@@ -1,6 +1,6 @@
 {
   "name": "them",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -61,7 +61,6 @@
     "openai": "^4.78.1",
     "ora": "^7.0.1",
     "pm2": "^5.3.1",
-    "prisma": "^6.2.1",
     "sinon": "^19.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
@@ -71,12 +70,15 @@
   "devDependencies": {
     "@types/blessed": "^0.1.25",
     "@types/chai": "^5.0.1",
+    "@types/chai-as-promised": "^8.0.1",
     "@types/inquirer": "^9.0.7",
     "@types/inquirer-autocomplete-prompt": "^3.0.3",
     "@types/mocha": "^10.0.1",
     "@types/sinon": "^17.0.3",
     "chai": "^5.1.2",
+    "chai-as-promised": "^8.0.1",
     "mocha": "^10.2.0",
+    "prisma": "^6.3.1",
     "ts-node-dev": "^2.0.0"
   }
 }

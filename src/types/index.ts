@@ -9,7 +9,8 @@ export enum Role {
 export enum Model {
   gpt = 'gpt',
   claude = 'claude',
-  deepseek = 'deepseek'
+  deepseek = 'deepseek',
+  ollama = 'ollama'
 }
 
 export type MessageRole = keyof typeof Role;

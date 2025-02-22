@@ -2,11 +2,13 @@ import { Message, MessageRole } from '../../types/index.js';
 import { defaultConfig, debug } from '../../utils/config.js';
 import { DatabaseService } from '../db-service.js';
 import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
-import { SystemPromptGenerator } from '../../system-prompt-generator.js';
+import { ToolsHandler } from '../../tools/tools-handler.js';
 import { getMCPConfig } from '../../types/tools.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
+import { ChatCompletionMessageParam, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions.js';
 import { MCP_SERVER_IDS } from '../../types/tools.js';
+import { MCPClientService } from '../../tools/mcp/mcp-client-service.js';
+import { SystemPromptGenerator } from '../../system-prompt-generator.js';
 
 const MAX_CONTEXT_MESSAGES = defaultConfig.maxContextMessages;
 
@@ -24,7 +26,7 @@ export interface AIResponse {
 export interface AIService {
     generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
     processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
-    getModel(): 'gpt' | 'claude' | 'deepseek';
+    getModel(): 'gpt' | 'claude' | 'deepseek' | 'ollama';
     setSystemPrompt(prompt: string): void;
     cleanup(): Promise<void>;
 }
@@ -32,6 +34,8 @@ export interface AIService {
 export abstract class BaseAIService implements AIService {
     protected systemPrompt: string = '';
     protected mcpManager?: MCPServerManager;
+    protected promptGenerator?: SystemPromptGenerator;
+    protected toolsHandler?: ToolsHandler;
     protected initPromise: Promise<void>;
     private initialized: boolean = false;
 
@@ -39,7 +43,17 @@ export abstract class BaseAIService implements AIService {
         if (defaultConfig.discord.mcp.enabled) {
             const db = DatabaseService.getInstance();
             this.mcpManager = new MCPServerManager(db, this);
-            this.initPromise = this.initializeMCP();
+            this.initPromise = this.initializeMCP().then(async () => {
+                if (this.mcpManager) {
+                    const config = await getMCPConfig();
+                    const defaultServerConfig = Object.values(config.mcpServers)[0];
+                    if (defaultServerConfig) {
+                        const client = new MCPClientService(defaultServerConfig);
+                        this.toolsHandler = new ToolsHandler(client, this, db);
+                        this.promptGenerator = new SystemPromptGenerator(this.mcpManager, this.toolsHandler);
+                    }
+                }
+            });
         } else {
             this.initPromise = Promise.resolve();
         }
@@ -47,7 +61,7 @@ export abstract class BaseAIService implements AIService {
 
     abstract generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
     abstract processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse>;
-    abstract getModel(): 'gpt' | 'claude' | 'deepseek';
+    abstract getModel(): 'gpt' | 'claude' | 'deepseek' | 'ollama';
 
     setSystemPrompt(prompt: string): void {
         this.systemPrompt = prompt;
@@ -79,35 +93,6 @@ export abstract class BaseAIService implements AIService {
         } catch (error) {
             console.error('Failed to initialize MCP:', error);
         }
-    }
-
-    protected async getToolsContext(): Promise<string> {
-        if (!this.mcpManager) {
-            console.log('No MCP Manager initialized');
-            return '';
-        }
-        
-        const promptGenerator = new SystemPromptGenerator(this.mcpManager);
-        const prompt = await promptGenerator.generatePrompt(
-            'Additional Instructions:\n' +
-            '1. When handling search results:\n' +
-            '   - For web searches: Extract and summarize the most relevant information\n' +
-            '   - For local searches: Format business details in an easy-to-read structure\n' +
-            '   - Use markdown formatting for better Discord display\n' +
-            '   - Keep responses concise but informative\n\n' +
-            '2. Response Format Examples:\n' +
-            '   For Web Search:\n' +
-            '   ```\n' +
-            '   🔍 Search Results:\n' +
-            '   • [Title of result]\n' +
-            '     Summary: Brief explanation\n' +
-            '     Link: URL\n' +
-            '   ```\n\n' +
-            '   ```'
-        );
-        
-        debug(`Generated Tools Context: ${prompt}`, defaultConfig);
-        return prompt;
     }
 
     protected async withRetry<T>(operation: () => Promise<T>): Promise<T> {
@@ -149,33 +134,25 @@ export abstract class BaseAIService implements AIService {
         aiRateLimiter.checkLimit(this.getModel());
         
         try {
-            // Get all configured servers in parallel
-            const serverPromises = MCP_SERVER_IDS.map(id => this.mcpManager?.getServerByIds(id));
-            const servers = (await Promise.all(serverPromises)).filter(Boolean);
-
-            if (servers.length === 0) {
+            if (!this.mcpManager || !this.promptGenerator) {
                 return this.processWithoutTools(message, conversationHistory);
             }
 
-            const contextMessages = this.getContextMessages(conversationHistory);
-            
-            // Get all tools from all servers
-            const toolsPromises = servers.map(server => server?.listTools() || []);
-            const allTools = (await Promise.all(toolsPromises)).flat();
-            
-            const functions = allTools.map(tool => ({
-                name: tool.name,
-                description: tool.description || '',
-                parameters: tool.inputSchema
-            }));
+            // Get context-aware system prompt with tool information
+            const enhancedPrompt = await this.promptGenerator.generatePrompt(
+                this.systemPrompt,
+                message
+            );
 
+            const contextMessages = this.getContextMessages(conversationHistory);
             const messages: ChatCompletionMessageParam[] = [
-                { role: "system", content: this.systemPrompt },
+                { role: "system", content: enhancedPrompt },
                 ...contextMessages,
                 { role: "user", content: message }
             ];
 
-            return this.handleToolBasedCompletion(messages, functions, servers);
+            // Process with OpenAI-style tool calls
+            return this.handleToolBasedCompletion(messages, [], this.toolsHandler);
         } catch (error) {
             console.error('Error processing message with tools:', error);
             return this.processWithoutTools(message, conversationHistory);
@@ -185,16 +162,9 @@ export abstract class BaseAIService implements AIService {
     protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
         functions: any[],
-        servers: any[]
+        server: any
     ): Promise<AIResponse> {
         try {
-            // Create a map of tool names to their respective servers
-            const toolServerMap = new Map();
-            for (const server of servers) {
-                const tools = await server.listTools();
-                tools.forEach((tool: any) => toolServerMap.set(tool.name, server));
-            }
-
             const completion = await this.createChatCompletion({
                 messages,
                 tools: functions.map(fn => ({ type: 'function', function: fn })),
@@ -202,29 +172,13 @@ export abstract class BaseAIService implements AIService {
                 temperature: 0.7,
             });
 
-            const response = completion.choices[0] as {
-                message: ChatCompletionMessageParam & {
-                    tool_calls?: Array<{
-                        id: string;
-                        function: { name: string; arguments: string }
-                    }>
-                };
-                finish_reason: string;
-            };
+            const responseMessage = completion.choices[0].message as ChatCompletionAssistantMessageParam;
             let tokenCount = completion.usage?.total_tokens || 0;
 
-            if (response.finish_reason === 'tool_calls' && 
-                response.message && 
-                'tool_calls' in response.message && 
-                response.message.tool_calls) {
-                const toolCalls = response.message.tool_calls;
+            if (responseMessage?.tool_calls?.length) {
+                const toolCalls = responseMessage.tool_calls;
                 const toolResults = await Promise.all(
-                    toolCalls.map(async (toolCall: any) => {
-                        const server = toolServerMap.get(toolCall.function.name);
-                        if (!server) {
-                            throw new Error(`No server found for tool: ${toolCall.function.name}`);
-                        }
-                        
+                    toolCalls.map(async toolCall => {
                         try {
                             const result = await server.callTool(
                                 toolCall.function.name,
@@ -239,7 +193,7 @@ export abstract class BaseAIService implements AIService {
                 );
 
                 // Add tool results to messages
-                messages.push(response.message);
+                messages.push(responseMessage);
                 messages.push({
                     role: 'tool',
                     content: JSON.stringify(toolResults),
@@ -253,18 +207,17 @@ export abstract class BaseAIService implements AIService {
                 });
 
                 tokenCount += finalCompletion.usage?.total_tokens || 0;
-
                 const messageContent = finalCompletion.choices[0].message.content;
+
                 return {
-                    content: typeof messageContent === 'string' ? messageContent : '',
+                    content: String(messageContent || ''),
                     toolResults,
                     tokenCount
                 };
             }
 
-            const messageContent = response.message.content;
             return {
-                content: typeof messageContent === 'string' ? messageContent : '',
+                content: String(responseMessage.content || ''),
                 toolResults: [],
                 tokenCount
             };
@@ -279,38 +232,8 @@ export abstract class BaseAIService implements AIService {
         tools?: { type: 'function'; function: any }[];
         tool_choice?: 'auto' | 'none';
         temperature?: number;
-    }): Promise<{
-        choices: Array<{
-            message: ChatCompletionMessageParam;
-            finish_reason: string;
-        }>;
-        usage?: {
-            total_tokens: number;
-        };
-    }> {
-        // Add tools information if provided
-        let augmentedMessages = [...options.messages];
-        if (options.tools) {
-            const toolsDescription = `Available tools:\n${options.tools.map(tool => 
-                `${tool.function.name}: ${tool.function.description}\nParameters: ${JSON.stringify(tool.function.parameters, null, 2)}\n`
-            ).join('\n')}\n\n`;
-            
-            // Add tools info to system message if exists, or create new system message
-            const systemMessageIndex = augmentedMessages.findIndex(msg => msg.role === 'system');
-            if (systemMessageIndex >= 0) {
-                augmentedMessages[systemMessageIndex] = {
-                    ...augmentedMessages[systemMessageIndex],
-                    content: `${augmentedMessages[systemMessageIndex].content}\n\n${toolsDescription}`
-                };
-            } else {
-                augmentedMessages.unshift({
-                    role: 'system',
-                    content: toolsDescription
-                });
-            }
-        }
-
-        return this.makeApiCall(augmentedMessages, options.temperature || 0.7);
+    }) {
+        return this.makeApiCall(options.messages, options.temperature || 0.7);
     }
 
     protected abstract makeApiCall(
@@ -318,7 +241,7 @@ export abstract class BaseAIService implements AIService {
         temperature: number
     ): Promise<{
         choices: Array<{
-            message: ChatCompletionMessageParam;
+            message: ChatCompletionAssistantMessageParam;
             finish_reason: string;
         }>;
         usage?: {

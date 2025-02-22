@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { QueryOptimizationService } from './query-optimization.service.js';
-import { DatabaseService } from './db-service.js';
+import { DatabaseService } from '../db-service.js';
 
 describe('QueryOptimizationService', () => {
   let queryOptimizationService: QueryOptimizationService;
