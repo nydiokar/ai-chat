@@ -38,6 +38,15 @@ interface PerformanceMetrics {
       executionTime: number;
     }>;
   };
+  taskMetrics: {
+    totalTasks: number;
+    tasksPerStatus: Record<string, number>;
+    completionRate: number;
+    averageCompletionTime: number;
+    tasksByPriority: Record<string, number>;
+    activeTasksCount: number;
+    overdueTasksCount: number;
+  };
 }
 
 export class PerformanceMonitoringService {
@@ -71,8 +80,11 @@ export class PerformanceMonitoringService {
       used: os.totalmem() - os.freemem()
     };
 
-    const toolUsageStats = await this.collectToolUsageStats();
-    const queryPerformance = await this.collectQueryPerformance();
+    const [toolUsageStats, queryPerformance, taskMetrics] = await Promise.all([
+      this.collectToolUsageStats(),
+      this.collectQueryPerformance(),
+      this.collectTaskMetrics()
+    ]);
 
     return {
       id: uuidv4(),
@@ -80,7 +92,8 @@ export class PerformanceMonitoringService {
       cpuUsage: totalCpuUsage,
       memoryUsage,
       toolUsageStats,
-      queryPerformance
+      queryPerformance,
+      taskMetrics
     };
   }
 
@@ -199,6 +212,77 @@ export class PerformanceMonitoringService {
         executionTime: metric.executionTime
       }))
     };
+  }
+
+  private async collectTaskMetrics() {
+    try {
+      const tasks = await this.prisma.task.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+          }
+        },
+        include: {
+          _count: true
+        }
+      });
+
+      // Calculate tasks per status
+      const tasksPerStatus = tasks.reduce((acc, task) => {
+        acc[task.status] = (acc[task.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Calculate tasks by priority
+      const tasksByPriority = tasks.reduce((acc, task) => {
+        acc[task.priority] = (acc[task.priority] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Calculate completion metrics
+      const completedTasks = tasks.filter(task => task.status === 'COMPLETED');
+      const completionRate = tasks.length > 0 ? completedTasks.length / tasks.length : 0;
+
+      // Calculate average completion time for completed tasks
+      const completionTimes = completedTasks
+        .filter(task => task.completedAt)
+        .map(task => task.completedAt!.getTime() - task.createdAt.getTime());
+      
+      const averageCompletionTime = completionTimes.length > 0 
+        ? completionTimes.reduce((sum, time) => sum + time, 0) / completionTimes.length 
+        : 0;
+
+      // Count active and overdue tasks
+      const now = new Date();
+      const activeTasksCount = tasks.filter(task => 
+        task.status === 'IN_PROGRESS' || task.status === 'OPEN'
+      ).length;
+
+      const overdueTasksCount = tasks.filter(task => 
+        task.dueDate && task.dueDate < now && task.status !== 'COMPLETED'
+      ).length;
+
+      return {
+        totalTasks: tasks.length,
+        tasksPerStatus,
+        completionRate,
+        averageCompletionTime,
+        tasksByPriority,
+        activeTasksCount,
+        overdueTasksCount
+      };
+    } catch (error) {
+      console.error('Error collecting task metrics:', error);
+      return {
+        totalTasks: 0,
+        tasksPerStatus: {},
+        completionRate: 0,
+        averageCompletionTime: 0,
+        tasksByPriority: {},
+        activeTasksCount: 0,
+        overdueTasksCount: 0
+      };
+    }
   }
 
   async generatePerformanceDashboard(): Promise<PerformanceMetrics> {

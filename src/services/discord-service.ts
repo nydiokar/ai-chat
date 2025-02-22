@@ -5,6 +5,7 @@ import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
+import { PerformanceMonitoringService } from './performance-monitoring.service.js';
 
 
 import { debug } from '../utils/config.js';
@@ -45,8 +46,9 @@ export class DiscordService {
     return DiscordService.instance;
   }
 
-  private async handleTaskCommand(message: DiscordMessage, command: { action: string; parameters: any }) {
+private async handleTaskCommand(message: DiscordMessage, command: { action: string; parameters: any }) {
     const taskManager = TaskManager.getInstance();
+    const performanceMonitoring = PerformanceMonitoringService.getInstance();
 
     try {
       switch (command.action) {
@@ -64,6 +66,38 @@ export class DiscordService {
           break;
         }
         
+        case 'stats': {
+          const metrics = await performanceMonitoring.generatePerformanceDashboard();
+          const taskMetrics = metrics.taskMetrics;
+
+          let response = '```\nTask Performance Metrics:\n\n';
+          
+          // Overall stats
+          response += `📊 Total Tasks: ${taskMetrics.totalTasks}\n`;
+          response += `✅ Completion Rate: ${(taskMetrics.completionRate * 100).toFixed(1)}%\n`;
+          response += `⏱️ Avg Completion Time: ${(taskMetrics.averageCompletionTime / (1000 * 60 * 60)).toFixed(1)} hours\n`;
+          
+          // Status breakdown
+          response += '\nStatus Breakdown:\n';
+          Object.entries(taskMetrics.tasksPerStatus).forEach(([status, count]) => {
+            response += `${this.getStatusEmoji(status)} ${status}: ${count}\n`;
+          });
+
+          // Priority breakdown
+          response += '\nPriority Distribution:\n';
+          Object.entries(taskMetrics.tasksByPriority).forEach(([priority, count]) => {
+            response += `${this.getPriorityEmoji(priority)} ${priority}: ${count}\n`;
+          });
+
+          // Active and overdue
+          response += `\n📈 Active Tasks: ${taskMetrics.activeTasksCount}\n`;
+          response += `⚠️ Overdue Tasks: ${taskMetrics.overdueTasksCount}\n`;
+          
+          response += '```';
+          await this.sendMessage(message.channel as TextChannel, response, message);
+          break;
+        }
+
         case 'list': {
           const tasks = await taskManager.getUserTasks(message.author.id);
           let response = '```\nYour Tasks:\n\n';
@@ -444,6 +478,21 @@ export class DiscordService {
             return '✅ COMPLETED';
         case 'CLOSED':
             return '⭕ CLOSED';
+        default:
+            return '❓';
+    }
+  }
+
+  private getPriorityEmoji(priority: string): string {
+    switch (priority.toUpperCase()) {
+        case 'URGENT':
+            return '🔥';
+        case 'HIGH':
+            return '⚡';
+        case 'MEDIUM':
+            return '⚪';
+        case 'LOW':
+            return '⚫';
         default:
             return '❓';
     }
