@@ -65,6 +65,15 @@ interface PerformanceMetrics {
       executionTime: number;
     }>;
   };
+  taskMetrics: {
+    totalTasks: number;
+    tasksPerStatus: Record<string, number>;
+    completionRate: number;
+    averageCompletionTime: number;
+    tasksByPriority: Record<string, number>;
+    activeTasksCount: number;
+    overdueTasksCount: number;
+  };
 }
 
 export class PerformanceMonitoringService {
@@ -87,8 +96,7 @@ export class PerformanceMonitoringService {
     return PerformanceMonitoringService.instance;
   }
 
-  private async collectSystemMetrics(): Promise<PerformanceMetrics & { collectionDuration: number }> {
-    const start = performance.now();
+  private async collectSystemMetrics(): Promise<PerformanceMetrics> {
     const cpus = os.cpus();
     const totalCpuUsage = cpus.reduce((acc: number, cpu) => {
       const total = Object.values(cpu.times).reduce((a: number, b: number) => a + b, 0);
@@ -102,9 +110,11 @@ export class PerformanceMonitoringService {
       used: os.totalmem() - os.freemem()
     };
 
-    const toolUsageStats = await this.collectToolUsageStats();
-    const queryPerformance = await this.collectQueryPerformance();
-    const collectionDuration = performance.now() - start;
+    const [toolUsageStats, queryPerformance, taskMetrics] = await Promise.all([
+      this.collectToolUsageStats(),
+      this.collectQueryPerformance(),
+      this.collectTaskMetrics()
+    ]);
 
     return {
       id: uuidv4(),
@@ -113,7 +123,7 @@ export class PerformanceMonitoringService {
       memoryUsage,
       toolUsageStats,
       queryPerformance,
-      collectionDuration: Math.round(collectionDuration)
+      taskMetrics
     };
   }
 
@@ -234,11 +244,84 @@ export class PerformanceMonitoringService {
     };
   }
 
+  private async collectTaskMetrics() {
+    try {
+      const tasks = await this.prisma.task.findMany({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+          }
+        },
+        include: {
+          _count: true
+        }
+      });
+
+      // Calculate tasks per status
+      const tasksPerStatus = tasks.reduce((acc, task) => {
+        acc[task.status] = (acc[task.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Calculate tasks by priority
+      const tasksByPriority = tasks.reduce((acc, task) => {
+        acc[task.priority] = (acc[task.priority] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Calculate completion metrics
+      const completedTasks = tasks.filter(task => task.status === 'COMPLETED');
+      const completionRate = tasks.length > 0 ? completedTasks.length / tasks.length : 0;
+
+      // Calculate average completion time for completed tasks
+      const completionTimes = completedTasks
+        .filter(task => task.completedAt)
+        .map(task => task.completedAt!.getTime() - task.createdAt.getTime());
+      
+      const averageCompletionTime = completionTimes.length > 0 
+        ? completionTimes.reduce((sum, time) => sum + time, 0) / completionTimes.length 
+        : 0;
+
+      // Count active and overdue tasks
+      const now = new Date();
+      const activeTasksCount = tasks.filter(task => 
+        task.status === 'IN_PROGRESS' || task.status === 'OPEN'
+      ).length;
+
+      const overdueTasksCount = tasks.filter(task => 
+        task.dueDate && task.dueDate < now && task.status !== 'COMPLETED'
+      ).length;
+
+      return {
+        totalTasks: tasks.length,
+        tasksPerStatus,
+        completionRate,
+        averageCompletionTime,
+        tasksByPriority,
+        activeTasksCount,
+        overdueTasksCount
+      };
+    } catch (error) {
+      console.error('Error collecting task metrics:', error);
+      return {
+        totalTasks: 0,
+        tasksPerStatus: {},
+        completionRate: 0,
+        averageCompletionTime: 0,
+        tasksByPriority: {},
+        activeTasksCount: 0,
+        overdueTasksCount: 0
+      };
+    }
+  }
+
   async generatePerformanceDashboard(): Promise<PerformanceMetrics> {
-    const metricsWithDuration = await this.collectSystemMetrics();
-    const { collectionDuration, ...metrics } = metricsWithDuration;
+    const start = performance.now();
     
-    // Store metrics in database for historical tracking including collection duration
+    const metrics = await this.collectSystemMetrics();
+    const collectionDuration = Math.round(performance.now() - start);
+    
+    // Store metrics in database for historical tracking
     await this.dbService.executePrismaOperation(async (prisma) => {
       await prisma.performanceMetric.create({
         data: {
@@ -248,14 +331,13 @@ export class PerformanceMonitoringService {
           memoryFree: BigInt(metrics.memoryUsage.free),
           totalToolCalls: metrics.toolUsageStats.totalToolCalls,
           toolSuccessRate: metrics.toolUsageStats.successRate,
-          // Keep the actual query performance metrics
           averageQueryTime: metrics.queryPerformance.averageQueryTime
         }
       });
     });
 
-    // Log both metrics collection time and query performance
-    console.log(`Performance metrics collected in ${Math.round(collectionDuration)}ms`);
+    // Log performance information
+    console.log(`Performance metrics collected in ${collectionDuration}ms`);
     if (metrics.queryPerformance.averageQueryTime > 0) {
       console.log(`Average query time: ${metrics.queryPerformance.averageQueryTime}ms`);
     }
