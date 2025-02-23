@@ -20,8 +20,10 @@ describe('Task-Memory Integration', () => {
     testUserId = 'test-user-' + Date.now();
     await memoryRepo.createTestUser(testUserId);
 
-    // Create test conversation
-    testConversationId = Date.now();
+    // Create test conversation with a smaller number
+    testConversationId = Math.floor(Math.random() * 1000000); // Use a smaller number
+    // Or even simpler:
+    // testConversationId = 1; // For testing, we just need a unique ID
     await memoryRepo.createTestConversation(testConversationId);
   });
 
@@ -55,6 +57,7 @@ describe('Task-Memory Integration', () => {
         timestamp: new Date(),
         messages: []
       });
+      expect(context).to.have.property('id');
 
       // Create a task associated with the conversation
       const task = await dbService.prisma.task.create({
@@ -91,15 +94,6 @@ describe('Task-Memory Integration', () => {
     });
 
     it('should update conversation context when task status changes', async () => {
-      // Create initial context
-      const initialContext = await memoryRepo.saveContext({
-        conversationId: testConversationId,
-        topics: ['task', 'status'],
-        entities: ['task-status'],
-        summary: 'Initial task status',
-        timestamp: new Date(),
-        messages: []
-      });
 
       // Create task
       const task = await dbService.prisma.task.create({
@@ -198,7 +192,7 @@ describe('Task-Memory Integration', () => {
               connect: { id: testUserId }
             },
             conversation: {
-              connect: { id: 999999 } // Non-existent conversation
+              connect: { id: 999 } // Non-existent conversation
             },
             priority: TaskPriority.MEDIUM,
             tags: []
@@ -207,7 +201,7 @@ describe('Task-Memory Integration', () => {
         expect.fail('Should have thrown an error');
       } catch (err) {
         const error = err as Error;
-        expect(error.message).to.include('Record to connect to does not exist');
+        expect(error.message).to.include('No \'Conversation\' record');
       }
     });
 

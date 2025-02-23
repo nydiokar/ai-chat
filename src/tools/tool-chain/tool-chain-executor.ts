@@ -35,15 +35,15 @@ export class ToolChainExecutor {
 
   async execute(
     chainConfig: ToolChainConfig, 
-    toolRegistry: Record<string, (input: any) => Promise<any>>
+    toolRegistry: Record<string, (input: any) => Promise<any>>,
+    initialContext: ExecutionContext = {}
   ): Promise<ToolExecutionResult> {
     const startTime = performance.now();
-    const executionContext: ExecutionContext = {};
-    const chainResults: any[] = [];  // Store only successful results
+    const executionContext: ExecutionContext = { ...initialContext };
+    const chainResults: any[] = [];
 
     try {
       for (const tool of chainConfig.tools) {
-        // Check abort conditions before executing tool
         if (this.shouldAbortChain(chainConfig, executionContext, chainResults)) {
           this.logger.warn('Tool chain aborted', { 
             chainId: chainConfig.id, 
@@ -59,8 +59,19 @@ export class ToolChainExecutor {
           };
         }
 
-        // Execute tool
-        const toolResult = await this.executeTool(tool, executionContext, toolRegistry, chainConfig);
+        const inputResult = this.prepareToolInput(tool, executionContext);
+        if (!inputResult.success) {
+          return {
+            success: false,
+            error: inputResult.error,
+            metadata: {
+              executionTime: performance.now() - startTime,
+              toolName: tool.name
+            }
+          };
+        }
+
+        const toolResult = await this.executeTool(tool, inputResult.params, toolRegistry, chainConfig);
         
         if (!toolResult.success) {
           this.logger.error('Tool execution failed', { 
@@ -71,7 +82,7 @@ export class ToolChainExecutor {
           return {
             success: false,
             error: toolResult.error,
-            data: chainResults,
+            data: chainResults, // Include the results from successful tools
             metadata: {
               executionTime: performance.now() - startTime,
               toolName: tool.name
@@ -79,10 +90,8 @@ export class ToolChainExecutor {
           };
         }
 
-        // Only add successful results to the chain
         chainResults.push(toolResult.data);
 
-        // Store tool result in execution context if mapping exists
         const mappedKey = chainConfig.resultMapping?.[tool.name];
         if (mappedKey) {
           executionContext[mappedKey] = toolResult.data;
@@ -123,95 +132,124 @@ export class ToolChainExecutor {
 
   private async executeTool(
     tool: ToolInput,
-    context: ExecutionContext,
+    inputParams: any,
     toolRegistry: Record<string, (input: any) => Promise<any>>,
     chainConfig: ToolChainConfig
   ): Promise<ToolExecutionResult> {
     const startTime = performance.now();
+    const maxRetries = tool.maxRetries || 3;
+    const timeoutMs = tool.timeout || 30000;
 
-    try {
-      // Verify tool exists
-      const toolFunction = toolRegistry[tool.name];
-      if (!toolFunction) {
-        throw new Error(`Tool '${tool.name}' not found in registry`);
-      }
-
-      // Prepare input parameters
-      const inputParams = this.prepareToolInput(tool, context);
-
-      // Execute tool and validate result
-      const result = await toolFunction(inputParams);
-      
-      // Add debug logging with chain context
-      this.logger.debug('Tool execution result', {
-        chainId: chainConfig.id,
-        toolName: tool.name,
-        inputParams,
-        result
-      });
-
-      if (result === undefined || result === null) {
-        throw new Error(`Tool ${tool.name} returned no result`);
-      }
-
-      return {
-        success: true,
-        data: result,
-        metadata: {
-          executionTime: performance.now() - startTime,
-          toolName: tool.name
-        }
-      };
-    } catch (error) {
-      this.logger.error('Tool execution error', {
-        chainId: chainConfig.id,
-        toolName: tool.name,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      
+    const toolFunction = toolRegistry[tool.name];
+    if (!toolFunction) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: new Error(`Tool '${tool.name}' not found in registry`),
         metadata: {
           executionTime: performance.now() - startTime,
           toolName: tool.name
         }
       };
     }
+
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        // Create separate promises for tool execution and timeout
+        const functionPromise = toolFunction(inputParams);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`TIMEOUT: Tool execution timeout after ${timeoutMs}ms`));
+          }, timeoutMs);
+        });
+
+        // Race between function and timeout
+        const result = await Promise.race([functionPromise, timeoutPromise]);
+
+        if (result === undefined || result === null) {
+          throw new Error(`Tool ${tool.name} returned no result`);
+        }
+
+        return {
+          success: true,
+          data: result,
+          metadata: {
+            executionTime: performance.now() - startTime,
+            toolName: tool.name
+          }
+        };
+
+      } catch (error) {
+        this.logger.error('Tool execution error', {
+          chainId: chainConfig.id,
+          toolName: tool.name,
+          error: error instanceof Error ? error.message : String(error),
+          attempt
+        });
+
+        if (attempt === maxRetries + 1 || (error instanceof Error && error.message.includes('TIMEOUT:'))) {
+          return {
+            success: false,
+            error: error instanceof Error ? error : new Error(String(error)),
+            metadata: {
+              executionTime: performance.now() - startTime,
+              toolName: tool.name
+            }
+          };
+        }
+
+        await new Promise(resolve => setTimeout(resolve, Math.min(50 * Math.pow(2, attempt - 1), 1000)));
+      }
+    }
+
+    // This shouldn't be reached
+    throw new Error('Unexpected execution path');
   }
 
   private prepareToolInput(
     tool: ToolInput, 
     context: ExecutionContext
-  ): any {
-    if (!tool.parameters) return {};
-
-    const params: Record<string, any> = {};
-    for (const [key, value] of Object.entries(tool.parameters)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        // Parse the path segments (e.g., "$fetchResult.data" -> ["fetchResult", "data"])
-        const pathSegments = value.slice(1).split('.');
-        let contextValue = context[pathSegments[0]];
-
-        // Navigate through nested properties
-        for (let i = 1; i < pathSegments.length; i++) {
-          if (contextValue === undefined) {
-            throw new Error(`Cannot access ${pathSegments[i]} of undefined in path ${value}`);
-          }
-          contextValue = contextValue[pathSegments[i]];
-        }
-
-        if (contextValue === undefined) {
-          throw new Error(`Missing context value for parameter ${key}: ${value}`);
-        }
-
-        params[key] = contextValue;
-      } else {
-        params[key] = value;
-      }
+  ): { success: boolean; error?: Error; params?: any } {
+    if (!tool.parameters) {
+      return { success: true, params: {} };
     }
 
-    return params;
+    try {
+      const params: Record<string, any> = {};
+      for (const [key, value] of Object.entries(tool.parameters)) {
+        if (typeof value === 'string' && value.startsWith('$')) {
+          const pathSegments = value.slice(1).split('.');
+          let contextValue = context[pathSegments[0]];
+
+          if (contextValue === undefined) {
+            return {
+              success: false,
+              error: new Error(`Missing context value for parameter ${key}: ${value}`)
+            };
+          }
+
+          for (let i = 1; i < pathSegments.length; i++) {
+            if (contextValue === undefined) {
+              return {
+                success: false,
+                error: new Error(`Cannot access ${pathSegments[i]} of undefined in path ${value}`)
+              };
+            }
+            contextValue = contextValue[pathSegments[i]];
+          }
+
+          params[key] = contextValue;
+        } else {
+          params[key] = value;
+        }
+      }
+
+      return { success: true, params };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error : new Error(String(error))
+      };
+    }
   }
 
   private shouldAbortChain(

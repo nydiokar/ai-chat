@@ -5,7 +5,7 @@ import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
-import { PerformanceMonitoringService } from './performance-monitoring.service.js';
+import { PerformanceMonitoringService } from './performance/performance-monitoring.service.js';
 
 import { debug, defaultConfig } from '../utils/config.js';
 import { MCPError } from '../types/errors.js';

@@ -64,3 +64,28 @@ export const MCP_SERVER_IDS = [
     'brave-search',
     'github'
 ] as const;
+
+// Extend existing MCPToolConfig for chain-specific needs
+export interface ChainedToolConfig extends MCPToolConfig {
+    dependsOn?: string[];           // Tool dependencies
+    retryConfig?: {
+        maxAttempts: number;
+        delayMs: number;
+    };
+    timeout?: number;               // In milliseconds
+}
+
+// Track chain execution results
+export interface ChainExecutionResult {
+    success: boolean;
+    steps: {
+        toolId: string;
+        usage: ToolUsage;          // Reuse existing ToolUsage
+        completed: boolean;
+    }[];
+    error?: {
+        step: string;
+        message: string;
+        attemptCount: number;
+    };
+}

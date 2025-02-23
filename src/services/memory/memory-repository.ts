@@ -496,11 +496,10 @@ export class MemoryRepository {
   }
 
   async createTestConversation(id: number) {
-    return await this._prisma.conversation.create({
+    return this._prisma.conversation.create({
       data: {
         id,
-        model: 'test-model',
-        title: 'Test Conversation',
+        model: 'gpt',
         tokenCount: 0
       }
     });
