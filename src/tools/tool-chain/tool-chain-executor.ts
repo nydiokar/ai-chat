@@ -66,7 +66,7 @@ export class ToolChainExecutor {
             error: inputResult.error,
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: tool.name
+              toolName: 'error'
             }
           };
         }
@@ -85,7 +85,7 @@ export class ToolChainExecutor {
             data: chainResults, // Include the results from successful tools
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: tool.name
+              toolName: 'error'
             }
           };
         }
@@ -147,7 +147,7 @@ export class ToolChainExecutor {
         error: new Error(`Tool '${tool.name}' not found in registry`),
         metadata: {
           executionTime: performance.now() - startTime,
-          toolName: tool.name
+          toolName: 'error'
         }
       };
     }
@@ -192,7 +192,7 @@ export class ToolChainExecutor {
             error: error instanceof Error ? error : new Error(String(error)),
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: tool.name
+              toolName: 'error'
             }
           };
         }
