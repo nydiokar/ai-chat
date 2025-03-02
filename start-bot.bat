@@ -12,8 +12,9 @@ mkdir logs 2>nul
 
 echo Starting Discord Bot...
 call pm2 delete them-bot 2>nul
+set NODE_OPTIONS=--no-deprecation
 call pm2 start ecosystem.config.cjs
 
 echo Bot started! Showing logs...
-call pm2 logs them-bot
+call pm2 logs them-bot --lines 5 --err
 pause 

@@ -27,8 +27,9 @@ export class OpenAIService extends BaseAIService {
         await this.initPromise;
 
         try {
+            const conversationId = conversationHistory?.[0]?.conversationId;
             if (this.mcpManager) {
-                return this.processWithTools(message, conversationHistory);
+                return this.processWithTools(message, conversationHistory, conversationId);
             } else {
                 return this.processWithoutTools(message, conversationHistory);
             }
@@ -41,16 +42,10 @@ export class OpenAIService extends BaseAIService {
     protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
         functions: any[],
-        servers: any[]
+        toolsHandler: any,
+        conversationId?: number
     ): Promise<AIResponse> {
         try {
-            // Create a map of tool names to their respective servers
-            const toolServerMap = new Map();
-            for (const server of servers) {
-                const tools = await server.listTools();
-                tools.forEach((tool: any) => toolServerMap.set(tool.name, server));
-            }
-
             const completion = await this.client.chat.completions.create({
                 model: this.modelName,
                 messages,
@@ -70,27 +65,10 @@ export class OpenAIService extends BaseAIService {
                 // Process all tool calls in this response
                 for (const toolCall of responseMessage.tool_calls) {
                     try {
-                        const server = toolServerMap.get(toolCall.function.name);
-                        if (!server) {
-                            throw new Error(`No server found for tool: ${toolCall.function.name}`);
-                        }
-
-                        let toolResult: string;
-                        try {
-                            console.log(`Attempting to parse arguments for tool ${toolCall.function.name}:`, toolCall.function.arguments);
-                            const functionArgs = JSON.parse(toolCall.function.arguments);
-                            console.log('Successfully parsed arguments:', functionArgs);
-                            
-                            toolResult = await server.callTool(toolCall.function.name, functionArgs);
-                            toolResults.push(toolResult);
-                        } catch (error: unknown) {
-                            console.error('Failed to parse tool arguments:', {
-                                tool: toolCall.function.name,
-                                arguments: toolCall.function.arguments,
-                                error: error instanceof Error ? error.message : String(error)
-                            });
-                            throw error;
-                        }
+                        console.log(`Processing tool call for ${toolCall.function.name}`);
+                        const toolQuery = `[Calling tool ${toolCall.function.name} with args ${toolCall.function.arguments}]`;
+                        const toolResult = await toolsHandler.processQuery(toolQuery, conversationId);
+                        toolResults.push(toolResult);
 
                         // Add the tool response message
                         currentMessages.push({

@@ -70,14 +70,23 @@ export class MCPServerManager extends EventEmitter {
         return;
       }
 
+      console.log(`[MCPServerManager] Starting server ${serverId}...`);
       const client = new MCPClientService(config);
-      client.initialize();
-      await client.connect();
-
+      
+      // Initialize client and wait for successful connection
+      await client.initialize();
+      
+      // Store the client instance
+      this._servers.set(serverId, client);
+      
+      // Get initial tools list and sync with DB
       const tools = await client.listTools();
       await this._syncToolsWithDB(serverId, tools);
-      this._servers.set(serverId, client);
+      
+      // Update server status
       await this._updateServerStatusInDB(serverId, "RUNNING");
+      
+      console.log(`[MCPServerManager] Server ${serverId} started successfully with ${tools.length} tools`);
     } catch (error) {
       this._servers.delete(serverId);
       throw new MCPError(
@@ -341,7 +350,7 @@ export class MCPServerManager extends EventEmitter {
   ): ToolsHandler {
     let handler = this._toolsHandlers.get(serverId);
     if (!handler) {
-      handler = new ToolsHandler(server, this.aiService, this.db);
+      handler = new ToolsHandler([{ id: serverId, client: server }], this.aiService, this.db);
       this._toolsHandlers.set(serverId, handler);
     }
     return handler;

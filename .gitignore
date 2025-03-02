@@ -11,3 +11,4 @@ prisma/dev.db
 .clinerules
 cline_docs/
 .venv/
+*.log

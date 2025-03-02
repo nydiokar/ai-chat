@@ -484,6 +484,58 @@ export class MemoryRepository {
     await this._prisma.$disconnect();
   }
 
+  // Clear all cache entries - useful for testing
+  async flushCache(): Promise<void> {
+    this._memoryCache.flushAll();
+  }
+
+  // Memory cleanup for deleted tasks
+  async cleanupTaskContexts(taskId: number, conversationId?: number): Promise<void> {
+    try {
+      let targetConversationId = conversationId;
+      
+      // If conversationId not provided, try to get it from the task
+      if (typeof targetConversationId === 'undefined') {
+        const task = await this._prisma.task.findUnique({
+          where: { id: taskId },
+          select: { conversationId: true }
+        });
+        if (task?.conversationId) {
+          targetConversationId = task.conversationId;
+        }
+      }
+
+      if (typeof targetConversationId === 'number') {
+        // Delete contexts associated with the conversation
+        await this._prisma.conversationContext.deleteMany({
+          where: { conversationId: targetConversationId }
+        });
+
+        // Clear cache entries related to this conversation
+        const cacheKeys = Array.from(this._memoryCache.keys());
+        for (const key of cacheKeys) {
+          if (key.includes(String(targetConversationId))) {
+            this._memoryCache.del(key);
+          }
+        }
+
+        this.log('info', 'Task contexts cleaned up', { 
+          taskId,
+          conversationId: targetConversationId
+        });
+
+        // Reset query cache
+        this._memoryCache.flushAll();
+      }
+    } catch (error) {
+      this.log('error', 'Failed to cleanup task contexts', { 
+        taskId, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      throw error;
+    }
+  }
+
   // Helper methods for testing
   async createTestUser(id: string) {
     return await this._prisma.user.create({

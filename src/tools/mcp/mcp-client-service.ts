@@ -69,36 +69,38 @@ export class MCPClientService {
         }
     }
 
+    async hasToolEnabled(toolName: string): Promise<boolean> {
+        try {
+            const tools = await this.listTools();
+            return tools.some(tool => tool.name === toolName);
+        } catch (error) {
+            return false;
+        }
+    }
+
     async listTools(): Promise<MCPTool[]> {
         try {
-            const response = await this.client.request({
+            console.log(`[MCPClientService] Initializing ${this.config.name}...`);
+            const tools = await this.client.request({
                 method: 'tools/list',
                 params: {}
             }, ToolListResponseSchema);
             
-            // Reset reconnect delay on successful request
-            this.currentReconnectDelay = this.reconnectDelay;
+            console.log(`[MCPClientService] Successfully connected to ${this.config.name}`);
             
-            return response.tools.map(tool => ({
+            if (process.env.DEBUG) {
+                console.log(`[MCPClientService] Available tools: ${tools.tools.map(t => t.name).join(', ')}`);
+            }
+            
+            return tools.tools.map(tool => ({
                 name: tool.name,
                 description: tool.description || '',
                 inputSchema: tool.inputSchema,
                 server: this.config
             }));
         } catch (error) {
-            console.error('[MCPClientService] Error listing tools:', error);
-            
-            // Implement exponential backoff with maximum delay
-            this.currentReconnectDelay = Math.min(
-                this.currentReconnectDelay * 2,
-                this.maxReconnectDelay
-            );
-            
-            console.log(`[MCPClientService] Attempting to reconnect in ${this.currentReconnectDelay/1000} seconds...`);
-            await new Promise(resolve => setTimeout(resolve, this.currentReconnectDelay));
-            
-            // Always retry
-            return this.listTools();
+            console.error(`[MCPClientService] Failed to initialize ${this.config.name}:`, error);
+            return [];
         }
     }
 
@@ -164,8 +166,36 @@ export class MCPClientService {
         }, 30000); // Check every 30 seconds
     }
 
-    initialize() {
-        this.startHealthCheck();
+    async initialize(): Promise<void> {
+        // Verify required environment variables
+        if (this.config.env) {
+            const missingEnvVars = Object.entries(this.config.env)
+                .filter(([, value]) => !value);
+            
+            if (missingEnvVars.length > 0) {
+                const vars = missingEnvVars.map(([key]) => key).join(', ');
+                throw new Error(`Missing required environment variables: ${vars}`);
+            }
+        }
+
+        console.log(`[MCPClientService] Initializing ${this.config.name}...`);
+        
+        try {
+            // Attempt initial connection
+            await this.connect();
+            console.log(`[MCPClientService] Successfully connected to ${this.config.name}`);
+            
+            // Verify tools are available
+            const tools = await this.listTools();
+            console.log(`[MCPClientService] Available tools: ${tools.map(t => t.name).join(', ')}`);
+            
+            // Start health check only after successful initialization
+            this.startHealthCheck();
+        } catch (error) {
+            console.error(`[MCPClientService] Failed to initialize ${this.config.name}:`, 
+                error instanceof Error ? error.message : String(error));
+            throw error;
+        }
     }
 
     cleanup() {

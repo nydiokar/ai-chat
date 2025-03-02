@@ -1,4 +1,0 @@
-{"level":"info","message":"Memory query completed","queryParams":{"topics":["unique-test-topic-1740243842231"]},"resultCount":1,"timestamp":"2025-02-22T17:04:02.238Z"}
-{"level":"info","message":"Memory query completed","queryParams":{"topics":["non-existent-topic"]},"resultCount":0,"timestamp":"2025-02-22T17:04:02.245Z"}
-{"level":"info","message":"Memory query completed","queryParams":{"topics":["unique-test-topic-1740243907997"]},"resultCount":1,"timestamp":"2025-02-22T17:05:08.004Z"}
-{"level":"info","message":"Memory query completed","queryParams":{"topics":["non-existent-topic"]},"resultCount":0,"timestamp":"2025-02-22T17:05:08.010Z"}

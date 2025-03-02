@@ -8,7 +8,7 @@ import { ToolsHandler } from "./tools/tools-handler.js";
 export class SystemPromptGenerator {
     private readonly middleware: PromptMiddleware;
     private readonly repository: PromptRepository;
-    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
+    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant."
 
     constructor(
         private mcpManager: MCPServerManager,
@@ -20,24 +20,23 @@ export class SystemPromptGenerator {
     }
 
     private initializeToolPrompts(): void {
-        const toolPrompt: ToolUsagePrompt = {
+        const mcpToolPrompt: ToolUsagePrompt = {
             type: PromptType.TOOL_USAGE,
-            content: `When using tools:
-1. Always explain intention before use
-2. Format calls as: [Calling tool <name> with args <json>]
-3. Use exact tool names
-4. Handle errors appropriately`,
+            content: `Tool Usage Guidelines:
+- Format calls as: [Calling tool <name> with args <json>]
+- Follow each tool's input schema requirements
+- Handle errors appropriately`,
             priority: 2,
             tools: ['*'],
             usagePatterns: {
-                bestPractices: ['Verify tools before use', 'Use specific tools first'],
-                commonErrors: ['Incorrect formatting', 'Missing args']
+                bestPractices: ['Follow schema requirements'],
+                commonErrors: ['Invalid formatting']
             },
             shouldApply: (context: PromptContext) => 
                 context.tools !== undefined && context.tools.length > 0
         };
         
-        this.repository.addPrompt(toolPrompt);
+        this.repository.addPrompt(mcpToolPrompt);
     }
 
     async generatePrompt(additionalContext: string = "", request?: string): Promise<string> {
@@ -67,31 +66,25 @@ export class SystemPromptGenerator {
                     const schema = JSON.stringify(tool.inputSchema, null, 2);
                     
                     let contextInfo = '';
-                    if (context) {
-                        const successRate = context.successRate ?? 1;
-                        contextInfo = `\nUsage Patterns:
-- Success Rate: ${(successRate * 100).toFixed(1)}%
-${context.patterns ? Object.entries(context.patterns)
-    .map(([param, data]) => `- Common ${param} values: ${(data as any).mostCommon?.slice(0, 2)?.join(', ') || 'No common values'}`)
-    .join('\n') : ''}`;
+                    if (context?.patterns) {
+                        const patterns = Object.entries(context.patterns)
+                            .map(([param, data]) => `${param}: ${(data as any).mostCommon?.[0]}`)
+                            .filter(pattern => !pattern.includes('undefined'))
+                            .join(', ');
+                        contextInfo = patterns ? `\nCommon Usage: ${patterns}` : '';
+                    }
+                    
+                    if (context?.history?.length) {
+                        contextInfo += `\nUsage History: ${context.history.length} recent uses`;
                     }
 
                     return `Tool: ${tool.name}
 Description: ${tool.description}
-Input Schema: ${schema}${contextInfo}`;
+Input Schema: ${schema}${contextInfo ? '\n' + contextInfo : ''}`;
                 });
 
-                const results = await Promise.allSettled(contextPromises);
-                results.forEach((result, index) => {
-                    if (result.status === 'fulfilled') {
-                        toolsContext.push(result.value);
-                    } else {
-                        console.error(`Failed to get context for tool ${tools[index].name}:`, result.reason);
-                        // Add minimal tool info as fallback
-                        toolsContext.push(`Tool: ${tools[index].name}
-Description: ${tools[index].description}`);
-                    }
-                });
+                const results = await Promise.all(contextPromises);
+                toolsContext.push(...results);
             } catch (error) {
                 console.error('[SystemPromptGenerator] Error getting tool contexts:', error);
             }
@@ -104,11 +97,16 @@ Description: ${tools[index].description}`);
             complexity: request ? await this.middleware.analyzeComplexity(request) : 'low'
         });
 
-        // Combine all parts
+        // Only include tool information if the request suggests tool usage is needed
+        const requestLower = (request || '').toLowerCase();
+        const needsTools = requestLower.includes('search') || 
+                          requestLower.includes('find') || 
+                          requestLower.includes('github');
+
         const parts = [
             this.defaultIdentity,
             prompts,
-            tools.length > 0 ? '\nAvailable Tools:\n' + toolsContext.join('\n\n') : 'No tools available.',
+            needsTools && tools.length > 0 ? '\nAvailable Tools:\n' + toolsContext.join('\n\n') : '',
             additionalContext
         ].filter(Boolean);
 

@@ -116,7 +116,7 @@ model MCPToolContext {
 
 model ToolUsage {
   id             Int      @id @default(autoincrement())
-  toolId         String
+  toolId         String?  // This is good as optional
   conversationId Int
   input          Json?
   output         String?
@@ -124,9 +124,9 @@ model ToolUsage {
   duration       Int
   status         String
   createdAt      DateTime @default(now())
-  tool           Tool     @relation(fields: [toolId], references: [id])
-  mcpTool        MCPTool? @relation(fields: [mcpToolId], references: [id])
-  mcpToolId      String?
+  tool           Tool?    @relation(fields: [toolId], references: [id])
+  mcpTool        MCPTool  @relation(fields: [mcpToolId], references: [id])
+  mcpToolId      String   // This should stay required
 
   @@index([toolId])
   @@index([conversationId])

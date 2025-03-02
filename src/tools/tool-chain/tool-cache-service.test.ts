@@ -1,6 +1,5 @@
 import { expect } from 'chai';
 import { ToolCacheService } from './tool-cache-service.js';
-import { sleep } from '../../utils/test-helpers.js';
 
 describe('ToolCacheService', () => {
   let cacheService: ToolCacheService;

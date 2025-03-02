@@ -8,14 +8,16 @@ import { ToolUsageHistory, ToolWithUsage } from '../types/tools.js';
 export class ToolsHandler {
     private availableTools: Set<string>;
     private toolContexts: Map<string, MCPToolContext> = new Map();
+    private clients: Map<string, MCPClientService>;
 
     constructor(
-        private client: MCPClientService,
+        clients: { id: string; client: MCPClientService }[],
         private ai: AIService,
         private db: DatabaseService
     ) {
         this.availableTools = new Set();
         this.toolContexts = new Map();
+        this.clients = new Map(clients.map(({ id, client }) => [id, client]));
         this.initializeTools();
         // Clear old contexts first
         this.clearOldContexts().then(() => this.loadPersistedContexts());
@@ -59,65 +61,37 @@ export class ToolsHandler {
         return this.toolContexts.get(toolName);
     }
 
-    private async getEnhancedContext(toolName: string, currentArgs: any): Promise<MCPToolContext> {
-        let context = this.toolContexts.get(toolName) || {
-            lastRefreshed: new Date(),
-            refreshCount: 0,
-            history: []
-        };
-
-        type PrismaTool = {
-            id: string;
-            name: string;
-            description: string;
-            usage: Array<{
-                input: any;
-                output: string;
-                createdAt: Date;
-                status: string;
-            }>;
-        };
-
-        const tool = await this.db.executePrismaOperation(prisma =>
-            prisma.mCPTool.findFirst({
-                where: { name: toolName },
-                include: {
-                    usage: {
-                        orderBy: { createdAt: 'desc' },
-                        take: 5
-                    }
-                }
-            })
-        ) as PrismaTool | null ?? { id: '', name: '', description: '', usage: [] };
-
-        if (tool) {
-            const recentUsage = tool.usage.map((u) => ({
-                args: u.input,
-                result: u.output,
-                timestamp: u.createdAt,
-                success: u.status === 'success'
-            }));
-
-            context = {
-                ...context,
-                history: recentUsage,
-                currentArgs,
-                successRate: tool.usage.filter((u) => u.status === 'success').length / tool.usage.length
+    private async getEnhancedContext(toolName: string, args: any): Promise<any> {
+        try {
+            return {
+                ...args,
+                toolName  // Include only the current tool name
             };
+        } catch (error) {
+            console.error('[ToolsHandler] Failed to get enhanced context:', error);
+            return args;
         }
-
-        return context;
     }
 
     private async initializeTools() {
         try {
-            console.log('[ToolsHandler] Initializing tools...');
-            const tools = await this.client.listTools();
-            this.availableTools = new Set(tools.map(tool => tool.name));
-            console.log(`[ToolsHandler] Initialized ${tools.length} tools:`, Array.from(this.availableTools));
+            for (const [serverId, client] of this.clients.entries()) {
+                const tools = await client.listTools();
+                tools.forEach(tool => this.availableTools.add(tool.name));
+            }
         } catch (error) {
             console.error('[ToolsHandler] Failed to initialize tools:', error);
         }
+    }
+
+    private async getClientForTool(toolName: string): Promise<MCPClientService> {
+        for (const [serverId, client] of this.clients.entries()) {
+            if (await client.hasToolEnabled(toolName)) {
+                console.log(`[ToolsHandler] Found tool ${toolName} in server ${serverId}`);
+                return client;
+            }
+        }
+        throw new Error(`No client found for tool: ${toolName}`);
     }
 
     async refreshToolContext(toolName: string, tool: ToolWithUsage): Promise<void> {
@@ -129,7 +103,7 @@ export class ToolsHandler {
         const context = {
             lastRefreshed: new Date(),
             refreshCount: (this.toolContexts.get(toolName)?.refreshCount || 0) + 1,
-            history: tool.usage.map((u) => ({
+            history: tool.usage.map((u: ToolUsage) => ({
                 args: u.input,
                 result: u.output,
                 timestamp: u.createdAt,
@@ -165,7 +139,6 @@ export class ToolsHandler {
         );
 
         // Analyze common input patterns
-        // Define interfaces for better type safety
         interface ToolUsageRecord extends ToolUsage {
             input: Record<string, unknown>;
         }
@@ -181,7 +154,6 @@ export class ToolsHandler {
             return acc;
         }, {});
 
-        // Calculate frequency of values for each input parameter with proper typing
         const patterns = Object.entries(inputPatterns).reduce((acc: Record<string, { mostCommon: unknown[]; uniqueValues: number }>, [key, values]) => {
             const frequency = (values as unknown[]).reduce((freq: Record<string, number>, val) => {
                 const strVal = JSON.stringify(val);
@@ -203,103 +175,27 @@ export class ToolsHandler {
     }
 
     async processQuery(query: string, conversationId: number): Promise<string> {
-        // Ensure tools are initialized
-        if (this.availableTools.size === 0) {
-            console.log('[ToolsHandler] No tools available, attempting to initialize...');
-            await this.initializeTools();
-            
-            if (this.availableTools.size === 0) {
-                console.warn('[ToolsHandler] Still no tools available after initialization');
-                return "I apologize, but I'm currently unable to access my tools. Please try again in a moment.";
-            }
-        }
-
-        // Add stricter validation for GitHub-related queries
-        if (query.toLowerCase().includes('github')) {
-            const githubCommands = ['issues', 'pulls', 'repos', 'users', 'commits'];
-            const hasValidCommand = githubCommands.some(cmd => query.toLowerCase().includes(cmd));
-            
-            if (!hasValidCommand) {
-                return `I apologize, but I need more specific parameters for GitHub queries. Please specify what you're looking for:
-                - For issues: Include 'issues' in your query
-                - For pull requests: Include 'pulls' in your query
-                - For repositories: Include 'repos' in your query
-                - For users: Include 'users' in your query
-                - For commits: Include 'commits' in your query`;
-            }
-        }
-        
-        console.log(`[ToolsHandler] Processing query: ${query}`);
-        
-        // Try both formats
-        const toolMatch = 
-            // Format 1: [Calling tool tool-name with args json-args]
-            query.match(/\[Calling tool (\S+) with args ({[^}]+})\]/) ||
-            // Format 2: Use tool-name with parameter 'json-args'
-            query.match(/Use (\S+) with parameter '({[^}]+})'/);
-
-        // For error handling, also match just the tool name in "Use tool-name"
-        const errorMatch = !toolMatch && query.match(/Use (\S+)/);
-        if (errorMatch) {
-            const [toolName] = errorMatch;
-            if (!this.availableTools.has(toolName)) {
-                throw MCPError.toolNotFound(toolName);
-            }
-        }
+        const toolMatch = query.match(/\[Calling tool (\w+) with args (.+)\]/);
         
         if (toolMatch) {
-            const [toolName, argsStr] = toolMatch;
-            console.log(`[ToolsHandler] Matched tool command: ${toolName}`);
-            
-            if (!this.availableTools.has(toolName)) {
-                console.warn(`[ToolsHandler] Tool not found: ${toolName}`);
-                console.log(`[ToolsHandler] Available tools:`, Array.from(this.availableTools));
-                throw MCPError.toolNotFound(toolName);
-            }
-
+            const [, toolName, argsStr] = toolMatch;
             try {
-                console.log(`[ToolsHandler] Executing tool ${toolName} with args: ${argsStr}`);
                 const args = JSON.parse(argsStr);
-                
-                // Get enhanced context for this tool execution
                 const enhancedContext = await this.getEnhancedContext(toolName, args);
+                const client = await this.getClientForTool(toolName);
                 
-                // Pass enhanced context to the tool
-                const result = await this.client.callTool(toolName, args, enhancedContext);
-                console.log(`[ToolsHandler] Tool execution successful`);
+                console.log(`[Tool:${toolName}] Executing...`);
+                const result = await client.callTool(toolName, args, enhancedContext);
+                console.log(`[Tool:${toolName}] Completed ✓`);
                 
-                await this.db.executePrismaOperation(prisma => 
-                    prisma.toolUsage.create({
-                        data: {
-                            toolId: toolName,
-                            conversationId,
-                            input: args,
-                            output: result,
-                            duration: 0,
-                            status: 'success'
-                        }
-                    })
-                );
-
                 await this.db.addMessage(conversationId, result, 'assistant');
                 return result;
             } catch (error) {
+                console.error(`[Tool:${toolName}] Failed ✗`, error);
                 throw MCPError.toolExecutionFailed(error);
             }
         }
-
-        // Default AI handling
-        const messages: Message[] = [{
-            role: 'user',
-            content: query,
-            conversationId,
-            createdAt: new Date(),
-            id: 0
-        }];
-        
-        const response = await this.ai.generateResponse(query, messages);
-        await this.db.addMessage(conversationId, response.content, 'assistant');
-        return response.content;
+        throw new Error(`Invalid tool query format: ${query}`);
     }
 
     private async clearOldContexts(): Promise<void> {

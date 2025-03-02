@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials, TextChannel, Message } from 'discord.js';
 import { DatabaseService } from './db-service.js';
-import { AIModel, DiscordMessageContext } from '../types/index.js';
+import { DiscordMessageContext } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';

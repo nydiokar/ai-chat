@@ -6,7 +6,6 @@ import { ToolsHandler } from '../../tools/tools-handler.js';
 import { getMCPConfig } from '../../types/tools.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { ChatCompletionMessageParam, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions.js';
-import { MCP_SERVER_IDS } from '../../types/tools.js';
 import { MCPClientService } from '../../tools/mcp/mcp-client-service.js';
 import { SystemPromptGenerator } from '../../system-prompt-generator.js';
 
@@ -43,17 +42,7 @@ export abstract class BaseAIService implements AIService {
         if (defaultConfig.discord.mcp.enabled) {
             const db = DatabaseService.getInstance();
             this.mcpManager = new MCPServerManager(db, this);
-            this.initPromise = this.initializeMCP().then(async () => {
-                if (this.mcpManager) {
-                    const config = await getMCPConfig();
-                    const defaultServerConfig = Object.values(config.mcpServers)[0];
-                    if (defaultServerConfig) {
-                        const client = new MCPClientService(defaultServerConfig);
-                        this.toolsHandler = new ToolsHandler(client, this, db);
-                        this.promptGenerator = new SystemPromptGenerator(this.mcpManager, this.toolsHandler);
-                    }
-                }
-            });
+            this.initPromise = this.initializeMCP();
         } else {
             this.initPromise = Promise.resolve();
         }
@@ -75,23 +64,49 @@ export abstract class BaseAIService implements AIService {
     }
 
     protected async initializeMCP(): Promise<void> {
-        if (this.initialized) {
+        if (this.initialized) {1
             return;
         }
 
         try {
-            const config = getMCPConfig();
-            for (const [serverId, serverConfig] of Object.entries(config.mcpServers)) {
-                try {
-                    await this.mcpManager?.startServer(serverId, serverConfig);
-                    debug(`MCP Server started: ${serverId}`);
-                } catch (serverError) {
-                    console.error(`Failed to start MCP server ${serverId}:`, serverError);
-                }
+            const config = await getMCPConfig();
+            
+            if (!this.mcpManager) {
+                throw new Error('MCPManager not initialized');
             }
+
+            // Initialize each server through MCPServerManager
+            await Promise.all(Object.entries(config.mcpServers).map(
+                async ([id, serverConfig]) => {
+                    await this.mcpManager!.startServer(id, serverConfig);
+                    debug(`MCP Server started: ${id}`);
+                }
+            ));
+
+            // Get initialized clients from MCPServerManager
+            const serverClients = Object.entries(config.mcpServers)
+                .map(([id]) => ({
+                    id,
+                    client: this.mcpManager!.getServerByIds(id)
+                }))
+                .filter((item): item is { id: string; client: MCPClientService } => 
+                    item.client !== undefined
+                );
+
+            debug(`Found ${serverClients.length} initialized MCP clients`);
+
+            if (serverClients.length > 0 && this.mcpManager) {
+                this.toolsHandler = new ToolsHandler(serverClients, this, DatabaseService.getInstance());
+                this.promptGenerator = new SystemPromptGenerator(this.mcpManager, this.toolsHandler);
+                debug('Initialized ToolsHandler and PromptGenerator');
+            } else {
+                debug('No successful clients or missing MCPManager - skipping tool initialization');
+            }
+
             this.initialized = true;
         } catch (error) {
             console.error('Failed to initialize MCP:', error);
+            throw error;
         }
     }
 
@@ -130,7 +145,11 @@ export abstract class BaseAIService implements AIService {
         return messages;
     }
 
-    protected async processWithTools(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
+    protected async processWithTools(
+        message: string, 
+        conversationHistory?: Message[],
+        conversationId?: number
+    ): Promise<AIResponse> {
         aiRateLimiter.checkLimit(this.getModel());
         
         try {
@@ -152,7 +171,10 @@ export abstract class BaseAIService implements AIService {
             ];
 
             // Process with OpenAI-style tool calls
-            return this.handleToolBasedCompletion(messages, [], this.toolsHandler);
+            if (!this.toolsHandler) {
+                throw new Error('ToolsHandler not initialized');
+            }
+            return this.handleToolBasedCompletion(messages, [], this.toolsHandler, conversationId);
         } catch (error) {
             console.error('Error processing message with tools:', error);
             return this.processWithoutTools(message, conversationHistory);
@@ -162,7 +184,8 @@ export abstract class BaseAIService implements AIService {
     protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
         functions: any[],
-        server: any
+        toolsHandler: ToolsHandler,
+        conversationId?: number
     ): Promise<AIResponse> {
         try {
             const completion = await this.createChatCompletion({
@@ -180,11 +203,23 @@ export abstract class BaseAIService implements AIService {
                 const toolResults = await Promise.all(
                     toolCalls.map(async toolCall => {
                         try {
-                            const result = await server.callTool(
-                                toolCall.function.name,
-                                JSON.parse(toolCall.function.arguments)
-                            );
-                            return result;
+                            if (!this.mcpManager) {
+                                throw new Error('MCPManager not initialized');
+                            }
+
+                            // Try to find a server that can handle this tool
+                            const serverIds = this.mcpManager.getServerIds();
+                            for (const id of serverIds) {
+                                const server = this.mcpManager.getServerByIds(id);
+                                if (server && await server.hasToolEnabled(toolCall.function.name)) {
+                                    debug(`Using server ${id} for tool ${toolCall.function.name}`);
+                                    return await server.callTool(
+                                        toolCall.function.name,
+                                        JSON.parse(toolCall.function.arguments)
+                                    );
+                                }
+                            }
+                            throw new Error(`No server found for tool ${toolCall.function.name}`);
                         } catch (error) {
                             console.error(`Error calling tool ${toolCall.function.name}:`, error);
                             return { error: `Failed to execute tool ${toolCall.function.name}` };

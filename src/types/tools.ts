@@ -18,7 +18,7 @@ export interface MCPServerConfig {
 // For database operations
 export interface ToolUsage {
     id: number;
-    toolId: string;
+    toolId?: string;
     mcpToolId?: string;
     input: Record<string, unknown>;
     output: string;
@@ -79,8 +79,8 @@ export interface ChainedToolConfig extends MCPToolConfig {
 export interface ChainExecutionResult {
     success: boolean;
     steps: {
-        toolId: string;
-        usage: ToolUsage;          // Reuse existing ToolUsage
+        toolId?: string;
+        usage?: ToolUsage;          // Reuse existing ToolUsage
         completed: boolean;
     }[];
     error?: {
