@@ -16,5 +16,5 @@ set NODE_OPTIONS=--no-deprecation
 call pm2 start ecosystem.config.cjs
 
 echo Bot started! Showing logs...
-call pm2 logs them-bot --lines 5 --err
+call pm2 logs them-bot
 pause 

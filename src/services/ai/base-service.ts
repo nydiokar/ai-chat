@@ -150,18 +150,21 @@ export abstract class BaseAIService implements AIService {
         conversationHistory?: Message[],
         conversationId?: number
     ): Promise<AIResponse> {
-        aiRateLimiter.checkLimit(this.getModel());
-        
         try {
             if (!this.mcpManager || !this.promptGenerator) {
                 return this.processWithoutTools(message, conversationHistory);
             }
 
+            // Let's see what this actually contains
+            console.log('Available tools:', await this.toolsHandler?.getAvailableTools());
+            
             // Get context-aware system prompt with tool information
             const enhancedPrompt = await this.promptGenerator.generatePrompt(
                 this.systemPrompt,
                 message
             );
+            
+            console.log('Enhanced prompt:', enhancedPrompt);
 
             const contextMessages = this.getContextMessages(conversationHistory);
             const messages: ChatCompletionMessageParam[] = [
@@ -188,6 +191,9 @@ export abstract class BaseAIService implements AIService {
         conversationId?: number
     ): Promise<AIResponse> {
         try {
+            // Log available functions
+            console.debug('Available functions:', functions);
+
             const completion = await this.createChatCompletion({
                 messages,
                 tools: functions.map(fn => ({ type: 'function', function: fn })),
@@ -200,32 +206,25 @@ export abstract class BaseAIService implements AIService {
 
             if (responseMessage?.tool_calls?.length) {
                 const toolCalls = responseMessage.tool_calls;
+                console.debug('Tool calls received:', toolCalls);
+                
                 const toolResults = await Promise.all(
                     toolCalls.map(async toolCall => {
                         try {
-                            if (!this.mcpManager) {
-                                throw new Error('MCPManager not initialized');
-                            }
-
-                            // Try to find a server that can handle this tool
-                            const serverIds = this.mcpManager.getServerIds();
-                            for (const id of serverIds) {
-                                const server = this.mcpManager.getServerByIds(id);
-                                if (server && await server.hasToolEnabled(toolCall.function.name)) {
-                                    debug(`Using server ${id} for tool ${toolCall.function.name}`);
-                                    return await server.callTool(
-                                        toolCall.function.name,
-                                        JSON.parse(toolCall.function.arguments)
-                                    );
-                                }
-                            }
-                            throw new Error(`No server found for tool ${toolCall.function.name}`);
+                            const toolQuery = `[Calling tool ${toolCall.function.name} with args ${toolCall.function.arguments}]`;
+                            console.debug('Processing tool query:', toolQuery);
+                            const result = await toolsHandler.processQuery(toolQuery, conversationId ?? 0);
+                            console.debug('Tool result:', result);
+                            return result;
                         } catch (error) {
                             console.error(`Error calling tool ${toolCall.function.name}:`, error);
                             return { error: `Failed to execute tool ${toolCall.function.name}` };
                         }
                     })
                 );
+
+                // Log the results being sent back to the LLM
+                console.debug('Tool results being sent to LLM:', toolResults);
 
                 // Add tool results to messages
                 messages.push(responseMessage);

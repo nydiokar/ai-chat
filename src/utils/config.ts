@@ -20,7 +20,11 @@ export interface BaseConfig {
 }
 
 export const defaultConfig: BaseConfig = {
-  defaultModel: (process.env.MODEL || 'gpt') as 'gpt' | 'claude' | 'deepseek' | 'ollama',
+  defaultModel: (() => {
+    const model = process.env.MODEL || 'gpt';
+    console.warn('[Config] Resolved model:', model);
+    return model as 'gpt' | 'claude' | 'deepseek' | 'ollama';
+  })(),
   maxContextMessages: 10,
   maxMessageLength: 4000,
   debug: process.env.DEBUG === 'true',
@@ -45,13 +49,14 @@ export function validateEnvironment(): void {
   
   // Check for model-specific API keys only if they're being used
   const model = process.env.MODEL || 'gpt';
+
   if (model === 'gpt') required.push('OPENAI_API_KEY');
   if (model === 'claude') required.push('ANTHROPIC_API_KEY');
   if (model === 'deepseek') required.push('DEEPSEEK_API_KEY');
   // Ollama runs locally, so we don't require API keys but can optionally set host
   if (model === 'ollama') {
-    process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama2:13b-instruct-q8_0';
+    process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';  // Explicitly use IPv4
+    process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b-instruct-q8_0';
   }
   
   // Validate Discord and MCP if Discord is enabled

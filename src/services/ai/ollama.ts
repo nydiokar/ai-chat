@@ -1,17 +1,26 @@
 import { Message } from '../../types/index.js';
-import { BaseAIService, AIResponse } from './base-service.js';
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
+import { AIResponse, BaseAIService } from './base-service.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
-import fetch from 'node-fetch';
+import { ChatCompletionMessageParam, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions.js';
+import OpenAI from 'openai';
+import { debug } from '../../utils/config.js';
+import { ToolsHandler } from '../../tools/tools-handler.js';
 
 export class OllamaService extends BaseAIService {
     private baseUrl: string;
     private modelName: string;
+    private client: OpenAI;
 
     constructor() {
         super();
-        this.baseUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
-        this.modelName = process.env.OLLAMA_MODEL || 'llama2:13b-instruct-q8_0';
+        this.baseUrl = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+        this.modelName = process.env.OLLAMA_MODEL || 'llama3.1:8b-instruct-q8_0';
+        
+        // Initialize OpenAI client with Ollama endpoint
+        this.client = new OpenAI({
+            baseURL: `${this.baseUrl}/v1`,
+            apiKey: 'ollama', // required but unused
+        });
     }
 
     async generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
@@ -22,8 +31,9 @@ export class OllamaService extends BaseAIService {
         await this.initPromise;
 
         try {
+            const conversationId = conversationHistory?.[0]?.conversationId;
             if (this.mcpManager) {
-                return this.processWithTools(message, conversationHistory);
+                return this.processWithTools(message, conversationHistory, conversationId);
             } else {
                 return this.processWithoutTools(message, conversationHistory);
             }
@@ -33,53 +43,87 @@ export class OllamaService extends BaseAIService {
         }
     }
 
-    protected async makeApiCall(messages: ChatCompletionMessageParam[], temperature: number) {
-        // Format messages for Ollama's chat endpoint
-        const formattedMessages = messages.map(msg => ({
-            role: msg.role,
-            // Handle both string and structured content
-            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-        }));
-
+    protected async handleToolBasedCompletion(
+        messages: ChatCompletionMessageParam[],
+        functions: any[],
+        toolsHandler: ToolsHandler,
+        conversationId?: number
+    ): Promise<AIResponse> {
         try {
-            const response = await fetch(`${this.baseUrl}/api/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: this.modelName,
-                    messages: formattedMessages,
-                    options: {
-                        temperature: temperature,
-                        num_ctx: 4096 // Allow for larger context
-                    }
-                }),
+            const completion = await this.createChatCompletion({
+                messages,
+                tools: functions.map(fn => ({ type: 'function', function: fn })),
+                tool_choice: 'auto',
+                temperature: 0.7,
             });
 
-            if (!response.ok) {
-                throw new Error(`Ollama API error: ${response.statusText}`);
+            const responseMessage = completion.choices[0].message as ChatCompletionAssistantMessageParam;
+            let tokenCount = completion.usage?.total_tokens || 0;
+
+            if (responseMessage?.tool_calls?.length) {
+                const toolCalls = responseMessage.tool_calls;
+                const toolResults = await Promise.all(
+                    toolCalls.map(async toolCall => {
+                        try {
+                            const toolQuery = `[Calling tool ${toolCall.function.name} with args ${toolCall.function.arguments}]`;
+                            return await toolsHandler.processQuery(toolQuery, conversationId ?? 0); 
+                        } catch (error) {
+                            console.error(`Error calling tool ${toolCall.function.name}:`, error);
+                            return { error: `Failed to execute tool ${toolCall.function.name}` };
+                        }
+                    })
+                );
+
+                // Add tool results to messages
+                messages.push(responseMessage);
+                messages.push({
+                    role: 'tool',
+                    content: JSON.stringify(toolResults),
+                    tool_call_id: toolCalls[0].id
+                });
+
+                // Get final response
+                const finalCompletion = await this.createChatCompletion({
+                    messages,
+                    temperature: 0.7,
+                });
+
+                tokenCount += finalCompletion.usage?.total_tokens || 0;
+                const messageContent = finalCompletion.choices[0].message.content;
+
+                return {
+                    content: String(messageContent || ''),
+                    toolResults,
+                    tokenCount
+                };
             }
 
-            const data = await response.json();
-            const content = String(data.message?.content || '');
-
-            // Structure response to match OpenAI format
-            const messageContent = String(data.message?.content || '');
-            // Use type assertion to ensure type compatibility
             return {
-                choices: [{
-                    message: {
-                        role: 'assistant' as const,
-                        content: messageContent,
-                        tool_calls: undefined
-                    },
-                    finish_reason: 'stop'
-                }],
-                usage: {
-                    total_tokens: data.total_tokens || 0
-                }
+                content: String(responseMessage.content || ''),
+                toolResults: [],
+                tokenCount
             };
         } catch (error) {
-            console.error('Error calling Ollama API:', error);
+            console.error('Error in handleToolBasedCompletion:', error);
+            throw error;
+        }
+    }
+
+    protected async makeApiCall(
+        messages: ChatCompletionMessageParam[],
+        temperature: number
+    ) {
+        try {
+            const completion = await this.client.chat.completions.create({
+                model: this.modelName,
+                messages,
+                temperature,
+            });
+
+            return completion;
+
+        } catch (error) {
+            console.error('[OllamaService] Error:', error);
             throw error;
         }
     }
@@ -100,7 +144,7 @@ export class OllamaService extends BaseAIService {
         const completion = await this.makeApiCall(messages, 0.7);
 
         return {
-            content: completion.choices[0]?.message?.content || '',
+            content: completion.choices[0].message.content as string,
             tokenCount: completion.usage?.total_tokens || null,
             toolResults: []
         };

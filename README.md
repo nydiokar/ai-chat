@@ -14,11 +14,12 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
 - Conversation Management:
   - Local storage using SQLite
   - List, show, continue, and delete conversations
-  - Branching conversations with rewind/forward functionality
 - User Experience:
   - Input validation and error handling
   - Debug mode for troubleshooting
-  - Configurable settings
+  - Configurable settings 
+  
+# **Configure MCP servers in src\tools\mcp\mcp_config.ts**
 
 ## Prerequisites
 

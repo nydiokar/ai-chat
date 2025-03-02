@@ -5,11 +5,16 @@ import { MCPError, ErrorType } from '../types/errors.js';
 import { handleError } from '../utils/error-handler.js';
 import { DeepseekService } from './ai/deepseek.js';
 import { OllamaService } from './ai/ollama.js';
+import { defaultConfig } from '../utils/config.js';
 
 export class AIServiceFactory {
-    static create(model: 'gpt' | 'claude' | 'deepseek' | 'ollama' = 'gpt'): AIService {
+    static create(model?: 'gpt' | 'claude' | 'deepseek' | 'ollama'): AIService {
+        // Always use config model, ignore input parameter
+        const selectedModel = defaultConfig.defaultModel;
+        console.warn(`[AIServiceFactory] Input model: ${model}`);
+
         try {
-            switch (model) {
+            switch (selectedModel) {
                 case 'gpt':
                     return new OpenAIService();
                 case 'claude':
@@ -19,7 +24,7 @@ export class AIServiceFactory {
                 case 'ollama':
                     return new OllamaService();
                 default:
-                    throw new MCPError(ErrorType.INVALID_MODEL, `Invalid model type: ${model}`);
+                    throw new MCPError(ErrorType.INVALID_MODEL, `Invalid model type: ${selectedModel}`);
             }
         } catch (error) {
             return handleError(error);
