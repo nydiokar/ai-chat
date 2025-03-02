@@ -154,10 +154,7 @@ export abstract class BaseAIService implements AIService {
             if (!this.mcpManager || !this.promptGenerator) {
                 return this.processWithoutTools(message, conversationHistory);
             }
-
-            // Let's see what this actually contains
-            console.log('Available tools:', await this.toolsHandler?.getAvailableTools());
-            
+           
             // Get context-aware system prompt with tool information
             const enhancedPrompt = await this.promptGenerator.generatePrompt(
                 this.systemPrompt,
