@@ -368,4 +368,19 @@ export class MCPServerManager extends EventEmitter {
       );
     }
   }
+
+  private async _startServers() {
+    try {
+      // Start all configured servers
+      const config = await getMCPConfig();
+      for (const [serverId, serverConfig] of Object.entries(config.mcpServers || {})) {
+        await this.startServer(serverId, serverConfig as MCPServerConfig);
+      }
+      
+      // Emit event when all servers are ready
+      this.emit('serversReady');
+    } catch (error) {
+      console.error('Failed to start servers:', error);
+    }
+  }
 }

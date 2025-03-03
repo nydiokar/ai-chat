@@ -39,7 +39,8 @@ export abstract class BaseAIService implements AIService {
     private initialized: boolean = false;
 
     constructor() {
-        if (defaultConfig.discord.mcp.enabled) {
+        // Check both Discord MCP and general MCP_ENABLED flag
+        if (defaultConfig.discord.mcp.enabled || process.env.MCP_ENABLED === 'true') {
             const db = DatabaseService.getInstance();
             this.mcpManager = new MCPServerManager(db, this);
             this.initPromise = this.initializeMCP();

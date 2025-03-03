@@ -54,7 +54,7 @@ ANTHROPIC_API_KEY=your_anthropic_key_here
 DEEPSEEK_API_KEY=your_deepseek_key_here
 
 # Ollama Configuration (if using Ollama)
-OLLAMA_HOST=http://localhost:11434
+OLLAMA_HOST=http://127.0.0.1:11434
 OLLAMA_MODEL=llama2:13b-instruct-q8_0  # or any other installed model
 
 # Debug Mode (Optional)
@@ -208,7 +208,7 @@ To use Ollama with the bot:
 3. Configure in your .env file:
    ```env
    MODEL=ollama
-   OLLAMA_HOST=http://localhost:11434
+   OLLAMA_HOST=http://127.0.0.1:11434
    OLLAMA_MODEL=llama2:13b-instruct-q8_0
    ```
 

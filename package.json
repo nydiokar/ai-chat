@@ -19,6 +19,9 @@
     "test": "mocha -r ts-node/register",
     "test:all": "mocha -r ts-node/register ./src/**/*.test.ts --timeout 15000",
     "test:watch": "mocha -r ts-node/register --watch",
+    "test:ollama-mcp": "mocha -r ts-node src/tests/ollama-mcp-test.ts",
+    "test:ollama-brave": "mocha -r ts-node src/tests/ollama-brave-search-test.ts",
+    "demo:ollama-brave": "ts-node src/cli/ollama-brave-search-demo.ts",
     "lint": "eslint src/**/*.{js,ts,jsx,tsx}",
     "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix"
   },
