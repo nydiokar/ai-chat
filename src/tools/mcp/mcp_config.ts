@@ -1,4 +1,4 @@
-import { MCPConfig } from "../../types/tools";
+import { MCPConfig } from "../../types/tools.js";
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -35,7 +35,7 @@ export const mcpConfig: MCPConfig = {
             env: {
                 BRAVE_API_KEY: process.env.BRAVE_API_KEY || ''
             }
-        }
+        },
     }
 };
 

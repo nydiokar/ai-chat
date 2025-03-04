@@ -56,7 +56,7 @@ export function validateEnvironment(): void {
   // Ollama runs locally, so we don't require API keys but can optionally set host
   if (model === 'ollama') {
     process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';  // Explicitly use IPv4
-    process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'shrijayan/llama-2-7b-chat-q2k:latest';
+    process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b-instruct-q8_0';
   }
   
   // Validate Discord and MCP if Discord is enabled
