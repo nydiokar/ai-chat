@@ -141,3 +141,10 @@ export interface CLIMessageContext {
     guildId?: string;
 }
 
+// Export all types
+export * from './ollama';
+export * from './task';
+export * from './errors';
+export * from './prompts';
+
+

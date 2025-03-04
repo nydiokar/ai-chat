@@ -75,6 +75,7 @@ export interface ChainedToolConfig extends MCPToolConfig {
     timeout?: number;               // In milliseconds
 }
 
+
 // Track chain execution results
 export interface ChainExecutionResult {
     success: boolean;
