@@ -20,12 +20,7 @@ interface BaseTool {
 // Ollama-specific types
 export interface OllamaMessage extends BaseMessage {
     images?: string[];
-    tool_calls?: Array<{
-        function: {
-            name: string;
-            arguments: Record<string, any>;  // Always an object, never a string
-        };
-    }>;
+    tool_calls?: OllamaToolCall[];
 }
 
 export interface OllamaResponse {
@@ -42,6 +37,8 @@ export interface OllamaResponse {
 }
 
 export interface OllamaToolCall {
+    id?: string;
+    type?: string;
     function: {
         name: string;
         arguments: Record<string, any>;  // Always an object
@@ -77,3 +74,13 @@ export interface OllamaCompletionChoice {
     message: OllamaMessage;
     finish_reason: string;
 }
+
+// Add a type for converting between OpenAI and Ollama formats
+export type OllamaToolCallResponse = {
+    id?: string;
+    type?: 'function';
+    function: {
+        name: string;
+        arguments: Record<string, any>;
+    };
+};

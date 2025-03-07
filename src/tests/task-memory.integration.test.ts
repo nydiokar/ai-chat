@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { DatabaseService } from './db-service.js';
-import { MemoryRepository } from './memory/memory-repository.js';
+import { DatabaseService } from '../services/db-service.js';
+import { MemoryRepository } from '../services/memory/memory-repository.js';
 import { TaskStatus, TaskPriority, DependencyType } from '../types/task.js';
 import { PrismaClient } from '@prisma/client';
 import { ConversationContext, MemoryQuery } from '../types/memory.js';

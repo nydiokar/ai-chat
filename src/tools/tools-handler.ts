@@ -12,9 +12,9 @@ export class ToolsHandler {
     private toolClientMap: Map<string, MCPClientService> = new Map();
 
     constructor(
+        private db: DatabaseService,
         clients: { id: string; client: MCPClientService }[],
-        private ai: AIService,
-        private db: DatabaseService
+        private ai?: AIService | null
     ) {
         this.availableTools = new Set();
         this.toolContexts = new Map();
@@ -143,7 +143,7 @@ export class ToolsHandler {
                     status: 'success'
                 },
                 orderBy: { createdAt: 'desc' },
-                take: 20
+                take: 50 // Limit to recent 50 executions
             })
         );
 
@@ -186,25 +186,45 @@ export class ToolsHandler {
     async processQuery(query: string, conversationId: number): Promise<string> {
         const toolMatch = query.match(/\[Calling tool (\w+) with args (.+)\]/);
         
-        if (toolMatch) {
-            const [, toolName, argsStr] = toolMatch;
-            try {
-                const args = JSON.parse(argsStr);
-                const enhancedContext = await this.getEnhancedContext(toolName, args);
-                const client = await this.getClientForTool(toolName);
-                
-                console.log(`[Tool:${toolName}] Executing...`);
-                const result = await client.callTool(toolName, args, enhancedContext);
-                console.log(`[Tool:${toolName}] Completed ✓`);
-                
-                await this.db.addMessage(conversationId, result, 'assistant');
-                return result;
-            } catch (error) {
-                console.error(`[Tool:${toolName}] Failed ✗`, error);
-                throw MCPError.toolExecutionFailed(error);
-            }
+        if (!toolMatch) {
+            throw new Error(`Invalid tool query format: ${query}`);
         }
-        throw new Error(`Invalid tool query format: ${query}`);
+
+        const [, toolName, argsStr] = toolMatch;
+        
+        try {
+            // Validate tool exists and is available
+            if (!this.availableTools.has(toolName)) {
+                throw new Error(`Tool ${toolName} is not available`);
+            }
+
+            // Parse and validate arguments
+            let args: any;
+            try {
+                args = JSON.parse(argsStr);
+            } catch (error) {
+                throw new Error(`Invalid arguments format for tool ${toolName}: ${error}`);
+            }
+
+            // Get tool context and enhance arguments
+            const context = await this.getToolContext(toolName);
+            const enhancedContext = await this.getEnhancedContext(toolName, args);
+            
+            // Get client and execute tool
+            const client = await this.getClientForTool(toolName);
+            
+            console.log(`[Tool:${toolName}] Executing with context...`);
+            const result = await client.callTool(toolName, args, enhancedContext);
+            console.log(`[Tool:${toolName}] Completed ✓`);
+            
+            // Store result in conversation history
+            await this.db.addMessage(conversationId, result, 'assistant');
+            
+            return result;
+        } catch (error) {
+            console.error(`[Tool:${toolName}] Failed ✗`, error);
+            throw MCPError.toolExecutionFailed(error);
+        }
     }
 
     private async clearOldContexts(): Promise<void> {

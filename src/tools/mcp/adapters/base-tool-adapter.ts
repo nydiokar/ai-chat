@@ -1,5 +1,5 @@
 import { MCPTool } from '../../../types';
-import { OllamaToolDefinition } from '../../../types/ollama';
+import { OllamaToolDefinition } from '../../../types/ollama_types';
 
 export interface ToolResponse {
     formatted: string;

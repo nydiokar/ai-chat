@@ -23,8 +23,8 @@ describe('Discord Integration Tests', () => {
         client = discordService.getClient();
         
         db = DatabaseService.getInstance();
-        const aiService = AIServiceFactory.create('gpt');
-        mcpManager = new MCPServerManager(db, aiService);
+        const aiService = await AIServiceFactory.create('gpt');
+        mcpManager = new MCPServerManager(db);
 
         // Connect to Discord
         await client.login(process.env.DISCORD_TOKEN);

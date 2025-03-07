@@ -300,13 +300,18 @@ private async handleTaskCommand(message: DiscordMessage, command: { action: stri
         
         let service = this.aiServices.get(serviceKey);
         if (!service) {
-          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
-          this.aiServices.set(serviceKey, service);
+            const newService = await AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
+            this.aiServices.set(serviceKey, newService);
+            service = newService;
+        }
+
+        if (!service) {
+            throw new Error('Failed to create AI service');
         }
 
         const result = await service.generateResponse(content, contextMessages.map(msg => ({
-          ...msg,
-          role: msg.role as "user" | "system" | "assistant"
+            ...msg,
+            role: msg.role as "user" | "system" | "assistant"
         })));
 
         await this.db.addMessage(conversationId, result.content, 'assistant', result.tokenCount);
@@ -357,7 +362,7 @@ private async handleTaskCommand(message: DiscordMessage, command: { action: stri
       const conversation = await this.db.getConversation(conversationId);
       if (!conversation || conversation.messages.length <= this.maxContextMessages) return;
 
-      const service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
+      const service = await AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
       const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
       const summary = await service.generateResponse(
         "Please provide a brief summary of this conversation context that can be used to maintain continuity in future messages. Focus on key points and important details.",

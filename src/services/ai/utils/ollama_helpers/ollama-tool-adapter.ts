@@ -1,18 +1,40 @@
 import { MCPTool } from '../../../../types';
-import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama';
+import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama_types.js';
 
 export class OllamaToolAdapter {
     static convertMCPToolToOllama(mcpTool: MCPTool): OllamaToolDefinition {
-        if (process.env.DEBUG) {
+        if (!mcpTool || !mcpTool.name) {
+            throw new Error('Invalid MCPTool: missing required properties');
+        }
+
+        if (process.env.DEBUG === 'true') {
             console.log(`[OllamaToolAdapter] Converting ${mcpTool.name} for Ollama format`);
         }
 
-        // Ensure we have basic schema properties
+        // Ensure we have basic schema properties with proper validation
         const parameters = {
-            type: mcpTool.inputSchema.type || 'object',
-            properties: mcpTool.inputSchema.properties || {},
-            required: mcpTool.inputSchema.required || []
+            type: 'object',
+            properties: {},
+            required: []
         };
+
+        // Safely extract and validate input schema
+        if (mcpTool.inputSchema) {
+            if (mcpTool.inputSchema.properties) {
+                parameters.properties = mcpTool.inputSchema.properties;
+            }
+            if (Array.isArray(mcpTool.inputSchema.required)) {
+                parameters.required = mcpTool.inputSchema.required;
+            }
+        }
+
+        // Validate the converted schema
+        try {
+            JSON.stringify(parameters); // Ensure it's valid JSON
+        } catch (error) {
+            console.error(`[OllamaToolAdapter] Invalid schema for tool ${mcpTool.name}:`, error);
+            throw new Error(`Invalid schema for tool ${mcpTool.name}`);
+        }
 
         return {
             type: "function",
@@ -25,6 +47,9 @@ export class OllamaToolAdapter {
     }
 
     static convertMCPToolsToOllama(mcpTools: MCPTool[]): OllamaToolDefinition[] {
+        if (process.env.DEBUG === 'true') {
+            console.log(`[OllamaToolAdapter] Converting ${mcpTools.length} tools`);
+        }
         return mcpTools.map(tool => this.convertMCPToolToOllama(tool));
     }
 

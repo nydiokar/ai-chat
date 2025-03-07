@@ -3,7 +3,6 @@ import { ToolChainExecutor } from '../tools/tool-chain/tool-chain-executor.js';
 import { ToolChainConfigBuilder } from '../tools/tool-chain/tool-chain-config.js';
 import { DatabaseService } from '../services/db-service.js';
 import { MCPServerManager } from '../tools/mcp/mcp-server-manager.js';
-import { AIServiceFactory } from '../services/ai-service-factory.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mcpConfig } from '../tools/mcp/mcp_config.js';
 import { MemoryRepository } from '../services/memory/memory-repository.js';
@@ -23,8 +22,7 @@ describe('Tool Chain Integration Tests', function() {
         executor = new ToolChainExecutor();
         db = DatabaseService.getInstance();
         memoryRepo = MemoryRepository.getInstance();
-        const aiService = AIServiceFactory.create('gpt');
-        mcpManager = new MCPServerManager(db, aiService);
+        mcpManager = new MCPServerManager(db);
 
         toolRegistry = {
             brave_web_search: mcpManager.executeToolQuery.bind(mcpManager, serverId, 'brave_web_search'),

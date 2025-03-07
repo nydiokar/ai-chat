@@ -67,10 +67,24 @@ export class MCPClientService {
     }
 
     async hasToolEnabled(toolName: string): Promise<boolean> {
+        if (!this.isConnected) {
+            try {
+                await this.connect();
+            } catch (error) {
+                console.error(`[MCPClientService] Failed to connect while checking tool ${toolName}:`, error);
+                return false;
+            }
+        }
+        
         try {
             const tools = await this.listTools();
-            return tools.some(tool => tool.name === toolName);
+            const toolExists = tools.some(tool => tool.name === toolName);
+            if (process.env.DEBUG) {
+                console.log(`[MCPClientService] Tool ${toolName} ${toolExists ? 'enabled' : 'disabled'}`);
+            }
+            return toolExists;
         } catch (error) {
+            console.error(`[MCPClientService] Failed to check tool availability for ${toolName}:`, error);
             return false;
         }
     }
@@ -95,41 +109,50 @@ export class MCPClientService {
     }
 
     async callTool(name: string, args: any, context?: MCPToolContext): Promise<string> {
-        try {
-            // Sanitize args for logging by removing potential sensitive data
-            const sanitizedArgs = this.sanitizeArgs(args);
-            console.log(`[MCPClientService] Calling tool ${name} with args:`, sanitizedArgs);
-            
-            // Enhance arguments with context if available
-            const enhancedArgs = context ? {
-                ...args,
-                _context: {
-                    lastUsage: context.history?.[0],
-                    successRate: context.successRate,
-                    commonPatterns: context.patterns
-                }
-            } : args;
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                // Sanitize args for logging by removing potential sensitive data
+                const sanitizedArgs = this.sanitizeArgs(args);
+                console.log(`[MCPClientService] Calling tool ${name} (attempt ${attempt}/${maxRetries}) with args:`, sanitizedArgs);
+                
+                // Enhance arguments with context if available
+                const enhancedArgs = context ? {
+                    ...args,
+                    _context: {
+                        lastUsage: context.history?.[0],
+                        successRate: context.successRate,
+                        commonPatterns: context.patterns
+                    }
+                } : args;
 
-            const result = await this.client.request({
-                method: 'tools/call',
-                params: {
-                    name,
-                    arguments: enhancedArgs
+                const result = await this.client.request({
+                    method: 'tools/call',
+                    params: {
+                        name,
+                        arguments: enhancedArgs
+                    }
+                }, ToolCallResponseSchema);
+                
+                // Sanitize result before logging
+                const sanitizedResult = this.sanitizeResult(result);
+                console.log(`[MCPClientService] Tool result:`, sanitizedResult);
+                
+                if ('error' in result) {
+                    throw MCPError.toolExecutionFailed(result.error);
                 }
-            }, ToolCallResponseSchema);
-            
-            // Sanitize result before logging
-            const sanitizedResult = this.sanitizeResult(result);
-            console.log(`[MCPClientService] Tool result:`, sanitizedResult);
-            
-            if ('error' in result) {
-                throw MCPError.toolExecutionFailed(result.error);
+                
+                return result.content[0]?.text || '';
+            } catch (error) {
+                console.error(`[MCPClientService] Tool ${name} failed (attempt ${attempt}/${maxRetries}):`, error);
+                if (attempt === maxRetries) {
+                    throw MCPError.toolExecutionFailed(error);
+                }
+                // Exponential backoff: 1s, 2s, 4s
+                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
             }
-            
-            return result.content[0]?.text || '';
-        } catch (error) {
-            throw MCPError.toolExecutionFailed(error);
         }
+        throw MCPError.toolExecutionFailed(new Error('Max retries exceeded'));
     }
 
     // Brave Search specific methods

@@ -142,9 +142,9 @@ export interface CLIMessageContext {
 }
 
 // Export all types
-export * from './ollama';
-export * from './task';
-export * from './errors';
-export * from './prompts';
+export * from './ollama_types.js';
+export * from './task.js';
+export * from './errors.js';
+export * from './prompts.js';
 
 

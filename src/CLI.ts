@@ -115,7 +115,7 @@ async function initialize(): Promise<void> {
         await db.connect();
         
         log('Creating AI service...');
-        aiService = AIServiceFactory.create('gpt');
+        aiService = await AIServiceFactory.create('gpt');
         
         log('Starting new conversation...');
         const newConv = await newConversation();
@@ -195,7 +195,7 @@ async function generateResponse(message: string): Promise<void> {
 async function newConversation(model?: keyof typeof Model): Promise<void> {
     if (model) {
         currentModel = model;
-        aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
+        aiService = await AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
     }
 
     currentConversationId = await db.createConversation(
@@ -218,7 +218,7 @@ async function switchModel(model: keyof typeof Model): Promise<void> {
     }
 
     currentModel = model;
-    aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
+    aiService = await AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
     console.log(chalk.green(`Switched to ${model} model`));
     return conversation();
 }

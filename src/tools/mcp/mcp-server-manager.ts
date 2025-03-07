@@ -18,19 +18,43 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 import { ToolUsage } from '@prisma/client';
+
 export class MCPServerManager extends EventEmitter {
   private readonly _servers: Map<string, MCPClientService> = new Map();
   private readonly _toolsHandlers: Map<string, ToolsHandler> = new Map();
   private readonly config: MCPConfig;
   private readonly basePath: string;
+  private db: DatabaseService;
 
-  constructor(private db: DatabaseService, private aiService: AIService) {
+  constructor(db: DatabaseService) {
     super();
+    this.db = db;
     this.config = getMCPConfig();
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     this.basePath = join(__dirname, "..", "..", "..");
     this._startHealthCheck();
+  }
+
+  async initialize(): Promise<void> {
+    try {
+      const config = await getMCPConfig();
+      
+      // Initialize each server
+      await Promise.all(Object.entries(config.mcpServers).map(
+        async ([id, serverConfig]) => {
+          await this.startServer(id, serverConfig);
+          console.log(`MCP Server started: ${id}`);
+        }
+      ));
+
+      console.log(`Initialized ${this._servers.size} MCP servers`);
+      // Emit serversReady event after all servers are initialized
+      this.emit('serversReady');
+    } catch (error) {
+      console.error('Failed to initialize MCP servers:', error);
+      throw error;
+    }
   }
 
   /**
@@ -65,36 +89,58 @@ export class MCPServerManager extends EventEmitter {
    * Start (or restart) a server by its ID using the provided config.
    */
   async startServer(serverId: string, config: MCPServerConfig): Promise<void> {
-    try {
-      if (this.hasServer(serverId)) {
-        return;
-      }
-
-      console.log(`[MCPServerManager] Starting server ${serverId}...`);
-      const client = new MCPClientService(config);
-      
-      // Initialize client and wait for successful connection
-      await client.initialize();
-      
-      // Store the client instance
-      this._servers.set(serverId, client);
-      
-      // Get initial tools list and sync with DB
-      const tools = await client.listTools();
-      await this._syncToolsWithDB(serverId, tools);
-      
-      // Update server status
-      await this._updateServerStatusInDB(serverId, "RUNNING");
-      
-      console.log(`[MCPServerManager] Server ${serverId} started successfully with ${tools.length} tools`);
-    } catch (error) {
-      this._servers.delete(serverId);
-      throw new MCPError(
-        ErrorType.SERVER_START_FAILED,
-        `Failed to start server ${serverId}`,
-        error
-      );
+    if (this.hasServer(serverId)) {
+      console.log(`[MCPServerManager] Server ${serverId} already running, skipping start`);
+      return;
     }
+
+    console.log(`[MCPServerManager] Starting server ${serverId}...`);
+    const client = new MCPClientService(config);
+
+    let attempts = 3;
+    let lastError: Error | undefined;
+
+    while (attempts--) {
+      try {
+        await client.initialize();
+        this._servers.set(serverId, client);
+        
+        // Get and validate tools
+        const tools = await client.listTools();
+        if (!tools || tools.length === 0) {
+          throw new Error('No tools available from server');
+        }
+
+        // Sync tools with DB and update status
+        await this._syncToolsWithDB(serverId, tools);
+        await this._updateServerStatusInDB(serverId, "RUNNING");
+        
+        console.log(`[MCPServerManager] Server ${serverId} started successfully with ${tools.length} tools`);
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`[MCPServerManager] Failed to start ${serverId} (attempts left: ${attempts}):`, lastError);
+        
+        if (attempts === 0) {
+          break;
+        }
+        
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = 2000 * Math.pow(2, 2 - attempts);
+        console.log(`[MCPServerManager] Retrying in ${delay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // Clean up on final failure
+    this._servers.delete(serverId);
+    await this._updateServerStatusInDB(serverId, "FAILED");
+    
+    throw new MCPError(
+      ErrorType.SERVER_START_FAILED,
+      `Failed to start server ${serverId} after 3 attempts`,
+      lastError
+    );
   }
 
   /**
@@ -350,7 +396,8 @@ export class MCPServerManager extends EventEmitter {
   ): ToolsHandler {
     let handler = this._toolsHandlers.get(serverId);
     if (!handler) {
-      handler = new ToolsHandler([{ id: serverId, client: server }], this.aiService, this.db);
+      // Only create a new handler if one doesn't exist for this server
+      handler = new ToolsHandler(this.db, [{ id: serverId, client: server }]);
       this._toolsHandlers.set(serverId, handler);
     }
     return handler;
@@ -366,21 +413,6 @@ export class MCPServerManager extends EventEmitter {
         ErrorType.TOOL_NOT_FOUND,
         `Tool ${toolName} is not enabled on server ${serverId}`
       );
-    }
-  }
-
-  private async _startServers() {
-    try {
-      // Start all configured servers
-      const config = await getMCPConfig();
-      for (const [serverId, serverConfig] of Object.entries(config.mcpServers || {})) {
-        await this.startServer(serverId, serverConfig as MCPServerConfig);
-      }
-      
-      // Emit event when all servers are ready
-      this.emit('serversReady');
-    } catch (error) {
-      console.error('Failed to start servers:', error);
     }
   }
 }
