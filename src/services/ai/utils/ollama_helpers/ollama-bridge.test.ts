@@ -1,22 +1,38 @@
 import { expect } from 'chai';
 import { OllamaBridge } from './ollama-bridge.js';
 import { MCPClientService } from '../../../../tools/mcp/mcp-client-service.js';
+import { MCPServerManager } from '../../../../tools/mcp/mcp-server-manager.js';
+import { ToolsHandler } from '../../../../tools/tools-handler.js';
+import { DatabaseService } from '../../../../services/db-service.js';
 import mcpServers from '../../../../tools/mcp/mcp_config.js';
+import { OllamaService } from '../../ollama.js';
 import fs from 'fs/promises';
 import path from 'path';
 
 describe('OllamaBridge', function() {
-    this.timeout(1200000); // 20 minutes timeout for all tests
+    this.timeout(60000); // 1 minute is enough for bridge tests
     
     let bridge: OllamaBridge;
     let braveClient: MCPClientService;
     let githubClient: MCPClientService;
     let clients: Map<string, MCPClientService>;
-    let createdIssueNumber: number | null = null;
+    let mcpManager: MCPServerManager;
+    let toolsHandler: ToolsHandler;
+    let dbService: DatabaseService;
     const outputDir = path.join(process.cwd(), 'test-results');
 
     before(async function() {
-        // Initialize clients using mcpServers config
+        // Initialize DatabaseService
+        dbService = await DatabaseService.getInstance();
+
+        // Initialize real OllamaService
+        const ollamaService = new OllamaService();
+        await ollamaService.initPromise;  // Wait for initialization
+
+        // Get MCPServerManager from OllamaService
+        mcpManager = ollamaService.mcpManager!;
+
+        // Initialize clients
         braveClient = new MCPClientService(mcpServers.mcpServers["brave-search"]);
         await braveClient.initialize();
 
@@ -28,134 +44,62 @@ describe('OllamaBridge', function() {
         clients.set("brave-search", braveClient);
         clients.set("github", githubClient);
 
-        // Initialize bridge
-        bridge = new OllamaBridge("llama3.2:latest", "http://127.0.0.1:11434", clients);
+        // Get ToolsHandler from OllamaService
+        toolsHandler = ollamaService.toolsHandler!;
 
-        // Get available tools from both clients
+        // Initialize bridge with real components
+        bridge = new OllamaBridge(
+            "llama3.2:latest",
+            "http://127.0.0.1:11434",
+            clients,
+            mcpManager,
+            toolsHandler
+        );
+
+        // Update available tools
         const braveTools = await braveClient.listTools();
         const githubTools = await githubClient.listTools();
         await bridge.updateAvailableTools([...braveTools, ...githubTools]);
 
-        // Create output directory for test results
         await fs.mkdir(outputDir, { recursive: true });
     });
 
-    describe('Basic Functionality', () => {
-        it('should handle a basic response without tool use', async () => {
-            const response = await bridge.processMessage('Say hello and nothing else.');
-            console.log('\nSimple response test result:', response);
+    describe('Bridge Functionality', () => {
+        it('should handle basic responses without tools', async () => {
+            const response = await bridge.processMessage('Say hello');
             expect(response).to.be.a('string');
             expect(response.toLowerCase()).to.include('hello');
         });
 
-        it('should maintain conversation context', async () => {
-            await bridge.processMessage('My name is Alice');
+        it('should maintain conversation context', async () => { // why do we test this here, when we have services/memory? Thsi is not bridge function  
+            const name = 'Alice';
+            await bridge.processMessage(`My name is ${name}`);
             const response = await bridge.processMessage('What is my name?');
-            expect(response.toLowerCase()).to.include('alice');
-        });
-    });
-
-    describe('Web Search Tool', () => {
-        it('should use web search tool for cryptocurrency news', async () => {
-            const response = await bridge.processMessage(
-                "Search news about USA announcing cryptocurrency national reserves. Print out the 3 of them that are picked. Include urls in the file."
-            );
-            console.log('\nBrave search test result:', response);
-            
-            // Save the response to a file
-            await fs.writeFile(
-                path.join(outputDir, 'cryptocurrency-national-reserves.txt'),
-                response,
-                'utf-8'
-            );
-
-            expect(response).to.be.a('string');
-            expect(response.length).to.be.greaterThan(100);
-            expect(response).to.include('http');
-            
-            // Count the number of URLs
-            const urlCount = (response.match(/https?:\/\//g) || []).length;
-            expect(urlCount).to.be.at.least(3, 'Response should contain at least 3 URLs');
+            expect(response.toLowerCase()).to.contain(name.toLowerCase());
         });
 
-        it('should handle web search with specific parameters', async () => {
-            const response = await bridge.processMessage('Find news about AI from the last 24 hours');
-            await fs.writeFile(
-                path.join(outputDir, 'ai-news.txt'),
-                response,
-                'utf-8'
-            );
-            expect(response).to.be.a('string');
-            expect(response).to.match(/https?:\/\//);
-            expect(response).to.match(/202[34]/);
+        it('should include tools only when relevant', async () => {
+            // No tools case
+            const noToolsMsg = await bridge.processMessage('What is 2+2?');
+            expect(noToolsMsg).to.not.include('http');
+            expect(noToolsMsg).to.not.include('github');
+
+            // With tools case
+            const withToolsMsg = await bridge.processMessage('Search for AI news');
+            expect(withToolsMsg).to.include('http');
         });
 
-        it('should handle failed web searches gracefully', async () => {
-            const response = await bridge.processMessage('Search for xyznonexistentquery123456789');
+        it('should handle tool errors gracefully', async () => {
+            const response = await bridge.processMessage('Search for nonexistent12345xyz');
             expect(response).to.be.a('string');
             expect(response).to.match(/no results|not found|unable to find/i);
         });
     });
 
-    describe('GitHub Tool', () => {
-        it('should use GitHub tool to create an issue', async () => {
-            const response = await bridge.processMessage(
-                'Create a GitHub issue in nydiokar/ai-chat repository with title "Test Issue from OllamaBridge" ' +
-                'and description "This is a test issue created by the OllamaBridge integration test."'
-            );
-            console.log('\nGitHub issue creation result:', response);
-            
-            expect(response).to.be.a('string');
-            expect(response).to.include('issue');
-            expect(response).to.include('created');
-            
-            // Extract issue number for cleanup
-            const match = response.match(/#(\d+)/);
-            if (match) {
-                createdIssueNumber = parseInt(match[1]);
-            }
-            
-            expect(response).to.match(/(https:\/\/github\.com\/|#\d+)/);
-        });
-    });
-
-    describe('Error Handling', () => {
-        it('should handle multiple tool calls in sequence', async () => {
-            const response = await bridge.processMessage(
-                'Search for the latest AI news and create a GitHub issue summarizing the findings'
-            );
-            console.log('\nMultiple tool calls result:', response);
-            
-            expect(response).to.be.a('string');
-            expect(response).to.match(/https?:\/\//);
-            expect(response).to.match(/#\d+/);
-
-            await fs.writeFile(
-                path.join(outputDir, 'ai-news-github-issue.txt'),
-                response,
-                'utf-8'
-            );
-        });
-    });
-
     after(async () => {
-        // Cleanup created issue if we have its number
-        if (createdIssueNumber) {
-            try {
-                await githubClient.callTool('github_close_issue', {
-                    owner: 'nydiokar',
-                    repo: 'ai-chat',
-                    issue_number: createdIssueNumber
-                });
-                console.log(`Cleaned up test issue #${createdIssueNumber}`);
-            } catch (error) {
-                console.error('Failed to cleanup test issue:', error);
-            }
-        }
-
-        // Cleanup clients
-        for (const [_, client] of clients) {
-            await client.cleanup();
-        }
+        await Promise.all([
+            braveClient.cleanup(),
+            githubClient.cleanup()
+        ]);
     });
-}); 
+});

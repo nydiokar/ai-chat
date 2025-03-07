@@ -1,53 +1,38 @@
-import { Message } from './index.js';
-
-export interface OllamaMessage {
-    role: string;
+// Base interfaces to match our system types
+interface BaseMessage {
+    role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;
-    tool_calls?: OllamaToolCall[];
 }
 
-// specific for ollama tools function
-export interface OllamaTool {
-    name: string;
-    description: string;
-    parameters: {
-        type: string;
-        properties: Record<string, any>;
-        required?: string[];
-    };
-}
-
-export interface OllamaToolCall {
-    id?: string;
-    function: {
-        name: string;
-        arguments: Record<string, any>;
-    };
-}
-
-export interface OllamaToolDefinition {
-    type: "function";
+interface BaseTool {
+    type: 'function';
     function: {
         name: string;
         description: string;
         parameters: {
-            type: "object";
+            type: string;
             properties: Record<string, any>;
-            required?: string[];
+            required: string[];
         };
     };
 }
 
+// Ollama-specific types
+export interface OllamaMessage extends BaseMessage {
+    images?: string[];
+    tool_calls?: Array<{
+        function: {
+            name: string;
+            arguments: Record<string, any>;  // Always an object, never a string
+        };
+    }>;
+}
+
 export interface OllamaResponse {
     model: string;
-    created_at: Date;
-    message: {
-        role: string;
-        content: string;
-        tool_calls?: OllamaToolCall[];
-    };
+    created_at: string;  // Keep as string to match Ollama's format
+    message: OllamaMessage;
     done: boolean;
-    done_reason?: string;
     total_duration?: number;
     load_duration?: number;
     prompt_eval_count?: number;
@@ -56,17 +41,39 @@ export interface OllamaResponse {
     eval_duration?: number;
 }
 
+export interface OllamaToolCall {
+    function: {
+        name: string;
+        arguments: Record<string, any>;  // Always an object
+    };
+}
+
 export interface OllamaChatRequest {
     model: string;
     messages: OllamaMessage[];
+    format?: string;
+    options?: Record<string, any>;
+    template?: string;
+    context?: number[];
     stream?: boolean;
-    options?: {
-        temperature?: number;
-    };
     tools?: OllamaToolDefinition[];
 }
 
-export interface OllamaToolResult {
-    content: string;
-    error?: string;
-} 
+export interface OllamaToolDefinition extends BaseTool {
+    function: {
+        name: string;
+        description: string;  // Required
+        parameters: {
+            type: string;
+            properties: Record<string, any>;
+            required: string[];  // Always present
+        };
+    };
+}
+
+export type OllamaRole = 'system' | 'user' | 'assistant' | 'tool';
+
+export interface OllamaCompletionChoice {
+    message: OllamaMessage;
+    finish_reason: string;
+}

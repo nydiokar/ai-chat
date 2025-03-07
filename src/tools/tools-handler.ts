@@ -9,6 +9,7 @@ export class ToolsHandler {
     private availableTools: Set<string>;
     private toolContexts: Map<string, MCPToolContext> = new Map();
     private clients: Map<string, MCPClientService>;
+    private toolClientMap: Map<string, MCPClientService> = new Map();
 
     constructor(
         clients: { id: string; client: MCPClientService }[],
@@ -77,7 +78,10 @@ export class ToolsHandler {
         try {
             for (const [serverId, client] of this.clients.entries()) {
                 const tools = await client.listTools();
-                tools.forEach(tool => this.availableTools.add(tool.name));
+                tools.forEach(tool => {
+                    this.availableTools.add(tool.name);
+                    this.toolClientMap.set(tool.name, client); // Cache the tool-client mapping
+                });
             }
         } catch (error) {
             console.error('[ToolsHandler] Failed to initialize tools:', error);
@@ -85,13 +89,18 @@ export class ToolsHandler {
     }
 
     private async getClientForTool(toolName: string): Promise<MCPClientService> {
-        for (const [serverId, client] of this.clients.entries()) {
-            if (await client.hasToolEnabled(toolName)) {
-                console.log(`[ToolsHandler] Found tool ${toolName} in server ${serverId}`);
-                return client;
+        const client = this.toolClientMap.get(toolName);
+        if (!client) {
+            // If not found in cache, try to find it and cache it
+            for (const [serverId, client] of this.clients.entries()) {
+                if (await client.hasToolEnabled(toolName)) {
+                    this.toolClientMap.set(toolName, client);
+                    return client;
+                }
             }
+            throw new Error(`No client found for tool: ${toolName}`);
         }
-        throw new Error(`No client found for tool: ${toolName}`);
+        return client;
     }
 
     async refreshToolContext(toolName: string, tool: ToolWithUsage): Promise<void> {

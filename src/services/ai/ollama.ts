@@ -19,6 +19,10 @@ export class OllamaService extends BaseAIService {
             throw new Error('MCPManager not initialized');
         }
 
+        if (!this.toolsHandler) {
+            throw new Error('ToolsHandler not initialized');
+        }
+
         // Create a map of all available MCP clients
         const clients = new Map<string, MCPClientService>();
         const serverIds = this.mcpManager.getServerIds();
@@ -34,7 +38,9 @@ export class OllamaService extends BaseAIService {
         this.bridge = new OllamaBridge(
             "llama3.2:latest",
             "http://127.0.0.1:11434",
-            clients
+            clients,
+            this.mcpManager,
+            this.toolsHandler
         );
 
         // Update available tools

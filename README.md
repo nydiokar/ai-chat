@@ -55,7 +55,7 @@ DEEPSEEK_API_KEY=your_deepseek_key_here
 
 # Ollama Configuration (if using Ollama)
 OLLAMA_HOST=http://127.0.0.1:11434
-OLLAMA_MODEL=llama2:13b-instruct-q8_0  # or any other installed model
+OLLAMA_MODEL=llama3.2.latest  # or any other installed model that has tool usage
 
 # Debug Mode (Optional)
 DEBUG=true
@@ -209,7 +209,7 @@ To use Ollama with the bot:
    ```env
    MODEL=ollama
    OLLAMA_HOST=http://127.0.0.1:11434
-   OLLAMA_MODEL=llama2:13b-instruct-q8_0
+   OLLAMA_MODEL=llama3.2.latest
    ```
 
 ### Model Selection
