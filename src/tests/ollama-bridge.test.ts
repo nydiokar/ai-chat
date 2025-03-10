@@ -29,7 +29,7 @@ describe('OllamaBridge', function() {
     const mcpManager = new MCPServerManager(await DatabaseService.getInstance(), ollamaService);
     const toolsHandler = new ToolsHandler([{ id: "brave-search", client: braveClient }], ollamaService, await DatabaseService.getInstance());
 
-    bridge = new OllamaBridge("llama3.2:latest", "http://127.0.0.1:11434", clients, mcpManager, toolsHandler);
+    bridge = new OllamaBridge("llama3.2:latest", "http://127.0.0.1:11434", clients, toolsHandler);
 
     // Update available tools
     const tools = await braveClient.listTools();

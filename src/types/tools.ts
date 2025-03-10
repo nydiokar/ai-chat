@@ -1,6 +1,6 @@
-import { mcpConfig } from '../tools/mcp/mcp_config.js';
+import { z } from 'zod';
 
-// Configuration interfaces
+// Core interfaces that don't depend on anything else
 export interface MCPToolConfig {
     name: string;
     description: string;
@@ -15,11 +15,40 @@ export interface MCPServerConfig {
     tools?: MCPToolConfig[];
 }
 
-// For database operations
+export interface MCPConfig {
+    mcpServers: Record<string, MCPServerConfig>;
+}
+
+export interface MCPToolResponse {
+    content: Array<{
+        type: string;
+        text?: string;
+        url?: string;
+        metadata?: Record<string, unknown>;
+    }>;
+    isError?: boolean;
+    hint?: string;
+}
+
+// Tool definitions with clear server requirements
+export interface MCPTool {
+    name: string;
+    description: string;
+    server: MCPServerConfig;
+    inputSchema: z.ZodSchema;
+}
+
+export interface MCPToolDefinition extends MCPTool {
+    handler: (args: any) => Promise<MCPToolResponse>;
+    examples?: string[];
+    metadata?: Record<string, unknown>;
+}
+
+// Database and usage related interfaces
 export interface ToolUsage {
     id: number;
     toolId?: string;
-    mcpToolId?: string;
+    mcpToolId: string;  // Made required since it's needed for tracking
     input: Record<string, unknown>;
     output: string;
     error?: string;
@@ -45,48 +74,28 @@ export interface MCPToolModel {
     updatedAt: Date;
 }
 
-export interface MCPConfig {
-    mcpServers: Record<string, MCPServerConfig>;
-}
-
-export function getMCPConfig(): MCPConfig {
-    return mcpConfig;
-}
-
 // Type for database operations that include usage
 export interface ToolWithUsage extends MCPToolConfig {
     id: string;
     usage: ToolUsage[];
 }
 
-// List of configured MCP server IDs
+export interface MCPToolContext {
+    lastRefreshed: Date;
+    refreshCount: number;
+    history?: ToolUsageHistory[];
+    patterns?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+}
+
+export interface ToolInformationProvider {
+    getAvailableTools(): Promise<MCPToolDefinition[]>;
+    getToolByName(name: string): Promise<MCPToolDefinition | undefined>;
+    refreshToolInformation(): Promise<void>;
+}
+
+// Constants
 export const MCP_SERVER_IDS = [
     'brave-search',
     'github'
 ] as const;
-
-// Extend existing MCPToolConfig for chain-specific needs
-export interface ChainedToolConfig extends MCPToolConfig {
-    dependsOn?: string[];           // Tool dependencies
-    retryConfig?: {
-        maxAttempts: number;
-        delayMs: number;
-    };
-    timeout?: number;               // In milliseconds
-}
-
-
-// Track chain execution results
-export interface ChainExecutionResult {
-    success: boolean;
-    steps: {
-        toolId?: string;
-        usage?: ToolUsage;          // Reuse existing ToolUsage
-        completed: boolean;
-    }[];
-    error?: {
-        step: string;
-        message: string;
-        attemptCount: number;
-    };
-}

@@ -12,14 +12,19 @@ export enum ErrorType {
     SERVER_START_FAILED = 'SERVER_START_FAILED',
     SERVER_RELOAD_FAILED = 'SERVER_RELOAD_FAILED',
     INVALID_MODEL = 'INVALID_MODEL',
-    SERVER_NOT_FOUND = 'SERVER_NOT_FOUND'
+    SERVER_NOT_FOUND = 'SERVER_NOT_FOUND',
+    INITIALIZATION_ERROR = 'INITIALIZATION_ERROR',
+    TOOL_ERROR = 'TOOL_ERROR',
+    VALIDATION_ERROR = 'VALIDATION_ERROR',
+    QUERY_ERROR = 'QUERY_ERROR',
+    UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
 export class MCPError extends Error {
     constructor(
-        public type: ErrorType,
         message: string,
-        public details?: any
+        public type: ErrorType = ErrorType.UNKNOWN_ERROR,
+        public options?: { cause?: Error }
     ) {
         super(message);
         this.name = 'MCPError';
@@ -27,66 +32,87 @@ export class MCPError extends Error {
 
     static toolNotFound(toolName: string): MCPError {
         return new MCPError(
-            ErrorType.TOOL_NOT_FOUND,
-            `Tool not found: ${toolName}`
+            `Tool not found: ${toolName}`,
+            ErrorType.TOOL_NOT_FOUND
         );
     }
 
-    static toolExecutionFailed(error: any): MCPError {
+    static toolExecutionFailed(error: Error): MCPError {
         return new MCPError(
-            ErrorType.TOOL_EXECUTION_FAILED,
-            `Tool execution failed: ${error.message || error}`,
-            error
+            error.message || 'Tool execution failed',
+            ErrorType.TOOL_ERROR,
+            { cause: error }
         );
     }
 
     static missingParameter(toolName: string): MCPError {
         return new MCPError(
-            ErrorType.MISSING_PARAMETER,
-            `Missing parameter for tool: ${toolName}`
+            `Missing parameter for tool: ${toolName}`,
+            ErrorType.MISSING_PARAMETER
         );
     }
 
     static invalidModel(model: string): MCPError {
         return new MCPError(
-            ErrorType.INVALID_MODEL,
-            `Invalid model type: ${model}`
+            `Invalid model type: ${model}`,
+            ErrorType.INVALID_MODEL
         );
     }
 
     static rateLimitExceeded(model: string): MCPError {
         return new MCPError(
-            ErrorType.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded for ${model}`
+            `Rate limit exceeded for ${model}`,
+            ErrorType.RATE_LIMIT_EXCEEDED
         );
     }
 
     static apiError(model: string, error: any): MCPError {
         return new MCPError(
-            ErrorType.API_ERROR,
             `${model} API error: ${error.message || 'Unknown error'}`,
-            error
+            ErrorType.API_ERROR,
+            { cause: error }
         );
     }
 
     static fromDatabaseError(error: Error): MCPError {
         return new MCPError(
-            ErrorType.DATABASE_ERROR,
             error.message,
-            error instanceof Error ? error : undefined
+            ErrorType.DATABASE_ERROR,
+            { cause: error }
         );
     }
+
     static serverNotFound(serverId: string): MCPError {
         return new MCPError(
-            ErrorType.SERVER_NOT_FOUND,
-            `Server ${serverId} not found`
+            `Server ${serverId} not found`,
+            ErrorType.SERVER_NOT_FOUND
         );
     }
 
     static toolNotEnabled(toolName: string, serverId: string): MCPError {
         return new MCPError(
-            ErrorType.TOOL_NOT_ENABLED,
-            `Tool ${toolName} is not enabled on server ${serverId}`
+            `Tool ${toolName} is not enabled on server ${serverId}`,
+            ErrorType.TOOL_NOT_ENABLED
         );
+    }
+
+    static initializationFailed(error: Error): MCPError {
+        return new MCPError(
+            'Failed to initialize tools',
+            ErrorType.INITIALIZATION_ERROR,
+            { cause: error }
+        );
+    }
+
+    static validationFailed(error: Error): MCPError {
+        return new MCPError(
+            error.message || 'Validation failed',
+            ErrorType.VALIDATION_ERROR,
+            { cause: error }
+        );
+    }
+
+    static queryError(message: string): MCPError {
+        return new MCPError(message, ErrorType.QUERY_ERROR);
     }
 }

@@ -4,7 +4,6 @@ import { MCPTool } from "../../../../types/index.js";
 import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../../types/ollama.js";
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
-import { MCPServerManager } from "../../../../tools/mcp/mcp-server-manager.js";
 import { ToolsHandler } from "../../../../tools/tools-handler.js";
 
 export class OllamaBridge {
@@ -18,11 +17,10 @@ export class OllamaBridge {
         model: string,
         _baseUrl: string,
         private mcpClients: Map<string, MCPClientService>,
-        mcpManager: MCPServerManager,
         toolsHandler: ToolsHandler
     ) {
         this.model = model;
-        this.promptGenerator = new SystemPromptGenerator(mcpManager, toolsHandler);
+        this.promptGenerator = new SystemPromptGenerator(toolsHandler);
     }
 
     public async updateAvailableTools(tools: MCPTool[]): Promise<void> {

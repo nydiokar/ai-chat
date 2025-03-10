@@ -35,7 +35,7 @@ export const mcpConfig: MCPConfig = {
             env: {
                 BRAVE_API_KEY: process.env.BRAVE_API_KEY || ''
             }
-        },
+        }
     }
 };
 

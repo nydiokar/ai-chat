@@ -1,10 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { MCPTool, MCPToolContext } from "../../types/index.js";
+import { MCPToolDefinition, MCPToolContext } from "../../types/tools.js";
 import { MCPServerConfig } from "../../types/tools.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
-import { defaultConfig } from "../../config/defaultConfig.js";
+import { defaultConfig } from "../../utils/config.js";
+import { Cleanable } from "../../types/cleanable.js";
 
 
 // Define response schemas
@@ -22,12 +23,11 @@ const ToolCallResponseSchema = z.object({
     }))
 });
 
-export class MCPClientService {
+export class MCPClientService implements Cleanable {
     private client: Client;
     private transport: StdioClientTransport;
-    private isConnected: boolean = false;
-    private config: MCPServerConfig;
-    private healthCheckInterval: NodeJS.Timer | undefined;
+    private _isConnected: boolean = false;
+    private readonly config: MCPServerConfig;
 
     constructor(config: MCPServerConfig) {
         this.config = config;
@@ -47,9 +47,40 @@ export class MCPClientService {
         });
     }
 
+    // Expose config in a controlled way
+    get serverConfig(): Readonly<MCPServerConfig> {
+        return Object.freeze({ ...this.config });
+    }
+
+    public get isConnected(): boolean {
+        return this._isConnected;
+    }
+
+    public async reconnect(): Promise<void> {
+        try {
+            // Cleanup existing connection
+            this.cleanup();
+            this._isConnected = false;
+            
+            // Reinitialize transport if needed
+            this.transport = new StdioClientTransport({
+                command: this.config.command,
+                args: this.config.args,
+                env: this.config.env,
+                stderr: 'inherit'
+            });
+            
+            // Attempt to reconnect
+            await this.connect();
+        } catch (error) {
+            console.error('[MCPClientService] Reconnection failed:', error);
+            throw error;
+        }
+    }
+
     async connect(): Promise<void> {
         try {
-            if (this.isConnected) {
+            if (this._isConnected) {
                 return;
             }
             
@@ -59,7 +90,7 @@ export class MCPClientService {
                 params: {}
             }, ToolListResponseSchema);
             
-            this.isConnected = true;
+            this._isConnected = true;
         } catch (error) {
             console.error('[MCPClientService] Connection failed:', 
                 error instanceof Error ? error.message : 'Unknown error');
@@ -76,18 +107,24 @@ export class MCPClientService {
         }
     }
 
-    async listTools(): Promise<MCPTool[]> {
+    async listTools(): Promise<MCPToolDefinition[]> {
         try {
-            const tools = await this.client.request({
+            const response = await this.client.request({
                 method: 'tools/list',
                 params: {}
             }, ToolListResponseSchema);
-            
-            return tools.tools.map(tool => ({
+
+            return response.tools.map(tool => ({
                 name: tool.name,
                 description: tool.description || '',
                 inputSchema: tool.inputSchema,
-                server: this.config
+                server: this.config,
+                handler: async (args: any) => {
+                    const result = await this.callTool(tool.name, args);
+                    return {
+                        content: [{ type: 'text', text: result }]
+                    };
+                }
             }));
         } catch (error) {
             console.error(`[MCPClientService] Failed to list tools for ${this.config.name}:`, error);
@@ -110,8 +147,7 @@ export class MCPClientService {
                 ...args,
                 _context: {
                     lastUsage: context.history?.[0],
-                    successRate: context.successRate,
-                    commonPatterns: context.patterns
+                    patterns: context.patterns
                 }
             } : args;
 
@@ -132,12 +168,12 @@ export class MCPClientService {
             }
             
             if ('error' in result) {
-                throw MCPError.toolExecutionFailed(result.error);
+                throw MCPError.toolExecutionFailed(new Error(String(result.error)));
             }
             
             return result.content[0]?.text || '';
         } catch (error) {
-            throw MCPError.toolExecutionFailed(error);
+            throw MCPError.toolExecutionFailed(error instanceof Error ? error : new Error(String(error)));
         }
     }
 
@@ -152,17 +188,6 @@ export class MCPClientService {
 
     async localSearch(query: string, count: number = 5): Promise<string> {
         return this.callTool('brave_local_search', { query, count });
-    }
-
-    private startHealthCheck() {
-        this.healthCheckInterval = setInterval(async () => {
-            try {
-                await this.listTools();
-            } catch (error) {
-                console.error('[MCPClientService] Health check failed:', error);
-                await this.connect();
-            }
-        }, 30000); // Check every 30 seconds
     }
 
     async initialize(): Promise<void> {
@@ -182,9 +207,6 @@ export class MCPClientService {
         try {
             // Attempt initial connection
             await this.connect();
-            
-            // Start health check only after successful initialization
-            this.startHealthCheck();
         } catch (error) {
             console.error(`[MCPClientService] Failed to initialize ${this.config.name}:`, 
                 error instanceof Error ? error.message : String(error));
@@ -192,9 +214,23 @@ export class MCPClientService {
         }
     }
 
-    cleanup() {
-        if (this.healthCheckInterval) {
-            clearInterval(this.healthCheckInterval as unknown as number);
+    async cleanup(): Promise<void> {
+        try {
+            if (this._isConnected) {
+                // Close the transport which will disconnect the client
+                await this.transport.close();
+            }
+            this._isConnected = false;
+            // Create a new transport instance for future use
+            this.transport = new StdioClientTransport({
+                command: this.config.command,
+                args: this.config.args,
+                env: this.config.env,
+                stderr: 'inherit'
+            });
+        } catch (error) {
+            console.error('[MCPClientService] Cleanup failed:', error);
+            throw error;
         }
     }
 

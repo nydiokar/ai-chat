@@ -58,7 +58,6 @@ export function validateEnvironment(): void {
 
   if (model === 'gpt') required.push('OPENAI_API_KEY');
   if (model === 'claude') required.push('ANTHROPIC_API_KEY');
-  if (model === 'deepseek') required.push('DEEPSEEK_API_KEY');
   // Ollama runs locally, so we don't require API keys but can optionally set host
   if (model === 'ollama') {
     process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';  // Explicitly use IPv4

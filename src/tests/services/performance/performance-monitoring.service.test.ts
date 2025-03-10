@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { PerformanceMonitoringService } from './performance-monitoring.service.js';
-import { DatabaseService } from '../db-service.js';
+import { PerformanceMonitoringService } from '../../../services/performance/performance-monitoring.service.js';
+import { DatabaseService } from '../../../services/db-service.js';
 
 describe('PerformanceMonitoringService', () => {
   let performanceService: PerformanceMonitoringService;

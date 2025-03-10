@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { PromptRepository, defaultPrompts } from "./prompt-repository.js";
-import { BasePrompt, PromptType } from "../../types/prompts.js";
+import { PromptRepository, defaultPrompts } from "../../../services/prompt/prompt-repository.js";
+import { BasePrompt, PromptType } from "../../../types/prompts.js";
 
 describe("PromptRepository", () => {
   let repository: PromptRepository;

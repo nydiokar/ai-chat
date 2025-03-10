@@ -154,7 +154,6 @@ them chat
 # Start a chat with specific model
 them chat -m claude
 them chat -m gpt
-them chat -m deepseek
 them chat -m ollama
 
 # List recent conversations

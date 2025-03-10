@@ -4,9 +4,9 @@ import {
   PromptType, 
   ToolUsagePrompt, 
   ReasoningPrompt 
-} from "../../types/prompts.js";
-import { PromptRepository } from "./prompt-repository.js";
-import { PromptMiddleware } from "./prompt-middleware.js";
+} from "../../../types/prompts.js";
+import { PromptRepository } from "../../../services/prompt/prompt-repository.js";
+import { PromptMiddleware } from "../../../services/prompt/prompt-middleware.js";
 
 describe("PromptMiddleware", () => {
   let repository: PromptRepository;

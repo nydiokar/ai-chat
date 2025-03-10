@@ -1,12 +1,12 @@
 import { expect } from 'chai';
-import { ReferenceSystemService } from './reference-system.service';
+import { ReferenceSystemService } from '../../../services/memory/reference-system.service.js';
 import { 
   ConversationContext,
   ReferenceChain,
   EntityReference
-} from '../../types/memory';
+} from '../../../types/memory.js';
 import type { Message } from '@prisma/client';
-import { Role } from '../../types/index.js';
+import { Role } from '../../../types/index.js';
 
 // Helper function to create test messages
 function createTestMessage(content: string): Message {
@@ -19,6 +19,8 @@ function createTestMessage(content: string): Message {
     tokenCount: content.split(' ').length,
     discordUserId: null,
     discordUsername: null,
+    discordGuildId: null,
+    discordChannelId: null,
     contextId: null
   };
 }

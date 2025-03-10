@@ -1,115 +1,121 @@
-import { MCPTool } from "./types/index.js";
-import { MCPServerManager } from "./tools/mcp/mcp-server-manager.js";
-import { PromptMiddleware } from "./services/prompt/prompt-middleware.js";
-import { PromptRepository } from "./services/prompt/prompt-repository.js";
-import { PromptContext, PromptType, ToolUsagePrompt } from "./types/prompts.js";
-import { ToolsHandler } from "./tools/tools-handler.js";
+import { MCPToolDefinition } from "./types/index.js";
+import { ToolInformationProvider } from "./types/tools.js";
 
 export class SystemPromptGenerator {
-    private readonly middleware: PromptMiddleware;
-    private readonly repository: PromptRepository;
-    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant."
+    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
+    private readonly toolUsageInstructions = `When using tools:
+1. Explain your intention clearly and concisely
+2. For search and information tools:
+   - Summarize key points and remove duplicates
+   - Present a clear, organized response
+3. For action tools (GitHub, file operations, etc.):
+   - Confirm completed actions
+   - Report any issues encountered
+   - Handle errors gracefully using provided hints
+4. For code tools:
+   - Explain significant changes
+   - Note any important findings
+5. For tool errors:
+   - Check error hints for recovery suggestions
+   - Try alternative approaches if available
+   - Report unrecoverable errors clearly`;
 
     constructor(
-        private mcpManager: MCPServerManager,
-        private toolsHandler: ToolsHandler
-    ) {
-        this.repository = new PromptRepository();
-        this.middleware = new PromptMiddleware(this.repository);
-        this.initializeToolPrompts();
+        private toolProvider: ToolInformationProvider
+    ) {}
+
+    async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
+        const tools = await this.toolProvider.getAvailableTools();
+        
+        const promptParts = [
+            systemPrompt || this.defaultIdentity,
+            this.toolUsageInstructions
+        ];
+
+        if (tools.length > 0) {
+            promptParts.push(
+                "\nAvailable Tools:",
+                ...tools.map(tool => this.formatToolInfo(tool))
+            );
+        }
+
+        if (message && this.isToolUsageLikely(message)) {
+            promptParts.push(
+                "Note: This request might require tool usage. Consider the available tools and their capabilities. " +
+                "Remember to handle errors gracefully and use hints when provided."
+            );
+        }
+
+        return promptParts.join("\n\n");
     }
 
-    private initializeToolPrompts(): void {
-        const mcpToolPrompt: ToolUsagePrompt = {
-            type: PromptType.TOOL_USAGE,
-            content: `Tool Usage Guidelines:
-- Format calls as: [Calling tool <name> with args <json>]
-- Follow each tool's input schema requirements
-- Handle errors appropriately`,
-            priority: 2,
-            tools: ['*'],
-            usagePatterns: {
-                bestPractices: ['Follow schema requirements'],
-                commonErrors: ['Invalid formatting']
-            },
-            shouldApply: (context: PromptContext) => 
-                context.tools !== undefined && context.tools.length > 0
-        };
-        
-        this.repository.addPrompt(mcpToolPrompt);
-    }
+    private formatToolInfo(tool: MCPToolDefinition): string {
+        const parts = [
+            `Tool: ${tool.name}`,
+            tool.description && `Description: ${tool.description}`
+        ];
 
-    async generatePrompt(additionalContext: string = "", request?: string): Promise<string> {
-        // Gather available tools
-        const tools: MCPTool[] = [];
-        const serverIds = this.mcpManager.getServerIds();
-        
-        for (const serverId of serverIds) {
+        if (tool.inputSchema) {
             try {
-                const server = this.mcpManager.getServerByIds(serverId);
-                if (server) {
-                    const serverTools = await server.listTools();
-                    tools.push(...(serverTools || []));
+                const schemaStr = tool.inputSchema.toString();
+                if (schemaStr.length < 500) {
+                    parts.push(`Schema: ${schemaStr}`);
+                } else {
+                    // For large schemas, just show a simplified version
+                    parts.push('Schema: [Complex schema - see documentation for details]');
                 }
             } catch (error) {
-                console.error(`Error getting tools for server ${serverId}:`, error);
+                console.error('Error formatting tool schema:', error);
+                parts.push('Schema: [Schema information unavailable]');
             }
         }
 
-        // Generate tool context if tools available
-        const toolsContext: string[] = [];
-        if (tools.length > 0) {
-            try {
-                // Use ToolsHandler to get tool contexts with caching and persistence
-                const contextPromises = tools.map(async tool => {
-                    const context = await this.toolsHandler.getToolContext(tool.name);
-                    const schema = JSON.stringify(tool.inputSchema, null, 2);
-                    
-                    let contextInfo = '';
-                    if (context?.patterns) {
-                        const patterns = Object.entries(context.patterns)
-                            .map(([param, data]) => `${param}: ${(data as any).mostCommon?.[0]}`)
-                            .filter(pattern => !pattern.includes('undefined'))
-                            .join(', ');
-                        contextInfo = patterns ? `\nCommon Usage: ${patterns}` : '';
-                    }
-                    
-                    if (context?.history?.length) {
-                        contextInfo += `\nUsage History: ${context.history.length} recent uses`;
-                    }
+        if (tool.examples?.length) {
+            parts.push('Examples:');
+            tool.examples.slice(0, 2).forEach(example => {
+                parts.push(`- ${example}`);
+            });
+        }
 
-                    return `Tool: ${tool.name}
-Description: ${tool.description}
-Input Schema: ${schema}${contextInfo ? '\n' + contextInfo : ''}`;
+        if (tool.metadata) {
+            const relevantMetadata = this.filterRelevantMetadata(tool.metadata);
+            if (Object.keys(relevantMetadata).length > 0) {
+                parts.push('Additional Info:');
+                Object.entries(relevantMetadata).forEach(([key, value]) => {
+                    parts.push(`- ${key}: ${value}`);
                 });
-
-                const results = await Promise.all(contextPromises);
-                toolsContext.push(...results);
-            } catch (error) {
-                console.error('[SystemPromptGenerator] Error getting tool contexts:', error);
             }
         }
 
-        // Build prompt context and get appropriate prompts
-        const prompts = await this.middleware.processRequest(request || '', {
-            requestType: request ? await this.middleware.analyzeRequestType(request) : undefined,
-            tools: tools.map(t => t.name),
-            complexity: request ? await this.middleware.analyzeComplexity(request) : 'low'
-        });
+        return parts.filter(Boolean).join('\n');
+    }
 
-        // Only include tool information if the request suggests tool usage is needed
-        const requestLower = (request || '').toLowerCase();
-        const needsTools = requestLower.includes('search') || 
-                          requestLower.includes('find') || 
-                          requestLower.includes('github');
+    private filterRelevantMetadata(metadata: Record<string, unknown>): Record<string, string> {
+        const relevantKeys = ['usage', 'limitations', 'permissions', 'version'];
+        return Object.entries(metadata)
+            .filter(([key]) => relevantKeys.includes(key))
+            .reduce((acc, [key, value]) => {
+                acc[key] = typeof value === 'string' ? value : JSON.stringify(value);
+                return acc;
+            }, {} as Record<string, string>);
+    }
 
-        const parts = [
-            this.defaultIdentity,
-            prompts,
-            needsTools && tools.length > 0 ? '\nAvailable Tools:\n' + toolsContext.join('\n\n') : '',
-            additionalContext
-        ].filter(Boolean);
+    private isToolUsageLikely(message: string): boolean {
+        const toolKeywords = [
+            'search', 'find', 'look up',
+            'create', 'make', 'add',
+            'update', 'change', 'modify',
+            'delete', 'remove',
+            'run', 'execute',
+            'check', 'verify',
+            'analyze', 'examine',
+            'tool', 'function', 'command',
+            'help', 'assist', 'automate'
+        ];
 
-        return parts.join('\n\n');
+        const lowercaseMessage = message.toLowerCase();
+        return toolKeywords.some(keyword => 
+            lowercaseMessage.includes(keyword.toLowerCase())
+        ) || /\b(can|could|would|please)\b.*\b(help|do|perform|execute)\b/i.test(message);
     }
 }

@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { MCPClientService } from "../../../../tools/mcp/mcp-client-service.js";
-import mcpServers from '../../../../tools/mcp/mcp_config.js';
+import { MCPClientService } from "../../tools/mcp/mcp-client-service.js";
+import mcpServers from '../../tools/mcp/mcp_config.js';
 
 describe('GitHub MCP Tools', function() {
     this.timeout(30000);

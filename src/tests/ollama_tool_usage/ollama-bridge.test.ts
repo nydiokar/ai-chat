@@ -1,11 +1,11 @@
 import { expect } from 'chai';
-import { OllamaBridge } from './ollama-bridge.js';
-import { MCPClientService } from '../../../../tools/mcp/mcp-client-service.js';
-import { MCPServerManager } from '../../../../tools/mcp/mcp-server-manager.js';
-import { ToolsHandler } from '../../../../tools/tools-handler.js';
-import { DatabaseService } from '../../../../services/db-service.js';
-import mcpServers from '../../../../tools/mcp/mcp_config.js';
-import { OllamaService } from '../../ollama.js';
+import { OllamaBridge } from '../../services/ai/utils/ollama_helpers/ollama-bridge.js';
+import { MCPClientService } from '../../tools/mcp/mcp-client-service.js';
+import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
+import { ToolsHandler } from '../../tools/tools-handler.js';
+import { DatabaseService } from '../../services/db-service.js';
+import mcpServers from '../../tools/mcp/mcp_config.js';
+import { OllamaService } from '../../services/ai/ollama.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -27,7 +27,7 @@ describe('OllamaBridge', function() {
 
         // Initialize real OllamaService
         const ollamaService = new OllamaService();
-        await ollamaService.initPromise;   // Wait for initialization
+        await ollamaService.processMessage('test');   // This will trigger initialization
 
         // Get MCPServerManager from OllamaService
         mcpManager = ollamaService.mcpManager!;
@@ -52,7 +52,6 @@ describe('OllamaBridge', function() {
             "llama3.2:latest",
             "http://127.0.0.1:11434",
             clients,
-            mcpManager,
             toolsHandler
         );
 

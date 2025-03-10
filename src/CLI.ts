@@ -180,7 +180,7 @@ async function generateResponse(message: string): Promise<void> {
             currentConversationId,
             response.content,
             'assistant',
-            response.tokenCount
+            response.tokenCount ?? undefined
         );
 
         await showCurrentConversation();
@@ -195,7 +195,7 @@ async function generateResponse(message: string): Promise<void> {
 async function newConversation(model?: keyof typeof Model): Promise<void> {
     if (model) {
         currentModel = model;
-        aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
+        aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'ollama');
     }
 
     currentConversationId = await db.createConversation(
@@ -213,12 +213,12 @@ async function newConversation(model?: keyof typeof Model): Promise<void> {
 
 async function switchModel(model: keyof typeof Model): Promise<void> {
     if (!model || !Object.keys(Model).includes(model)) {
-        console.log(chalk.red('Invalid model. Available models: GPT_4, CLAUDE, DEEPSEEK'));
+        console.log(chalk.red('Invalid model. Available models: GPT_4, CLAUDE, OLLAMA'));
         return conversation();
     }
 
     currentModel = model;
-    aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'deepseek');
+    aiService = AIServiceFactory.create(model.toLowerCase() as 'gpt' | 'claude' | 'ollama');
     console.log(chalk.green(`Switched to ${model} model`));
     return conversation();
 }

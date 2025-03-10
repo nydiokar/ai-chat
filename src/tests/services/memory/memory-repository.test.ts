@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { MemoryRepository } from './memory-repository';
-import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../types/memory';
+import { MemoryRepository } from '../../../services/memory/memory-repository.js';
+import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../../types/memory.js';
 
 describe('MemoryRepository', () => {
   let repository: MemoryRepository;

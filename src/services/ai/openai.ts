@@ -1,152 +1,174 @@
 import { OpenAI } from 'openai';
-import { Message } from '../../types/index.js';
-import { BaseAIService, AIResponse } from './base-service.js';
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
+import { MCPToolResponse } from '../../types/tools.js';
+import { BaseAIService } from './base-service.js';
+import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
+import { 
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionToolMessageParam
+} from 'openai/resources/chat/completions.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
+import { debug } from '../../utils/config.js';
+import { AIResponse, AIMessage } from '../../types/ai-service.js';
 
 export class OpenAIService extends BaseAIService {
-    private client: OpenAI;
-    private modelName: string;
+    private openai: OpenAI;
+    private model: string;
 
-    constructor() {
-        super();
-        const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) {
+    constructor(mcpManager: MCPServerManager) {
+        super(mcpManager);
+        if (!process.env.OPENAI_API_KEY) {
             throw new Error('OpenAI API key not found');
         }
+        this.openai = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY
+        });
+        this.model = process.env.OPENAI_MODEL || 'gpt-4';
         
-        this.modelName = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
-        this.client = new OpenAI({ apiKey });
+        // Set o1 model flag for newer models
+        if (this.model.includes('gpt-4-0125') || this.model.includes('gpt-4-turbo') || this.model.includes('gpt-4-1106')) {
+            this.setIsO1Model(true);
+        }
     }
 
-    async generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
+    async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
         return this.processMessage(message, conversationHistory);
     }
 
-    async processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
-        await this.initPromise;
+    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
+        aiRateLimiter.checkLimit('gpt');
+        
+        const systemPrompt = await this.getSystemPrompt();
+        const messages: ChatCompletionMessageParam[] = [
+            { role: 'system', content: systemPrompt } as ChatCompletionSystemMessageParam,
+            ...(conversationHistory || []).map(msg => {
+                if (msg.role === 'tool' && msg.tool_call_id) {
+                    return {
+                        role: 'tool',
+                        content: msg.content,
+                        tool_call_id: msg.tool_call_id
+                    } as ChatCompletionToolMessageParam;
+                }
+                if (msg.role === 'assistant') {
+                    return {
+                        role: 'assistant',
+                        content: msg.content
+                    } as ChatCompletionAssistantMessageParam;
+                }
+                return {
+                    role: 'user',
+                    content: msg.content
+                } as ChatCompletionUserMessageParam;
+            }),
+            { role: 'user', content: message } as ChatCompletionUserMessageParam
+        ];
 
         try {
-            const conversationId = conversationHistory?.[0]?.conversationId;
-            if (this.mcpManager) {
-                return this.processWithTools(message, conversationHistory, conversationId);
-            } else {
-                return this.processWithoutTools(message, conversationHistory);
+            const tools = await this.toolsHandler.getAvailableTools();
+            if (tools.length > 0) {
+                return this.handleToolBasedCompletion(messages, tools);
             }
-        } catch (error) {
-            console.error('OpenAI Service Error:', error);
-            return this.processWithoutTools(message, conversationHistory);
-        }
-    }
 
-    protected async handleToolBasedCompletion(
-        messages: ChatCompletionMessageParam[],
-        functions: any[],
-        toolsHandler: any,
-        conversationId?: number
-    ): Promise<AIResponse> {
-        try {
-            const completion = await this.client.chat.completions.create({
-                model: this.modelName,
+            // Otherwise, use simple completion
+            const completion = await this.openai.chat.completions.create({
+                model: this.model,
                 messages,
-                tools: functions.map(fn => ({ type: 'function', function: fn })),
-                tool_choice: 'auto',
-                temperature: 0.7,
+                temperature: 0.7
             });
 
-            let currentMessages = [...messages];
-            let responseMessage = completion.choices[0]?.message;
-            let totalTokens = completion.usage?.total_tokens || 0;
-            let toolResults = [];
-
-            while (responseMessage?.tool_calls) {
-                currentMessages.push(responseMessage);
-
-                // Process all tool calls in this response
-                for (const toolCall of responseMessage.tool_calls) {
-                    try {
-                        console.log(`Processing tool call for ${toolCall.function.name}`);
-                        const toolQuery = `[Calling tool ${toolCall.function.name} with args ${toolCall.function.arguments}]`;
-                        const toolResult = await toolsHandler.processQuery(toolQuery, conversationId);
-                        toolResults.push(toolResult);
-
-                        // Add the tool response message
-                        currentMessages.push({
-                            role: 'tool',
-                            content: toolResult,
-                            tool_call_id: toolCall.id
-                        } as ChatCompletionMessageParam);
-                    } catch (error) {
-                        console.error(`Tool execution failed:`, error);
-                        throw error;
-                    }
-                }
-
-                // Get the next response
-                const nextCompletion = await this.client.chat.completions.create({
-                    model: this.modelName,
-                    messages: currentMessages,
-                    tools: functions.map(fn => ({
-                        type: "function",
-                        function: fn
-                    })),
-                    tool_choice: "auto",
-                    temperature: 0.7
-                });
-
-                totalTokens += nextCompletion.usage?.total_tokens || 0;
-                responseMessage = nextCompletion.choices[0]?.message;
-            }
-
             return {
-                content: responseMessage?.content || '',
-                tokenCount: totalTokens,
-                toolResults
+                content: completion.choices[0].message.content || '',
+                tokenCount: completion.usage?.total_tokens || null,
+                toolResults: []
             };
+
         } catch (error) {
-            console.error('Error in handleToolBasedCompletion:', error);
+            debug('OpenAI API Error: ' + (error instanceof Error ? error.message : String(error)));
             throw error;
         }
     }
 
-    protected async processWithoutTools(
-        message: string,
-        conversationHistory?: Message[]
-    ): Promise<AIResponse> {
-        aiRateLimiter.checkLimit(this.getModel());
-        
-        const contextMessages = this.getContextMessages(conversationHistory);
-        const messages: ChatCompletionMessageParam[] = [
-            { role: "system", content: this.systemPrompt },
-            ...contextMessages,
-            { role: "user", content: message }
-        ];
-
-        const completion = await this.client.chat.completions.create({
-            model: this.modelName,
-            messages,
-            temperature: 0.7
-        });
-
-        return {
-            content: completion.choices[0]?.message?.content || '',
-            tokenCount: completion.usage?.total_tokens || null,
-            toolResults: []
-        };
-    }
-
-    protected async makeApiCall(
+    private async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
-        temperature: number
-    ) {
-        return this.client.chat.completions.create({
-            model: this.modelName,
-            messages,
-            temperature
-        });
+        tools: any[]
+    ): Promise<AIResponse> {
+        let currentMessages = [...messages];
+        let totalTokens = 0;
+        let allToolResults: MCPToolResponse[] = [];
+
+        try {
+            while (true) {
+                const completion = await this.openai.chat.completions.create({
+                    model: this.model,
+                    messages: currentMessages,
+                    tools: tools.map(tool => ({
+                        type: 'function',
+                        function: {
+                            name: tool.name,
+                            description: tool.description,
+                            parameters: tool.inputSchema || {
+                                type: 'object',
+                                properties: {},
+                                required: []
+                            }
+                        }
+                    })),
+                    tool_choice: 'auto',
+                    temperature: 0.7
+                });
+
+                totalTokens += completion.usage?.total_tokens || 0;
+                const responseMessage = completion.choices[0].message;
+
+                // If no tool calls, we're done
+                if (!responseMessage.tool_calls?.length) {
+                    return {
+                        content: responseMessage.content || '',
+                        tokenCount: totalTokens,
+                        toolResults: allToolResults
+                    };
+                }
+
+                // Process tool calls
+                currentMessages.push(responseMessage);
+                
+                for (const toolCall of responseMessage.tool_calls) {
+                    try {
+                        const tool = await this.toolsHandler.getToolByName(toolCall.function.name);
+                        if (!tool) {
+                            throw new Error(`Tool ${toolCall.function.name} not found`);
+                        }
+
+                        const result = await tool.handler(JSON.parse(toolCall.function.arguments));
+                        allToolResults.push(result);
+
+                        currentMessages.push({
+                            role: 'tool',
+                            content: result.content
+                                .map(c => c.text || c.url || JSON.stringify(c))
+                                .filter(Boolean)
+                                .join('\n'),
+                            tool_call_id: toolCall.id
+                        } as ChatCompletionToolMessageParam);
+                    } catch (error) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        debug(`Tool execution failed: ${errorMessage}`);
+                        currentMessages.push({
+                            role: 'system',
+                            content: `Tool execution failed: ${errorMessage}`
+                        } as ChatCompletionSystemMessageParam);
+                    }
+                }
+            }
+        } catch (error) {
+            debug('Tool handling error: ' + (error instanceof Error ? error.message : String(error)));
+            throw error;
+        }
     }
 
-    getModel(): 'gpt' | 'claude' | 'deepseek' {
+    getModel(): string {
         return 'gpt';
     }
 }

@@ -1,32 +1,33 @@
-import { Message } from '../../types/index.js';
-import { BaseAIService, AIResponse } from './base-service.js';
 import { Anthropic, HUMAN_PROMPT, AI_PROMPT } from '@anthropic-ai/sdk';
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions.js';
-import { aiRateLimiter } from './utils/rate-limiter.js';
+import { MCPToolResponse, MCPToolConfig, ToolInformationProvider } from '../../types/tools.js';
+import { BaseAIService } from './base-service.js';
+import { ChatCompletionMessageParam, ChatCompletionFunctionMessageParam } from 'openai/resources/chat/completions.js';
+import { AIResponse, AIMessage } from '../../types/ai-service.js';
+import { ToolsHandler } from '../../tools/tools-handler.js';
+import { prepareAnthropicMessages } from './utils/message-preparation.js';
 
 export class AnthropicService extends BaseAIService {
     private client: Anthropic;
     private modelName: string;
 
-    constructor() {
-        super();
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) {
+    constructor(toolProvider?: ToolInformationProvider) {
+        super(toolProvider);
+        if (!process.env.ANTHROPIC_API_KEY) {
             throw new Error('Anthropic API key not found');
         }
-        this.modelName = process.env.ANTHROPIC_MODEL || 'claude-2';
-        this.client = new Anthropic({ apiKey });
+        this.client = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY
+        });
+        this.modelName = process.env.ANTHROPIC_MODEL || 'claude-3-opus-20240229';
     }
 
-    async generateResponse(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
+    async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
         return this.processMessage(message, conversationHistory);
     }
 
-    async processMessage(message: string, conversationHistory?: Message[]): Promise<AIResponse> {
-        await this.initPromise;
-
+    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
         try {
-            if (this.mcpManager) {
+            if (this.toolsHandler) {
                 return this.processWithTools(message, conversationHistory);
             } else {
                 return this.processWithoutTools(message, conversationHistory);
@@ -37,10 +38,35 @@ export class AnthropicService extends BaseAIService {
         }
     }
 
+    protected async processWithTools(
+        message: string,
+        conversationHistory?: AIMessage[]
+    ): Promise<AIResponse> {
+        const systemPrompt = await this.getSystemPrompt();
+        const messages = prepareAnthropicMessages(systemPrompt, message, conversationHistory);
+        return this.handleToolBasedCompletion(messages, [], this.toolsHandler!);
+    }
+
+    protected async processWithoutTools(
+        message: string,
+        conversationHistory?: AIMessage[]
+    ): Promise<AIResponse> {
+        const systemPrompt = await this.getSystemPrompt();
+        const messages = prepareAnthropicMessages(systemPrompt, message, conversationHistory);
+        const completion = await this.makeApiCall(messages);
+
+        return {
+            content: completion.choices[0]?.message?.content || '',
+            tokenCount: completion.usage?.total_tokens || null,
+            toolResults: []
+        };
+    }
+
     protected async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
-        functions: any[],
-        server: any
+        functions: MCPToolConfig[],
+        toolsHandler: ToolsHandler,
+        conversationId?: number
     ): Promise<AIResponse> {
         // Convert OpenAI-style messages to Anthropic format
         let prompt = '';
@@ -73,7 +99,8 @@ export class AnthropicService extends BaseAIService {
             const [functionName, argsString] = functionCallMatch;
             try {
                 const functionArgs = JSON.parse(argsString);
-                const result = await server.callTool(functionName, functionArgs);
+                const toolQuery = `[Calling tool ${functionName} with args ${JSON.stringify(functionArgs)}]`;
+                const result = await toolsHandler.processQuery(toolQuery, conversationId ?? 0);
 
                 // Get final response with tool result
                 const finalCompletion = await this.client.messages.create({
@@ -82,7 +109,7 @@ export class AnthropicService extends BaseAIService {
                     messages: [
                         { role: 'user', content: prompt },
                         { role: 'assistant', content: content },
-                        { role: 'user', content: `Tool ${functionName} returned: ${result}` }
+                        { role: 'user', content: `Tool ${functionName} returned: ${result.content[0]?.text || ''}` }
                     ]
                 });
 
@@ -100,38 +127,6 @@ export class AnthropicService extends BaseAIService {
         return {
             content: completion.content[0].type === 'text' ? completion.content[0].text : '',
             tokenCount: null,
-            toolResults: []
-        };
-    }
-
-    protected async processWithoutTools(
-        message: string,
-        conversationHistory?: Message[]
-    ): Promise<AIResponse> {
-        aiRateLimiter.checkLimit(this.getModel());
-
-        const contextMessages = this.getContextMessages(conversationHistory);
-        let prompt = this.systemPrompt ? `${this.systemPrompt}\n\n` : '';
-
-        for (const msg of contextMessages) {
-            if (msg.role === 'user') {
-                prompt += `${HUMAN_PROMPT} ${msg.content}\n\n`;
-            } else if (msg.role === 'assistant') {
-                prompt += `${AI_PROMPT} ${msg.content}\n\n`;
-            }
-        }
-
-        prompt += `${HUMAN_PROMPT} ${message}\n\n${AI_PROMPT}`;
-
-        const completion = await this.client.messages.create({
-            model: this.modelName,
-            max_tokens: 1000,
-            messages: [{ role: 'user', content: prompt }]
-        });
-
-        return {
-            content: completion.content[0].type === 'text' ? completion.content[0].text : '',
-            tokenCount: null, // Anthropic doesn't provide token counts
             toolResults: []
         };
     }
@@ -159,7 +154,6 @@ export class AnthropicService extends BaseAIService {
             messages: [{ role: 'user', content: prompt }]
         });
 
-
         const content = completion.content[0].type === 'text' ? completion.content[0].text : '';
         const message: ChatCompletionMessageParam = {
             role: 'assistant',
@@ -177,7 +171,7 @@ export class AnthropicService extends BaseAIService {
         };
     }
 
-    getModel(): 'gpt' | 'claude' | 'deepseek' {
+    getModel(): string {
         return 'claude';
     }
 }

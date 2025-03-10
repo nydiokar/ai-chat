@@ -1,7 +1,7 @@
 import { expect } from 'chai';
-import { TaskQueryService } from './task-query-service.js';
-import { TaskManager } from './task-manager.js';
-import { TaskStatus, TaskPriority, TaskListResult } from '../types/task.js';
+import { TaskQueryService } from '../../tasks/task-query-service.js';
+import { TaskManager } from '../../tasks/task-manager.js';
+import { TaskStatus, TaskPriority, TaskListResult } from '../../types/task.js';
 import sinon from 'sinon';
 
 describe('TaskQueryService', () => {

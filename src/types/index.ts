@@ -1,35 +1,22 @@
-import { MCPServerConfig, ToolUsage, ToolUsageHistory } from "./tools.js";
 
 export enum Role {
   user = 'user',
   assistant = 'assistant',
-  system = 'system'
+  system = 'system',
+  function = 'function',
+  tool = 'tool',
+  developer = 'developer'
 }
 
 export const Model = {
   gpt: 'gpt',
   claude: 'claude',
-  deepseek: 'deepseek',
   ollama: 'ollama'
 } as const;
 
 export type AIModel = typeof Model[keyof typeof Model];
 
 export type MessageRole = keyof typeof Role;
-
-export interface MCPToolContext {
-    lastRefreshed: Date;
-    refreshCount: number;
-    history: ToolUsageHistory[];
-    patterns?: Record<string, {
-        mostCommon: unknown[];
-        uniqueValues: number;
-    }>;
-    currentArgs?: Record<string, unknown>;
-    successRate?: number;
-}
-
-export { ToolUsage, ToolUsageHistory };
 
 export interface Message {
   id: number;
@@ -40,6 +27,8 @@ export interface Message {
   tokenCount?: number | null;  // Allow null for Prisma compatibility
   discordUserId?: string | null;
   discordUsername?: string | null;
+  name?: string;  // For function messages
+  tool_call_id?: string;  // For tool messages
 }
 
 export interface Conversation {
@@ -66,11 +55,22 @@ export interface Session {
   isActive: boolean;
 }
 
-export interface DiscordMessageContext {
+export interface BaseConfig {
+  maxContextMessages: number;
+  maxMessageLength: number;
+  debug: boolean;
+  maxRetries: number;
+  retryDelay: number;
+  timeout: number;
+  rateLimit: number;
+}
+
+export interface MessageContext {
   userId: string;
-  username: string;
+  username?: string;
   guildId?: string;
-  channelId?: string;  // Make channelId optional
+  channelId?: string;
+  messageId?: string;
 }
 
 export interface ConversationStats {
@@ -86,66 +86,12 @@ export interface ConversationStats {
   }[];
 }
 
-export interface ExportedConversation {
-  id: number;
-  model: AIModel;
-  createdAt: Date;
-  messages: {
-    role: MessageRole;
-    content: string;
-    createdAt: Date;
-  }[];
-}
 
-export interface ImportConversation {
-  model: AIModel;
-  title?: string;
-  summary?: string;
-  messages: {
-    role: MessageRole;
-    content: string;
-    tokenCount?: number;
-  }[];
-}
-
-export interface MCPTool {
-  name: string;
-  description: string;
-  server: MCPServerConfig;  // From mcp-config.ts
-  inputSchema: any;
-}
-
-export interface ToolCallResult {
-  content: Array<{ text: string }>;
-}
-
-export * from './task.js';
+// Re-export from other modules
+export * from './tools.js';
+export * from './ai-service.js';
 export * from './errors.js';
-
-// Base configuration interface
-export interface BaseConfig {
-  maxContextMessages: number;
-  maxMessageLength: number;
-  debug: boolean;
-  maxRetries: number;
-  retryDelay: number;
-  timeout: number;
-  rateLimit: number;
-}
-
-export type MessageContext = DiscordMessageContext | CLIMessageContext;
-
-export interface CLIMessageContext {
-    channelId: string;
-    userId: string;
-    messageId: string;
-    guildId?: string;
-}
-
-// Export all types
-export * from './ollama.js';
 export * from './task.js';
-export * from './errors.js';
 export * from './prompts.js';
 
 

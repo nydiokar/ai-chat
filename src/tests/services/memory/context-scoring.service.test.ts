@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { ContextScoringService } from './context-scoring.service';
-import { ConversationContext, ConversationMessage } from '../../types/memory';
+import { ContextScoringService } from '../../../services/memory/context-scoring.service.js';
+import { ConversationContext, ConversationMessage } from '../../../types/memory.js';
 
 describe('ContextScoringService', () => {
   let service: ContextScoringService;

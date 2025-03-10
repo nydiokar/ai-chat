@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { AIModel, ConversationStats, MessageRole, Model, Role, DiscordMessageContext } from '../types/index.js';
+import { AIModel, ConversationStats, MessageRole, Role, MessageContext, MCPToolResponse } from '../types/index.js';
+import { MCPError } from '../types/errors.js';
 import { debug } from '../utils/config.js';
 
 export class DatabaseError extends Error {
@@ -49,12 +50,6 @@ export class DatabaseService {
     }
   }
 
-  private validateContent(content: string): void {
-    if (!content || content.trim().length === 0) {
-      throw new DatabaseError('Content cannot be empty');
-    }
-  }
-
   private async handlePrismaError(error: unknown, operation: string): Promise<never> {
     const prismaError = error as PrismaError;
     if (prismaError.code) {
@@ -94,7 +89,7 @@ export class DatabaseService {
     model: AIModel,
     title?: string,
     summary?: string,
-    discordContext?: DiscordMessageContext
+    discordContext?: MessageContext
   ): Promise<number> {
     try {
       if (title && title.length > this.MAX_TITLE_LENGTH) {
@@ -131,45 +126,32 @@ export class DatabaseService {
 
   async addMessage(
     conversationId: number,
-    content: string,
-    role: keyof typeof Role,
-    tokenCount?: number | null,
-    discordContext?: DiscordMessageContext
+    content: string | MCPToolResponse,
+    role: MessageRole,
+    tokenCount?: number,
+    context?: MessageContext
   ): Promise<void> {
     try {
-      this.validateId(conversationId);
-      this.validateContent(content);
+      const messageContent = typeof content === 'string' 
+        ? content 
+        : content.content.map(c => c.text).filter(Boolean).join('\n');
 
-      debug(`Adding message to conversation ${conversationId}`);
-      await this.prisma.$transaction(async (prisma) => {
-        // If Discord context exists, ensure user record exists
-        if (discordContext?.userId) {
-          await prisma.user.upsert({
-            where: { id: discordContext.userId },
-            update: { 
-              username: discordContext.username,
-              isActive: true
-            },
-            create: {
-              id: discordContext.userId,
-              username: discordContext.username,
-              isActive: true
-            }
-          });
-        }
-
-        const message = await prisma.message.create({
+      await this.executePrismaOperation(async (prisma) => {
+        await prisma.message.create({
           data: {
-            content,
-            role: Role[role],
             conversationId,
+            content: messageContent,
+            role: Role[role],
             tokenCount,
-            discordUserId: discordContext?.userId,
-            discordUsername: discordContext?.username,
-          },
+            discordUserId: context?.userId,
+            discordUsername: context?.username,
+            discordGuildId: context?.guildId,
+            discordChannelId: context?.channelId
+          }
         });
 
-        if (discordContext) {
+        // Update session activity if context exists
+        if (context) {
           await prisma.session.updateMany({
             where: { 
               conversationId,
@@ -181,6 +163,7 @@ export class DatabaseService {
           });
         }
 
+        // Update conversation token count if provided
         if (tokenCount) {
           await prisma.conversation.update({
             where: { id: conversationId },
@@ -188,15 +171,13 @@ export class DatabaseService {
               tokenCount: {
                 increment: tokenCount
               },
-              updatedAt: new Date(),
-            },
+              updatedAt: new Date()
+            }
           });
         }
-
-        return message;
       });
     } catch (error) {
-      throw new DatabaseError(`Failed to add message to conversation ${conversationId}`, error as Error);
+      throw MCPError.fromDatabaseError(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -409,13 +390,14 @@ export class DatabaseService {
   }
 
   async importConversation(data: {
-    model: 'gpt' | 'claude' | 'deepseek';
-    messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+    model: AIModel;
+    messages: { role: MessageRole; content: string }[];
   }) {
     debug('Importing conversation');
-    const conversation = await this.createConversation(data.model as keyof typeof Model);
+    const conversation = await this.createConversation(data.model);
     
     for (const msg of data.messages) {
+      if (msg.role === 'system') continue; // Skip system messages
       await this.addMessage(conversation, msg.content, msg.role);
     }
 
