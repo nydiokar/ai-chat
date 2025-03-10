@@ -6,15 +6,16 @@ export enum Role {
   system = 'system'
 }
 
-export enum Model {
-  gpt = 'gpt',
-  claude = 'claude',
-  deepseek = 'deepseek',
-  ollama = 'ollama'
-}
+export const Model = {
+  gpt: 'gpt',
+  claude: 'claude',
+  deepseek: 'deepseek',
+  ollama: 'ollama'
+} as const;
+
+export type AIModel = typeof Model[keyof typeof Model];
 
 export type MessageRole = keyof typeof Role;
-export type AIModel = keyof typeof Model;
 
 export interface MCPToolContext {
     lastRefreshed: Date;
@@ -142,9 +143,9 @@ export interface CLIMessageContext {
 }
 
 // Export all types
-export * from './ollama';
-export * from './task';
-export * from './errors';
-export * from './prompts';
+export * from './ollama.js';
+export * from './task.js';
+export * from './errors.js';
+export * from './prompts.js';
 
 

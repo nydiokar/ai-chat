@@ -4,6 +4,10 @@ import { MCPClientService } from '../tools/mcp/mcp-client-service.js';
 import mcpServers from '../tools/mcp/mcp_config.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { ToolsHandler } from '../tools/tools-handler';
+import { MCPServerManager } from '../tools/mcp/mcp-server-manager';
+import { DatabaseService } from '../services/db-service';
+import { OllamaService } from '../services/ai/ollama';
 
 describe('OllamaBridge', function() {
   this.timeout(1200000); // 20 minutes timeout for all tests
@@ -19,7 +23,13 @@ describe('OllamaBridge', function() {
     // Create bridge with just the Brave Search client
     const clients = new Map();
     clients.set("brave-search", braveClient);
-    bridge = new OllamaBridge("llama3.2:latest", "http://127.0.0.1:11434", clients);
+    
+    // Create services
+    const ollamaService = new OllamaService();
+    const mcpManager = new MCPServerManager(await DatabaseService.getInstance(), ollamaService);
+    const toolsHandler = new ToolsHandler([{ id: "brave-search", client: braveClient }], ollamaService, await DatabaseService.getInstance());
+
+    bridge = new OllamaBridge("llama3.2:latest", "http://127.0.0.1:11434", clients, mcpManager, toolsHandler);
 
     // Update available tools
     const tools = await braveClient.listTools();

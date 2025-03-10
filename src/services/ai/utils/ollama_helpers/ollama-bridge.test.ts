@@ -27,7 +27,7 @@ describe('OllamaBridge', function() {
 
         // Initialize real OllamaService
         const ollamaService = new OllamaService();
-        await ollamaService.initPromise;  // Wait for initialization
+        await ollamaService.initPromise;   // Wait for initialization
 
         // Get MCPServerManager from OllamaService
         mcpManager = ollamaService.mcpManager!;

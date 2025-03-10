@@ -19,7 +19,7 @@
     "test": "mocha -r ts-node/register",
     "test:all": "mocha -r ts-node/register ./src/**/*.test.ts --timeout 15000",
     "test:watch": "mocha -r ts-node/register --watch",
-    "test:ollama-brave": "mocha -r ts-node src/services/ai/utils/ollama_helpers/ollama-bridge.test.ts",
+    "test:ollama-brave": "mocha -r ts-node src/services/ai/utils/ollama_helpers/github-tools.test.ts",
     "lint": "eslint src/**/*.{js,ts,jsx,tsx}",
     "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix"
   },

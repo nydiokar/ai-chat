@@ -4,6 +4,7 @@ import { MCPTool, MCPToolContext } from "../../types/index.js";
 import { MCPServerConfig } from "../../types/tools.js";
 import { z } from "zod";
 import { MCPError } from "../../types/errors.js";
+import { defaultConfig } from "../../config/defaultConfig.js";
 
 
 // Define response schemas
@@ -96,9 +97,13 @@ export class MCPClientService {
 
     async callTool(name: string, args: any, context?: MCPToolContext): Promise<string> {
         try {
-            // Sanitize args for logging by removing potential sensitive data
-            const sanitizedArgs = this.sanitizeArgs(args);
-            console.log(`[MCPClientService] Calling tool ${name} with args:`, sanitizedArgs);
+            // Only log detailed args if in debug mode
+            if (defaultConfig.discord.mcp.logLevel === 'debug') {
+                const sanitizedArgs = this.sanitizeArgs(args);
+                console.log(`[MCPClientService] Calling tool ${name} with args:`, sanitizedArgs);
+            } else {
+                console.log(`[MCPClientService] Calling tool ${name}`);
+            }
             
             // Enhance arguments with context if available
             const enhancedArgs = context ? {
@@ -118,9 +123,13 @@ export class MCPClientService {
                 }
             }, ToolCallResponseSchema);
             
-            // Sanitize result before logging
-            const sanitizedResult = this.sanitizeResult(result);
-            console.log(`[MCPClientService] Tool result:`, sanitizedResult);
+            // Only log result summary unless in debug mode
+            if (defaultConfig.discord.mcp.logLevel === 'debug') {
+                const sanitizedResult = this.sanitizeResult(result);
+                console.log(`[MCPClientService] Tool result:`, sanitizedResult);
+            } else {
+                console.log(`[MCPClientService] Tool ${name} completed successfully`);
+            }
             
             if ('error' in result) {
                 throw MCPError.toolExecutionFailed(result.error);

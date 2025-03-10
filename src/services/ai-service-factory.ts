@@ -9,9 +9,11 @@ import { defaultConfig } from '../utils/config.js';
 
 export class AIServiceFactory {
     static create(model?: 'gpt' | 'claude' | 'deepseek' | 'ollama'): AIService {
-        // Always use config model, ignore input parameter
-        const selectedModel = defaultConfig.defaultModel;
-        console.warn(`[AIServiceFactory] Input model: ${model}`);
+        // Use provided model if available, otherwise use config default
+        const selectedModel = model || defaultConfig.defaultModel;
+        console.warn(`[AIServiceFactory] Using model: ${selectedModel}`);
+        console.warn(`[AIServiceFactory] Environment MODEL: ${process.env.MODEL}`);
+        console.warn(`[AIServiceFactory] Default config model: ${defaultConfig.defaultModel}`);
 
         try {
             switch (selectedModel) {

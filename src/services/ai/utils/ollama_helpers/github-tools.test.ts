@@ -33,11 +33,11 @@ describe('GitHub MCP Tools', function() {
         expect(issueData).to.have.property('number').that.is.a('number');
     });
 
-    it('should comment on issue #24', async () => {
+    it('should comment on issue #25', async () => {
         const result = await githubClient.callTool('add_issue_comment', {
             owner: 'nydiokar',
             repo: 'ai-chat',
-            issue_number: 24,
+            issue_number: 25,
             body: 'Test comment from GitHub tools test'
         });
 
@@ -49,11 +49,11 @@ describe('GitHub MCP Tools', function() {
         expect(commentData).to.have.property('id').that.is.a('number');
     });
 
-    it('should close issue #24', async () => {
+    it('should close issue #25', async () => {
         const result = await githubClient.callTool('update_issue', {
             owner: 'nydiokar',
             repo: 'ai-chat',
-            issue_number: 24,
+            issue_number: 25,
             state: 'closed'
         });
 

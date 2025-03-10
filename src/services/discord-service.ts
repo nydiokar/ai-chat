@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials, TextChannel, Message } from 'discord.js';
 import { DatabaseService } from './db-service.js';
-import { DiscordMessageContext } from '../types/index.js';
+import { DiscordMessageContext, AIModel } from '../types/index.js';
 import { AIService } from './ai/base-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
@@ -15,7 +15,7 @@ export class DiscordService {
   private db: DatabaseService;
   private static instance: DiscordService;
   private aiServices: Map<string, AIService> = new Map();
-  private readonly maxContextMessages = 10;
+  private readonly maxContextMessages = 3;
   private readonly contextRefreshInterval = 30 * 60 * 1000;
   private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
 
@@ -300,7 +300,8 @@ private async handleTaskCommand(message: DiscordMessage, command: { action: stri
         
         let service = this.aiServices.get(serviceKey);
         if (!service) {
-          service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
+          console.warn(`[DiscordService] Creating new service for model: ${conversation.model}`);
+          service = AIServiceFactory.create(conversation.model as AIModel);
           this.aiServices.set(serviceKey, service);
         }
 
@@ -357,7 +358,7 @@ private async handleTaskCommand(message: DiscordMessage, command: { action: stri
       const conversation = await this.db.getConversation(conversationId);
       if (!conversation || conversation.messages.length <= this.maxContextMessages) return;
 
-      const service = AIServiceFactory.create(conversation.model as 'gpt' | 'claude' | 'deepseek' | 'ollama');
+      const service = AIServiceFactory.create(conversation.model as AIModel);
       const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
       const summary = await service.generateResponse(
         "Please provide a brief summary of this conversation context that can be used to maintain continuity in future messages. Focus on key points and important details.",

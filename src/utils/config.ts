@@ -1,3 +1,5 @@
+import { AIModel, Model } from '../types/index.js';
+
 // Base configuration interface
 export interface BaseConfig {
   maxContextMessages: number;
@@ -6,7 +8,7 @@ export interface BaseConfig {
   maxRetries: number;
   retryDelay: number;
   rateLimitDelay: number;
-  defaultModel: 'gpt' | 'claude' | 'deepseek' | 'ollama';
+  defaultModel: AIModel;
   discord: {
     enabled: boolean;
     cleanupInterval: number;  // Hours before inactive sessions are cleaned up
@@ -21,11 +23,15 @@ export interface BaseConfig {
 
 export const defaultConfig: BaseConfig = {
   defaultModel: (() => {
-    const model = process.env.MODEL || 'gpt';
+    const model = process.env.MODEL || 'ollama';
     console.warn('[Config] Resolved model:', model);
-    return model as 'gpt' | 'claude' | 'deepseek' | 'ollama';
+    if (!Object.values(Model).includes(model as AIModel)) {
+      console.warn(`[Config] Invalid model ${model}, defaulting to ollama`);
+      return 'ollama';
+    }
+    return model as AIModel;
   })(),
-  maxContextMessages: 10,
+  maxContextMessages: 3,
   maxMessageLength: 4000,
   debug: process.env.DEBUG === 'true',
   maxRetries: 3,

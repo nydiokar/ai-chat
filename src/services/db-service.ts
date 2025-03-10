@@ -91,7 +91,7 @@ export class DatabaseService {
   }
 
   async createConversation(
-    model: keyof typeof Model,
+    model: AIModel,
     title?: string,
     summary?: string,
     discordContext?: DiscordMessageContext
@@ -107,7 +107,7 @@ export class DatabaseService {
       debug('Creating new conversation');
       const conversation = await this.prisma.conversation.create({
         data: {
-          model: Model[model],
+          model,
           title,
           summary,
           tokenCount: 0,

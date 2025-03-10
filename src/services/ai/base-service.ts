@@ -4,7 +4,6 @@ import { DatabaseService } from '../db-service.js';
 import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
 import { ToolsHandler } from '../../tools/tools-handler.js';
 import { getMCPConfig } from '../../types/tools.js';
-import { aiRateLimiter } from './utils/rate-limiter.js';
 import { ChatCompletionMessageParam, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions.js';
 import { MCPClientService } from '../../tools/mcp/mcp-client-service.js';
 import { SystemPromptGenerator } from '../../system-prompt-generator.js';
@@ -31,11 +30,11 @@ export interface AIService {
 }
 
 export abstract class BaseAIService implements AIService {
-    protected systemPrompt: string = '';
-    protected mcpManager?: MCPServerManager;
-    protected promptGenerator?: SystemPromptGenerator;
-    protected toolsHandler?: ToolsHandler;
-    protected initPromise: Promise<void>;
+    public systemPrompt: string = '';
+    public mcpManager?: MCPServerManager;
+    public promptGenerator?: SystemPromptGenerator;
+    public toolsHandler?: ToolsHandler;
+    public initPromise: Promise<void>;
     private initialized: boolean = false;
 
     constructor() {
