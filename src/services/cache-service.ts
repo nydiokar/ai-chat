@@ -7,6 +7,7 @@ interface CacheConfig {
     filename: string;
     namespace?: string;
     ttl?: number;
+    sensitive?: boolean;
 }
 
 interface CacheEntry<T> {
@@ -34,18 +35,27 @@ export class CacheService {
     private readonly cache: Keyv;
     private readonly metricsCache: Keyv;
     private readonly db: DatabaseService;
+    private readonly sensitivePatterns = [
+        /github_pat_[a-zA-Z0-9_]+/g,
+        /ghp_[a-zA-Z0-9]{36}/g,
+        /[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+@github\.com/g,
+        /(access|api|auth|secret|token|key).*['"]\s*:\s*['"][a-zA-Z0-9_-]+['"]/gi
+    ];
 
     private constructor(config: CacheConfig) {
-        // Initialize file-based Keyv cache
+        // Use memory store for sensitive data
+        const store = config.sensitive ? new Map() : new KeyvFile({
+            filename: config.filename
+        });
+
+        // Initialize cache with appropriate store
         this.cache = new Keyv({
-            store: new KeyvFile({
-                filename: config.filename
-            }),
+            store,
             namespace: config.namespace || 'conversations',
             ttl: config.ttl || 24 * 60 * 60 * 1000 // Default 24h TTL
         });
 
-        // Separate cache for metrics
+        // Separate cache for metrics (always file-based as it doesn't contain sensitive data)
         this.metricsCache = new Keyv({
             store: new KeyvFile({
                 filename: config.filename + '.metrics'
@@ -120,21 +130,36 @@ export class CacheService {
         }
     }
 
-    async set<T>(
-        key: string, 
-        data: T, 
-        ttl?: number
-    ): Promise<boolean> {
-        try {
-            const entry: CacheEntry<T> = {
-                data,
-                expires: Date.now() + (ttl || (this.cache.opts?.ttl ?? 24 * 60 * 60 * 1000)),
-            };
-
-            return await this.cache.set(key, entry, ttl);
-        } catch (error) {
-            throw new CacheError(`Failed to set cache entry: ${key}`, error);
+    // Sanitize data before caching
+    private sanitizeData(data: any): any {
+        if (typeof data === 'string') {
+            // Replace sensitive patterns with [REDACTED]
+            let sanitized = data;
+            this.sensitivePatterns.forEach(pattern => {
+                sanitized = sanitized.replace(pattern, '[REDACTED]');
+            });
+            return sanitized;
         }
+        
+        if (Array.isArray(data)) {
+            return data.map(item => this.sanitizeData(item));
+        }
+        
+        if (typeof data === 'object' && data !== null) {
+            const sanitized: any = {};
+            for (const [key, value] of Object.entries(data)) {
+                sanitized[key] = this.sanitizeData(value);
+            }
+            return sanitized;
+        }
+        
+        return data;
+    }
+
+    // Modified set method to include sanitization
+    public async set(key: string, value: any, ttl?: number): Promise<boolean> {
+        const sanitizedValue = this.sanitizeData(value);
+        return this.cache.set(key, sanitizedValue, ttl);
     }
 
     async delete(key: string): Promise<boolean> {

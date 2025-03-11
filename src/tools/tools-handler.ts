@@ -29,7 +29,8 @@ export class ToolsHandler implements ToolInformationProvider {
         this.cacheService = CacheService.getInstance({
             filename: 'tools-cache.json',
             namespace: 'tools',
-            ttl: this.TOOLS_CACHE_TTL
+            ttl: this.TOOLS_CACHE_TTL,
+            sensitive: true // Mark as sensitive to use memory-only storage
         });
     }
 

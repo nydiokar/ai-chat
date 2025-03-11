@@ -12,3 +12,6 @@ prisma/dev.db
 cline_docs/
 .venv/
 *.log
+tools-cache.json.metrics
+tools-cache.json.metrics.json
+tools-cache.json

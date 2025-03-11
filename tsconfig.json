@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ES2020",
-    "moduleResolution": "node",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "allowJs": true,
     "outDir": "./dist",
@@ -10,11 +10,14 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": [
     "src/**/*",
-    "src/**/*.json"
-, "tests/bot.test.ts", "tests/mcp-integration.test.ts", "src/tools/mcp/mcp_config.ts"  ],
+    "src/**/*.json",
+    "tests/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

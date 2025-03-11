@@ -1,11 +1,14 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
-        "module": "esnext",
-        "moduleResolution": "bundler",
-        "types": ["node", "mocha", "chai"]
+        "types": ["node", "mocha", "chai", "sinon"],
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext"
     },
-    "include": ["src/**/*.test.ts"],
+    "include": [
+        "src/**/*.test.ts",
+        "tests/**/*.ts"
+    ],
     "ts-node": {
         "esm": true,
         "experimentalSpecifierResolution": "node"
