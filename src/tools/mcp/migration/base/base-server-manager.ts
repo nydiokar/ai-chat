@@ -2,13 +2,25 @@ import { IServerManager } from '../interfaces/core.js';
 import { Server, ServerState, ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { EventEmitter } from 'events';
+import { injectable, inject } from 'inversify';
+import { IMCPClient } from '../interfaces/core.js';
+import { TYPES } from '../di/types.js';
+import { Container } from 'inversify';
 
+@injectable()
 export class BaseServerManager extends EventEmitter implements IServerManager {
     protected servers: Map<string, Server>;
+    protected clientsMap: Map<string, string>;
+    protected container: Container;
 
-    constructor() {
+    constructor(
+        @inject('ClientsMap') clientsMap: Map<string, string>,
+        @inject('Container') container: Container
+    ) {
         super();
         this.servers = new Map();
+        this.clientsMap = clientsMap;
+        this.container = container;
     }
 
     public async startServer(id: string, config: ServerConfig): Promise<void> {
@@ -28,7 +40,18 @@ export class BaseServerManager extends EventEmitter implements IServerManager {
         this.servers.set(id, server);
 
         try {
-            // Basic server startup logic
+            // Get the client for this server
+            const clientId = this.clientsMap.get(id);
+            if (!clientId) {
+                throw new Error(`No client configuration found for server ${id}`);
+            }
+
+            // Initialize the client
+            const client = this.container.get<IMCPClient>(clientId);
+            await client.initialize();
+            await client.connect();
+
+            // Update server state
             server.state = ServerState.RUNNING;
             this.emit('serverStarted', id);
         } catch (error) {
@@ -49,7 +72,13 @@ export class BaseServerManager extends EventEmitter implements IServerManager {
             server.state = ServerState.STOPPING;
             this.emit('serverStopping', id);
             
-            // Basic server shutdown logic
+            // Get and disconnect the client
+            const clientId = this.clientsMap.get(id);
+            if (clientId) {
+                const client = this.container.get<IMCPClient>(clientId);
+                await client.disconnect();
+            }
+
             server.state = ServerState.STOPPED;
             server.stopTime = new Date();
             this.emit('serverStopped', id);
@@ -74,15 +103,7 @@ export class BaseServerManager extends EventEmitter implements IServerManager {
     }
 
     public async unregisterServer(id: string): Promise<void> {
-        const server = this.getServer(id);
-        if (!server) {
-            throw MCPError.serverNotFound();
-        }
-
-        if (server.state === ServerState.RUNNING) {
-            await this.stopServer(id);
-        }
-
+        await this.stopServer(id);
         this.servers.delete(id);
         this.emit('serverUnregistered', id);
     }

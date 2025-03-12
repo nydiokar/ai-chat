@@ -5,6 +5,8 @@ import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, Ollam
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
 import { ToolsHandler } from "../../../../tools/tools-handler.js";
+import { IToolManager } from "../../../../tools/mcp/migration/interfaces/core.js";
+import { ToolDefinition, ToolResponse } from "../../../../tools/mcp/migration/types/tools.js";
 
 export class OllamaBridge {
     private model: string;
@@ -15,38 +17,41 @@ export class OllamaBridge {
 
     constructor(
         model: string,
-        _baseUrl: string,
-        private mcpClients: Map<string, MCPClientService>,
-        toolsHandler: ToolsHandler
+        private endpoint: string,
+        private clients: Map<string, MCPClientService>,
+        toolsHandler: IToolManager
     ) {
         this.model = model;
         this.promptGenerator = new SystemPromptGenerator(toolsHandler);
     }
 
-    public async updateAvailableTools(tools: MCPTool[]): Promise<void> {
-        // Only update tools that have changed or are new
-        let hasChanges = false;
-        
+    private convertTool(tool: ToolDefinition): OllamaToolDefinition {
+        const converted: OllamaToolDefinition = {
+            type: 'function',
+            function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: {
+                    type: 'object',
+                    properties: tool.parameters.reduce((acc, param) => {
+                        acc[param.name] = {
+                            type: param.type,
+                            description: param.description
+                        };
+                        return acc;
+                    }, {} as Record<string, any>),
+                    required: tool.parameters.filter(p => p.required).map(p => p.name)
+                }
+            }
+        };
+        return converted;
+    }
+
+    public async updateAvailableTools(tools: ToolDefinition[]): Promise<void> {
+        this.convertedTools.clear();
         for (const tool of tools) {
-            const existingTool = this.availableTools.get(tool.name);
-            if (!existingTool || JSON.stringify(existingTool) !== JSON.stringify(tool)) {
-                this.availableTools.set(tool.name, tool);
-                this.convertedTools.delete(tool.name); // Clear cached conversion
-                hasChanges = true;
-            }
-        }
-
-        // Remove tools that no longer exist
-        for (const [name] of this.availableTools) {
-            if (!tools.find(t => t.name === name)) {
-                this.availableTools.delete(name);
-                this.convertedTools.delete(name);
-                hasChanges = true;
-            }
-        }
-
-        if (hasChanges && process.env.DEBUG) {
-            console.log('[OllamaBridge] Tools updated:', Array.from(this.availableTools.keys()));
+            const converted = this.convertTool(tool);
+            this.convertedTools.set(tool.name, converted);
         }
     }
 
@@ -58,7 +63,7 @@ export class OllamaBridge {
             throw new Error(`Invalid tool call: ${toolCall.function.name}`);
         }
 
-        for (const [clientName, client] of this.mcpClients.entries()) {
+        for (const [clientName, client] of this.clients.entries()) {
             if (await client.hasToolEnabled(toolCall.function.name)) {
                 return client.callTool(toolCall.function.name, toolCall.function.arguments);
             }

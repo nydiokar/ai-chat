@@ -1,7 +1,9 @@
-import { IToolManager } from '../interfaces/core.js';
-import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
 import { BaseToolManager } from '../base/base-tool-manager.js';
-import { IMCPClient } from '../interfaces/core.js';
+import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
+import { EventEmitter } from 'events';
+import { inject, injectable } from 'inversify';
+import { Container } from 'inversify';
+import { ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 
 export interface ToolUsage {
@@ -27,16 +29,115 @@ export interface ToolAnalytics {
     recommendations?: string[];
 }
 
+@injectable()
 export class EnhancedToolsHandler extends BaseToolManager {
+    private cache: Map<string, { value: any; timestamp: number }>;
+    private analytics: EventEmitter;
+    private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     private usageHistory: Map<string, ToolUsage[]>;
     private toolContexts: Map<string, ToolContext>;
     private readonly MAX_HISTORY_SIZE = 100;
     private readonly MAX_ERROR_HISTORY = 10;
 
-    constructor(client: IMCPClient) {
-        super(client);
+    constructor(
+        @inject('ClientsMap') clientsMap: Map<string, string>,
+        @inject('Container') container: Container,
+        @inject('ServerConfigs') serverConfigs: Map<string, ServerConfig>
+    ) {
+        super(clientsMap, container, serverConfigs);
+        this.cache = new Map();
+        this.analytics = new EventEmitter();
         this.usageHistory = new Map();
         this.toolContexts = new Map();
+    }
+
+    public override async getAvailableTools(): Promise<ToolDefinition[]> {
+        const cacheKey = 'available-tools';
+        const cached = this.getCachedValue<ToolDefinition[]>(cacheKey);
+        
+        if (cached) {
+            this.analytics.emit('cache.hit', { key: cacheKey });
+            return cached;
+        }
+
+        this.analytics.emit('cache.miss', { key: cacheKey });
+        const tools = await super.getAvailableTools();
+        this.setCachedValue(cacheKey, tools);
+        return tools;
+    }
+
+    public override async executeTool(name: string, args: any): Promise<ToolResponse> {
+        this.analytics.emit('tool.called', { name, args });
+        const startTime = Date.now();
+
+        try {
+            const result = await super.executeTool(name, args);
+            const duration = Date.now() - startTime;
+            
+            this.analytics.emit('tool.success', { 
+                name, 
+                duration,
+                resultSize: JSON.stringify(result).length
+            });
+            
+            this.trackToolUsage({
+                toolName: name,
+                timestamp: startTime,
+                success: result.success,
+                executionTime: duration,
+                args,
+                result
+            });
+
+            return result;
+        } catch (error) {
+            const duration = Date.now() - startTime;
+            this.analytics.emit('tool.error', { 
+                name, 
+                duration,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+
+    public override async refreshToolInformation(): Promise<void> {
+        this.cache.clear();
+        this.analytics.emit('cache.cleared');
+        await super.refreshToolInformation();
+    }
+
+    public getAnalytics(): EventEmitter {
+        return this.analytics;
+    }
+
+    public getCacheStats(): { size: number; ttl: number } {
+        return {
+            size: this.cache.size,
+            ttl: this.CACHE_TTL
+        };
+    }
+
+    private getCachedValue<T>(key: string): T | null {
+        const cached = this.cache.get(key);
+        if (!cached) return null;
+
+        const { value, timestamp } = cached;
+        if (Date.now() - timestamp > this.CACHE_TTL) {
+            this.cache.delete(key);
+            this.analytics.emit('cache.expired', { key });
+            return null;
+        }
+
+        return value as T;
+    }
+
+    private setCachedValue<T>(key: string, value: T): void {
+        this.cache.set(key, {
+            value,
+            timestamp: Date.now()
+        });
+        this.analytics.emit('cache.set', { key });
     }
 
     private initializeContext(toolName: string): void {
@@ -89,43 +190,6 @@ export class EnhancedToolsHandler extends BaseToolManager {
                 ErrorType.TOOL_TRACKING_FAILED,
                 { cause: error instanceof Error ? error : new Error(String(error)) }
             );
-        }
-    }
-
-    public async executeTool(name: string, args: any): Promise<ToolResponse> {
-        const startTime = Date.now();
-        let result: ToolResponse;
-        
-        try {
-            result = await super.executeTool(name, args);
-            
-            this.trackToolUsage({
-                toolName: name,
-                timestamp: startTime,
-                success: result.success,
-                executionTime: Date.now() - startTime,
-                args,
-                result
-            });
-
-            return result;
-        } catch (error) {
-            const errorResponse: ToolResponse = {
-                success: false,
-                data: null,
-                error: error instanceof Error ? error.message : 'Unknown error occurred'
-            };
-
-            this.trackToolUsage({
-                toolName: name,
-                timestamp: startTime,
-                success: false,
-                executionTime: Date.now() - startTime,
-                args,
-                result: errorResponse
-            });
-
-            return errorResponse;
         }
     }
 

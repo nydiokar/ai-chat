@@ -1,171 +1,403 @@
 import { OpenAI } from 'openai';
-import { MCPToolResponse } from '../../types/tools.js';
+import { AIResponse, AIMessage } from '../../types/ai-service.js';
 import { BaseAIService } from './base-service.js';
-import { MCPServerManager } from '../../tools/mcp/mcp-server-manager.js';
+import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
+import { MCPError, ErrorType } from '../../types/errors.js';
+import { aiRateLimiter } from './utils/rate-limiter.js';
+import { debug, defaultConfig } from '../../utils/config.js';
 import { 
     ChatCompletionMessageParam,
+    ChatCompletionTool,
+    ChatCompletion,
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
     ChatCompletionAssistantMessageParam,
     ChatCompletionToolMessageParam
 } from 'openai/resources/chat/completions.js';
-import { aiRateLimiter } from './utils/rate-limiter.js';
-import { debug } from '../../utils/config.js';
-import { AIResponse, AIMessage } from '../../types/ai-service.js';
+import { ToolDefinition, ToolResponse } from '../../tools/mcp/migration/types/tools.js';
+
+// Custom debug logger for OpenAI
+function logOpenAI(type: 'request' | 'response' | 'error', message: string, details?: any) {
+    if (!defaultConfig.debug) return;
+    
+    const timestamp = new Date().toISOString();
+    const logMessage: any = {
+        timestamp,
+        type: `OpenAI:${type.toUpperCase()}`,
+        message
+    };
+    
+    // Redact sensitive information before logging
+    function redactSensitiveInfo(obj: any): any {
+        if (!obj) return obj;
+        
+        const sensitiveKeys = [
+            'token', 'key', 'password', 'secret', 'auth', 'credential',
+            'GITHUB_PERSONAL_ACCESS_TOKEN', 'OPENAI_API_KEY', 'authorization'
+        ];
+        
+        if (typeof obj === 'string') {
+            // Check if the string looks like a token/key (long string with special chars)
+            if (obj.length > 20 && /[A-Za-z0-9_\-\.]+/.test(obj)) {
+                return '[REDACTED]';
+            }
+            return obj;
+        }
+        
+        if (Array.isArray(obj)) {
+            return obj.map(item => redactSensitiveInfo(item));
+        }
+        
+        if (typeof obj === 'object') {
+            const redacted = { ...obj };
+            for (const [key, value] of Object.entries(redacted)) {
+                if (sensitiveKeys.some(k => key.toLowerCase().includes(k.toLowerCase()))) {
+                    redacted[key] = '[REDACTED]';
+                } else if (typeof value === 'object') {
+                    redacted[key] = redactSensitiveInfo(value);
+                }
+            }
+            return redacted;
+        }
+        
+        return obj;
+    }
+    
+    // Filter and format request details
+    if (type === 'request' && details?.body) {
+        logMessage.details = redactSensitiveInfo({
+            model: details.body.model,
+            messageCount: details.body.messages?.length || 0,
+            toolCount: details.body.tools?.length || 0,
+            temperature: details.body.temperature
+        });
+    }
+    
+    // Filter and format response details
+    if (type === 'response' && details?.response) {
+        logMessage.details = redactSensitiveInfo({
+            id: details.response.id,
+            model: details.response.model,
+            usage: details.response.usage,
+            finishReason: details.response.choices?.[0]?.finish_reason
+        });
+    }
+
+    // Format error details
+    if (type === 'error' && details) {
+        logMessage.details = redactSensitiveInfo({
+            error: details.message || details,
+            code: details.code,
+            type: details.type
+        });
+    }
+    
+    console.log(JSON.stringify(logMessage, null, 2));
+}
 
 export class OpenAIService extends BaseAIService {
-    private openai: OpenAI;
-    private model: string;
+    private readonly openai: OpenAI;
+    private readonly model: string;
+    private readonly maxRetries: number;
+    private readonly temperature: number;
 
-    constructor(mcpManager: MCPServerManager) {
-        super(mcpManager);
+    constructor(container: MCPContainer) {
+        super(container);
+        
         if (!process.env.OPENAI_API_KEY) {
-            throw new Error('OpenAI API key not found');
+            throw new MCPError('OpenAI API key not found', ErrorType.API_ERROR);
         }
+        
         this.openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY
         });
-        this.model = process.env.OPENAI_MODEL || 'gpt-4';
         
-        // Set o1 model flag for newer models
-        if (this.model.includes('gpt-4-0125') || this.model.includes('gpt-4-turbo') || this.model.includes('gpt-4-1106')) {
-            this.setIsO1Model(true);
-        }
+        this.model = defaultConfig.openai.model;
+        this.maxRetries = defaultConfig.openai.maxRetries;
+        this.temperature = defaultConfig.openai.temperature;
     }
 
     async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
-        return this.processMessage(message, conversationHistory);
+        try {
+            aiRateLimiter.checkLimit('gpt');
+            
+            const systemPrompt = await this.getSystemPrompt();
+            const messages = this.prepareMessages(systemPrompt, message, conversationHistory);
+            const tools = await this.toolManager.getAvailableTools();
+
+            return tools.length > 0 
+                ? this.handleToolBasedCompletion(messages, tools)
+                : this.handleSimpleCompletion(messages);
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(err.message, defaultConfig);
+            throw new MCPError('Failed to generate response', ErrorType.API_ERROR, { cause: err });
+        }
     }
 
-    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
-        aiRateLimiter.checkLimit('gpt');
-        
-        const systemPrompt = await this.getSystemPrompt();
+    private prepareMessages(
+        systemPrompt: string,
+        message: string,
+        conversationHistory?: AIMessage[]
+    ): ChatCompletionMessageParam[] {
         const messages: ChatCompletionMessageParam[] = [
-            { role: 'system', content: systemPrompt } as ChatCompletionSystemMessageParam,
-            ...(conversationHistory || []).map(msg => {
-                if (msg.role === 'tool' && msg.tool_call_id) {
-                    return {
-                        role: 'tool',
-                        content: msg.content,
-                        tool_call_id: msg.tool_call_id
-                    } as ChatCompletionToolMessageParam;
-                }
-                if (msg.role === 'assistant') {
-                    return {
-                        role: 'assistant',
-                        content: msg.content
-                    } as ChatCompletionAssistantMessageParam;
-                }
-                return {
-                    role: 'user',
-                    content: msg.content
-                } as ChatCompletionUserMessageParam;
-            }),
-            { role: 'user', content: message } as ChatCompletionUserMessageParam
+            { role: 'system', content: systemPrompt } as ChatCompletionSystemMessageParam
         ];
 
-        try {
-            const tools = await this.toolsHandler.getAvailableTools();
-            if (tools.length > 0) {
-                return this.handleToolBasedCompletion(messages, tools);
+        if (conversationHistory) {
+            for (const msg of conversationHistory) {
+                let message: ChatCompletionMessageParam;
+
+                switch (msg.role) {
+                    case 'system':
+                        message = { role: 'system', content: msg.content } as ChatCompletionSystemMessageParam;
+                        break;
+                    case 'user':
+                        message = { role: 'user', content: msg.content } as ChatCompletionUserMessageParam;
+                        break;
+                    case 'assistant':
+                        message = { role: 'assistant', content: msg.content } as ChatCompletionAssistantMessageParam;
+                        break;
+                    case 'tool':
+                        if (msg.tool_call_id) {
+                            message = {
+                                role: 'tool',
+                                content: msg.content,
+                                tool_call_id: msg.tool_call_id
+                            } as ChatCompletionToolMessageParam;
+                        } else {
+                            continue; // Skip invalid tool messages
+                        }
+                        break;
+                    default:
+                        continue; // Skip unknown message types
+                }
+
+                messages.push(message);
             }
-
-            // Otherwise, use simple completion
-            const completion = await this.openai.chat.completions.create({
-                model: this.model,
-                messages,
-                temperature: 0.7
-            });
-
-            return {
-                content: completion.choices[0].message.content || '',
-                tokenCount: completion.usage?.total_tokens || null,
-                toolResults: []
-            };
-
-        } catch (error) {
-            debug('OpenAI API Error: ' + (error instanceof Error ? error.message : String(error)));
-            throw error;
         }
+
+        messages.push({ role: 'user', content: message } as ChatCompletionUserMessageParam);
+
+        return messages;
+    }
+
+    private async handleSimpleCompletion(
+        messages: ChatCompletionMessageParam[]
+    ): Promise<AIResponse> {
+        const completion = await this.openai.chat.completions.create({
+            model: this.model,
+            messages,
+            temperature: this.temperature
+        });
+
+        return {
+            content: completion.choices[0].message.content || '',
+            tokenCount: completion.usage?.total_tokens || null,
+            toolResults: []
+        };
     }
 
     private async handleToolBasedCompletion(
         messages: ChatCompletionMessageParam[],
-        tools: any[]
+        tools: ToolDefinition[]
     ): Promise<AIResponse> {
         let currentMessages = [...messages];
         let totalTokens = 0;
-        let allToolResults: MCPToolResponse[] = [];
+        let allToolResults: ToolResponse[] = [];
+        let retryCount = 0;
+        let lastError: Error | null = null;
 
-        try {
-            while (true) {
-                const completion = await this.openai.chat.completions.create({
-                    model: this.model,
-                    messages: currentMessages,
-                    tools: tools.map(tool => ({
-                        type: 'function',
-                        function: {
-                            name: tool.name,
-                            description: tool.description,
-                            parameters: tool.inputSchema || {
-                                type: 'object',
-                                properties: {},
-                                required: []
-                            }
-                        }
-                    })),
-                    tool_choice: 'auto',
-                    temperature: 0.7
-                });
-
+        while (retryCount < this.maxRetries) {
+            try {
+                const completion = await this.createToolCompletion(currentMessages, tools);
                 totalTokens += completion.usage?.total_tokens || 0;
+                
                 const responseMessage = completion.choices[0].message;
-
-                // If no tool calls, we're done
                 if (!responseMessage.tool_calls?.length) {
                     return {
                         content: responseMessage.content || '',
                         tokenCount: totalTokens,
-                        toolResults: allToolResults
+                        toolResults: allToolResults.map(result => ({
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify(result.data)
+                            }],
+                            success: result.success
+                        }))
                     };
                 }
 
-                // Process tool calls
+                // Add the assistant's message with tool calls
                 currentMessages.push(responseMessage);
                 
-                for (const toolCall of responseMessage.tool_calls) {
-                    try {
-                        const tool = await this.toolsHandler.getToolByName(toolCall.function.name);
-                        if (!tool) {
-                            throw new Error(`Tool ${toolCall.function.name} not found`);
+                // Execute all tool calls in parallel
+                const toolResults = await Promise.all(
+                    responseMessage.tool_calls.map(async toolCall => {
+                        try {
+                            const args = JSON.parse(toolCall.function.arguments);
+                            const result = await this.toolManager.executeTool(
+                                toolCall.function.name,
+                                args
+                            );
+                            
+                            // Add tool response message
+                            currentMessages.push({
+                                role: 'tool',
+                                content: JSON.stringify(result),
+                                tool_call_id: toolCall.id
+                            } as ChatCompletionToolMessageParam);
+
+                            return result;
+                        } catch (error) {
+                            const err = error instanceof Error ? error : new Error(String(error));
+                            lastError = err;
+                            
+                            // Log specific error details
+                            debug(`Tool execution error (${toolCall.function.name}): ${err.message}`, defaultConfig);
+                            
+                            // Create error result
+                            const errorResult = {
+                                success: false,
+                                data: { error: err.message }
+                            };
+
+                            // Add tool error response message
+                            currentMessages.push({
+                                role: 'tool',
+                                content: JSON.stringify(errorResult),
+                                tool_call_id: toolCall.id
+                            } as ChatCompletionToolMessageParam);
+
+                            return errorResult;
                         }
+                    })
+                );
 
-                        const result = await tool.handler(JSON.parse(toolCall.function.arguments));
-                        allToolResults.push(result);
+                // Add all results to the collection
+                allToolResults.push(...toolResults);
 
-                        currentMessages.push({
-                            role: 'tool',
-                            content: result.content
-                                .map(c => c.text || c.url || JSON.stringify(c))
-                                .filter(Boolean)
-                                .join('\n'),
-                            tool_call_id: toolCall.id
-                        } as ChatCompletionToolMessageParam);
-                    } catch (error) {
-                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                        debug(`Tool execution failed: ${errorMessage}`);
-                        currentMessages.push({
-                            role: 'system',
-                            content: `Tool execution failed: ${errorMessage}`
-                        } as ChatCompletionSystemMessageParam);
-                    }
-                }
+                // Continue the conversation to handle the tool results
+                continue;
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                debug('OpenAI API error: ' + err.message);
+                lastError = err;
+                retryCount++;
             }
-        } catch (error) {
-            debug('Tool handling error: ' + (error instanceof Error ? error.message : String(error)));
-            throw error;
         }
+
+        // If we've exhausted retries or hit an error, return the error state
+        if (lastError) {
+            throw new MCPError('Failed to complete tool-based conversation', ErrorType.API_ERROR, { cause: lastError });
+        }
+
+        // Return final response
+        const lastMessage = currentMessages[currentMessages.length - 1];
+        const finalContent = typeof lastMessage?.content === 'string' 
+            ? lastMessage.content 
+            : 'Failed to generate response';
+
+        return {
+            content: finalContent,
+            tokenCount: totalTokens,
+            toolResults: allToolResults.map(result => ({
+                content: [{
+                    type: 'text',
+                    text: JSON.stringify(result.data)
+                }],
+                success: result.success
+            }))
+        };
+    }
+
+    private async createToolCompletion(
+        messages: ChatCompletionMessageParam[],
+        tools: ToolDefinition[]
+    ): Promise<ChatCompletion> {
+        try {
+            const formattedTools = tools.map(tool => {
+                let parameters;
+                
+                if (tool.inputSchema && typeof tool.inputSchema === 'object') {
+                    // Use the JSON Schema directly from inputSchema
+                    parameters = {
+                        type: 'object',
+                        required: tool.inputSchema.required || [],
+                        properties: tool.inputSchema.properties || {}
+                    };
+                } else {
+                    // Fall back to building from parameters array
+                    const required = tool.parameters
+                        .filter(param => param.required !== false)
+                        .map(param => param.name);
+                    
+                    const properties = Object.fromEntries(
+                        tool.parameters.map(param => [
+                            param.name,
+                            {
+                                type: param.type.toLowerCase(),
+                                description: param.description || `The ${param.name} parameter`
+                            }
+                        ])
+                    );
+
+                    parameters = {
+                        type: 'object',
+                        required,
+                        properties
+                    };
+                }
+
+                const functionDef = {
+                    type: 'function' as const,
+                    function: {
+                        name: tool.name,
+                        description: tool.description,
+                        parameters
+                    }
+                };
+
+                // Log tool definition if it's create_issue
+                if (tool.name === 'create_issue') {
+                    console.log('Create Issue Tool Definition:');
+                    console.log('Original tool:', JSON.stringify(tool, null, 2));
+                    console.log('Input Schema:', JSON.stringify(tool.inputSchema, null, 2));
+                    console.log('Formatted tool:', JSON.stringify(functionDef, null, 2));
+                }
+
+                return functionDef;
+            });
+
+            logOpenAI('request', 'Creating chat completion', {
+                model: this.model,
+                messageCount: messages.length,
+                toolCount: tools.length
+            });
+
+            const response = await this.openai.chat.completions.create({
+                model: this.model,
+                messages,
+                tools: formattedTools,
+                tool_choice: 'auto',
+                temperature: this.temperature
+            });
+
+            logOpenAI('response', 'Chat completion created', { response });
+            return response;
+
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            logOpenAI('error', 'Failed to create chat completion', { 
+                error: err.message,
+                model: this.model
+            });
+            throw new MCPError('Failed to create chat completion', ErrorType.API_ERROR, { cause: err });
+        }
+    }
+
+    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
+        return this.generateResponse(message, conversationHistory);
     }
 
     getModel(): string {

@@ -8,34 +8,25 @@ validateEnvironment();
 
 const db = DatabaseService.getInstance();
 
-async function startDiscordBot() {
-  if (!defaultConfig.discord.enabled) {
-    console.error('Discord bot is not enabled in configuration');
-    process.exit(1);
-  }
-
+async function main() {
   try {
-    const discord = DiscordService.getInstance();
-    // MCP initialization logging
-    debug('=================================');
-    debug('Initializing MCP configuration...');
-    
-    if (defaultConfig.discord.mcp.enabled) {
-      debug(`MCP is enabled with config: ${JSON.stringify({
-        authToken: defaultConfig.discord.mcp.authToken ? 'Present' : 'Missing',
-        logLevel: defaultConfig.discord.mcp.logLevel
-      }, null, 2)}`);
-    } else {
-      debug('MCP is disabled in configuration');
-    }
-    debug('=================================');
+    console.log('Starting Discord bot...');
+    await DiscordService.getInstance();
+    console.log('Bot initialization complete');
 
-    await discord.start(process.env.DISCORD_TOKEN!);
-    debug('=================================');
-    debug('Discord bot started successfully');
-    debug(`Bot name: ${discord.getClient().user?.tag}`);
-    debug('=================================');
-    
+    // Handle shutdown signals
+    process.on('SIGINT', async () => {
+      console.log('Received SIGINT. Shutting down...');
+      await DiscordService.getInstance().then(service => service.stop());
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', async () => {
+      console.log('Received SIGTERM. Shutting down...');
+      await DiscordService.getInstance().then(service => service.stop());
+      process.exit(0);
+    });
+
     // Set up session cleanup interval
     setInterval(async () => {
       try {
@@ -45,25 +36,9 @@ async function startDiscordBot() {
       }
     }, defaultConfig.discord.cleanupInterval * 60 * 60 * 1000);
   } catch (error) {
-    console.error('Failed to start Discord bot:', error);
+    console.error('Failed to start bot:', error);
     process.exit(1);
   }
 }
 
-// Graceful shutdown handlers
-process.on('SIGINT', async () => {
-  debug('\nGracefully shutting down...');
-  await DiscordService.getInstance().stop();
-  await db.disconnect();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  debug('\nGracefully shutting down...');
-  await DiscordService.getInstance().stop();
-  await db.disconnect();
-  process.exit(0);
-});
-
-// Start the bot
-startDiscordBot();
+main();

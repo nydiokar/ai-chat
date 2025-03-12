@@ -8,8 +8,8 @@ import { describe, it, before, after } from 'mocha';
 import dotenv from 'dotenv';
 
 describe('Discord Integration Tests', () => {
-    let client: Client;
     let discordService: DiscordService;
+    let client: Client;
     let db: DatabaseService;
     let mcpManager: MCPServerManager;
     let testChannel: TextChannel;
@@ -18,13 +18,12 @@ describe('Discord Integration Tests', () => {
         dotenv.config();
         
         // Initialize services
-        // Get discord service instance
-        discordService = DiscordService.getInstance();
+        discordService = await DiscordService.getInstance();
         client = discordService.getClient();
         
         db = DatabaseService.getInstance();
         const aiService = AIServiceFactory.create('gpt');
-        mcpManager = new MCPServerManager(db, aiService);
+        mcpManager = new MCPServerManager(db);
 
         // Connect to Discord
         await client.login(process.env.DISCORD_TOKEN);

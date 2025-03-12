@@ -1,13 +1,15 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials, TextChannel, Message } from 'discord.js';
 import { DatabaseService } from './db-service.js';
 import { AIModel, Message as DBMessage, Role } from '../types/index.js';
-import { AIService, AIMessage, SystemAIMessage } from '../types/ai-service.js';
+import { AIService, AIMessage } from '../types/ai-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
 import { PerformanceMonitoringService } from './performance/performance-monitoring.service.js';
 import { debug, defaultConfig } from '../utils/config.js';
-import { MCPServerManager } from '../tools/mcp/mcp-server-manager.js';
+import { IServerManager } from '../tools/mcp/migration/interfaces/core.js';
+import { MCPContainer } from '../tools/mcp/migration/di/container.js';
+import { mcpConfig } from '../tools/mcp/mcp_config.js';
 
 interface CommandHandler {
     action: string;
@@ -26,13 +28,14 @@ export class DiscordService {
     private commandHandlers: Map<string, CommandHandler> = new Map();
     private taskManager: TaskManager;
     private performanceMonitoring: PerformanceMonitoringService;
-    private mcpManager?: MCPServerManager;
+    private mcpContainer?: MCPContainer;
+    private serverManager?: IServerManager;
     private commandParser: CommandParserService;
+    private isInitialized: boolean = false;
 
     private constructor(
-        token: string,
-        dbService: DatabaseService,
-        mcpManager?: MCPServerManager
+        private readonly token: string,
+        dbService: DatabaseService
     ) {
         this.client = new Client({
             intents: [
@@ -42,7 +45,6 @@ export class DiscordService {
             ]
         });
         this.db = dbService;
-        this.mcpManager = mcpManager;
         this.taskManager = TaskManager.getInstance();
         this.performanceMonitoring = PerformanceMonitoringService.getInstance();
         this.commandParser = CommandParserService.getInstance();
@@ -52,12 +54,6 @@ export class DiscordService {
 
         // Set up event handlers
         this.setupEventHandlers();
-
-        // Login to Discord
-        this.client.login(token).catch(error => {
-            console.error('Failed to login to Discord:', error);
-            process.exit(1);
-        });
     }
 
     private initializeCommandHandlers() {
@@ -227,29 +223,40 @@ export class DiscordService {
         }
 
         // Handle as a conversation with AI
-        let conversation = await this.db.getConversation(parseInt(message.channelId));
-        if (!conversation) {
-            const conversationId = await this.db.createConversation(
-                defaultConfig.defaultModel,
-                undefined,
-                undefined,
-                { channelId: message.channelId, userId: message.author.id, username: message.author.username }
-            );
-            conversation = await this.db.getConversation(conversationId);
-        }
-        let service = this.aiServices.get(conversation.id.toString());
-
-        if (!service) {
-            service = AIServiceFactory.create(
-                conversation.model as AIModel,
-                this.mcpManager
-            );
-            this.aiServices.set(conversation.id.toString(), service);
-        }
-
         try {
-            const history = await this.db.getConversation(conversation.id);
-            const messages = history.messages.map(msg => ({
+            // First try to find an existing conversation by channel ID
+            console.log(`Looking for conversation for channel ${message.channelId}`);
+            const conversations = await this.db.getDiscordConversations(
+                message.guild?.id || 'DM',
+                message.channelId,
+                1
+            );
+            
+            let conversation = conversations[0];
+            
+            if (!conversation) {
+                console.log(`Creating new conversation for channel ${message.channelId}`);
+                const conversationId = await this.db.createConversation(
+                    defaultConfig.defaultModel,
+                    undefined,
+                    undefined,
+                    { 
+                        channelId: message.channelId, 
+                        userId: message.author.id, 
+                        username: message.author.username,
+                        guildId: message.guild?.id || 'DM'
+                    }
+                );
+                conversation = await this.db.getConversation(conversationId);
+            }
+
+            let service = this.aiServices.get(conversation.id.toString());
+            if (!service) {
+                service = AIServiceFactory.create(conversation.model as AIModel);
+                this.aiServices.set(conversation.id.toString(), service);
+            }
+
+            const messages = conversation.messages.map(msg => ({
                 id: msg.id,
                 content: msg.content,
                 role: msg.role as keyof typeof Role,
@@ -263,7 +270,7 @@ export class DiscordService {
             } as DBMessage));
 
             // Prepare context with system prompt and history management
-            const contextMessages = this.prepareContextMessages(messages, messages.length === 0);
+            const contextMessages = messages.slice(-this.maxContextMessages);
             const response = await service.processMessage(message.content, contextMessages);
 
             await this.db.addMessage(conversation.id, message.content, 'user');
@@ -321,7 +328,7 @@ export class DiscordService {
     }
 
     private async summarizeConversation(conversation: any) {
-        const service = this.aiServices.get(`${conversation.model}-${conversation.channelId}`);
+        const service = this.aiServices.get(conversation.id.toString());
         if (!service) return;
 
         const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
@@ -349,54 +356,113 @@ export class DiscordService {
         this.contextSummaryTasks.set(contextKey, task);
     }
 
-    async start(token: string) {
+    async start() {
+        if (this.isInitialized) {
+            console.warn('DiscordService is already initialized');
+            return;
+        }
+
         try {
             // Initialize MCP if enabled
             if (defaultConfig.discord.mcp.enabled) {
-                const aiService = AIServiceFactory.create(defaultConfig.defaultModel);
-                this.mcpManager = new MCPServerManager(this.db, aiService);
+                console.log('Initializing MCP...');
                 
-                // Wait for server initialization
-                await new Promise<void>((resolve) => {
-                    const checkServers = () => {
-                        const serverIds = this.mcpManager!.getServerIds();
-                        if (serverIds.length > 0) {
-                            resolve();
-                        } else {
-                            setTimeout(checkServers, 100);
-                        }
-                    };
-                    checkServers();
-                });
+                // Create and configure MCP container
+                this.mcpContainer = new MCPContainer(mcpConfig);
+                this.serverManager = this.mcpContainer.getServerManager();
+
+                // Get and initialize the MCP client using the first available server
+                const servers = Object.values(mcpConfig.mcpServers);
+                if (servers.length === 0) {
+                    throw new Error('No MCP servers configured');
+                }
+                const mcpClient = this.mcpContainer.getMCPClient(servers[0].id);
+                await mcpClient.initialize();
+                console.log('MCP client initialized and connected');
+
+                // Start all configured servers
+                const configuredServers = Object.keys(mcpConfig.mcpServers);
+                for (const serverId of configuredServers) {
+                    console.log(`Starting server ${serverId}...`);
+                    const config = mcpConfig.mcpServers[serverId];
+                    await this.serverManager.startServer(serverId, config);
+                }
+
+                // Wait for servers to be ready
+                const maxWaitTime = 30000;
+                const startTime = Date.now();
+                
+                while (Date.now() - startTime < maxWaitTime) {
+                    const runningServers = this.serverManager.getServerIds();
+                    if (runningServers.length === configuredServers.length) {
+                        // Wait a bit for servers to fully initialize
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        // Initialize AIServiceFactory with the container
+                        await AIServiceFactory.initialize(this.mcpContainer);
+                        console.log('AIServiceFactory initialized');
+                        console.log('MCP initialization complete');
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                if (Date.now() - startTime >= maxWaitTime) {
+                    throw new Error('Timeout waiting for MCP servers to initialize');
+                }
             }
 
-            await this.client.login(token);
+            // Login to Discord
+            console.log('Logging in to Discord...');
+            await this.client.login(this.token);
+            this.isInitialized = true;
+            console.log('Discord bot started successfully');
         } catch (error) {
             console.error('Failed to start Discord client:', error);
+            await this.stop();
             throw error;
         }
     }
 
     async stop() {
+        console.log('Stopping Discord service...');
         try {
+            this.isInitialized = false;
+
+            // Clear all timeouts
             for (const task of this.contextSummaryTasks.values()) {
                 clearTimeout(task);
             }
             this.contextSummaryTasks.clear();
             this.lastActivityTimestamps.clear();
 
+            // Cleanup AI services
             for (const service of this.aiServices.values()) {
                 await service.cleanup();
             }
             this.aiServices.clear();
 
-            // Cleanup MCP manager if it exists
-            if (this.mcpManager) {
-                await this.mcpManager.cleanup();
+            // Cleanup MCP servers
+            if (this.serverManager) {
+                console.log('Stopping MCP servers...');
+                const serverIds = this.serverManager.getServerIds();
+                await Promise.all(serverIds.map(async id => {
+                    try {
+                        await this.serverManager!.unregisterServer(id);
+                        console.log(`Server ${id} stopped`);
+                    } catch (error) {
+                        console.error(`Error stopping server ${id}:`, error);
+                    }
+                }));
             }
 
             // Cleanup Discord client
-            await this.client.destroy();
+            if (this.client) {
+                console.log('Destroying Discord client...');
+                await this.client.destroy();
+            }
+
+            console.log('Discord service stopped successfully');
         } catch (error) {
             console.error('Error stopping Discord client:', error);
             throw error;
@@ -534,17 +600,20 @@ export class DiscordService {
         return this.client;
     }
 
-    static getInstance(): DiscordService {
+    static async getInstance(): Promise<DiscordService> {
         if (!DiscordService.instance) {
             const token = process.env.DISCORD_TOKEN;
             if (!token) {
                 throw new Error('DISCORD_TOKEN environment variable is not set');
             }
+            
             DiscordService.instance = new DiscordService(
                 token,
-                DatabaseService.getInstance(),
-                defaultConfig.discord.mcp.enabled ? new MCPServerManager(DatabaseService.getInstance(), AIServiceFactory.create(defaultConfig.defaultModel)) : undefined
+                DatabaseService.getInstance()
             );
+
+            // Initialize the service
+            await DiscordService.instance.start();
         }
         return DiscordService.instance;
     }

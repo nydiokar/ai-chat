@@ -1,5 +1,6 @@
-import { MCPTool } from '../../../../types';
-import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama';
+import { MCPTool } from '../../../../types/tools.js';
+import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama.js';
+import { z } from 'zod';
 
 export class OllamaToolAdapter {
     static convertMCPToolToOllama(mcpTool: MCPTool): OllamaToolDefinition {
@@ -7,19 +8,37 @@ export class OllamaToolAdapter {
             console.log(`[OllamaToolAdapter] Converting ${mcpTool.name} for Ollama format`);
         }
 
-        // Ensure we have basic schema properties
-        const parameters = {
-            type: mcpTool.inputSchema.type || 'object',
-            properties: mcpTool.inputSchema.properties || {},
-            required: mcpTool.inputSchema.required || []
-        };
+        // Get schema properties using Zod's internal API
+        const schema = mcpTool.inputSchema;
+        const schemaDefinition = (schema as any)._def;
+        const properties: Record<string, any> = {};
+        const required: string[] = [];
+
+        if (schemaDefinition.typeName === 'ZodObject') {
+            const shape = schemaDefinition.shape();
+            Object.entries(shape).forEach(([key, value]) => {
+                const zodType = value as z.ZodType;
+                const fieldDef = (zodType as any)._def;
+                properties[key] = {
+                    type: fieldDef.typeName.replace('Zod', '').toLowerCase(),
+                    description: zodType.description || ''
+                };
+                if (!('isOptional' in fieldDef)) {
+                    required.push(key);
+                }
+            });
+        }
 
         return {
             type: "function",
             function: {
                 name: mcpTool.name,
                 description: mcpTool.description || `Execute ${mcpTool.name} tool`,
-                parameters
+                parameters: {
+                    type: 'object',
+                    properties,
+                    required
+                }
             }
         };
     }
@@ -41,9 +60,23 @@ export class OllamaToolAdapter {
                 ? JSON.parse(toolCall.function.arguments) 
                 : toolCall.function.arguments;
 
+            // Parse schema definition
+            const schemaDefinition = (tool.inputSchema as any)._def;
+            const required: string[] = [];
+
+            if (schemaDefinition.typeName === 'ZodObject') {
+                const shape = schemaDefinition.shape();
+                Object.entries(shape).forEach(([key, value]) => {
+                    const zodType = value as z.ZodType;
+                    const fieldDef = (zodType as any)._def;
+                    if (!('isOptional' in fieldDef)) {
+                        required.push(key);
+                    }
+                });
+            }
+
             // Validate required fields
-            const required = tool.inputSchema.required || [];
-            const missingFields = required.filter((field: string) => !(field in args));
+            const missingFields = required.filter(field => !(field in args));
             
             if (missingFields.length > 0) {
                 console.error(`[OllamaToolAdapter] Missing required fields: ${missingFields.join(', ')}`);

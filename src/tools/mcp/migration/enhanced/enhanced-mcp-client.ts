@@ -12,8 +12,8 @@ export class EnhancedMCPClient extends BaseMCPClient {
     private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     private readonly HEALTH_CHECK_INTERVAL = 60 * 1000; // 1 minute
 
-    constructor(config: ServerConfig) {
-        super(config);
+    constructor(config: ServerConfig, serverId: string) {
+        super(config, serverId);
         this.cache = new Map();
         this.healthMonitor = new EventEmitter();
         this.eventEmitter = new EventEmitter();

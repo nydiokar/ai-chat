@@ -32,7 +32,7 @@ describe('BaseMCPClient', () => {
         console.log('Mock methods created');
 
         // Create instance with real classes
-        mcpClient = new BaseMCPClient(config);
+        mcpClient = new BaseMCPClient(config, 'test-server');
         console.log('BaseMCPClient instance created');
 
         // Replace the client and transport instances with our mocks

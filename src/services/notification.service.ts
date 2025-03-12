@@ -12,19 +12,22 @@ export interface NotificationChannel {
  */
 export class NotificationService {
   private static instance: NotificationService;
-  private discordService: DiscordService;
+  private discordService?: DiscordService;
   private prisma: PrismaClient;
 
   private constructor() {
-    this.discordService = DiscordService.getInstance();
     this.prisma = new PrismaClient();
   }
 
-  static getInstance(): NotificationService {
+  public static getInstance(): NotificationService {
     if (!NotificationService.instance) {
       NotificationService.instance = new NotificationService();
     }
     return NotificationService.instance;
+  }
+
+  public async initialize(): Promise<void> {
+    this.discordService = await DiscordService.getInstance();
   }
 
   /**
@@ -50,7 +53,7 @@ export class NotificationService {
         
         // Send through Discord if configured in memory preferences
         if (notifSettings.discord?.enabled && notifSettings.discord.channelId) {
-          await this.discordService.sendMessage(notifSettings.discord.channelId, message);
+          await this.discordService?.sendMessage(notifSettings.discord.channelId, message);
           return;
         }
       }
@@ -64,7 +67,7 @@ export class NotificationService {
       if (user?.preferences && typeof user.preferences === 'object') {
         const prefs = user.preferences as any;
         if (prefs.discordChannelId) {
-          await this.discordService.sendMessage(prefs.discordChannelId, message);
+          await this.discordService?.sendMessage(prefs.discordChannelId, message);
         }
       }
 

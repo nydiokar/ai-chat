@@ -7,7 +7,7 @@ import {
   MemoryQuery,
   ScoredMemory,
   MemoryPerformanceMetrics
-} from '../../types/memory';
+} from '../../types/memory.js';
 import winston from 'winston';
 import NodeCache from 'node-cache';
 import { performance } from 'perf_hooks';

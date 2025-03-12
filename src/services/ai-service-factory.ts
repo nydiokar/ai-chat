@@ -1,37 +1,90 @@
 import { AIService } from '../types/ai-service.js';
 import { OpenAIService } from './ai/openai.js';
-import { AnthropicService } from './ai/anthropic.js';
 import { MCPError, ErrorType } from '../types/errors.js';
-import { handleError } from '../utils/error-handler.js';
-import { OllamaService } from './ai/ollama.js';
 import { defaultConfig } from '../utils/config.js';
-import { ToolInformationProvider } from '../types/tools.js';
-import { MCPServerManager } from '../tools/mcp/mcp-server-manager.js';
+import { MCPContainer, MCPConfig } from '../tools/mcp/migration/di/container.js';
+import { mcpConfig } from '../tools/mcp/mcp_config.js';
+import { IToolManager } from '../tools/mcp/migration/interfaces/core.js';
 
 export class AIServiceFactory {
-    static create(model?: 'gpt' | 'claude' | 'ollama', toolProvider?: ToolInformationProvider): AIService {
-        // Use provided model if available, otherwise use config default
+    private static container: MCPContainer | null = null;
+    private static toolManager: IToolManager | null = null;
+
+    /**
+     * Initialize the factory with MCP configuration
+     * Must be called before creating any services
+     */
+    static async initialize(configOrContainer: MCPConfig | MCPContainer = mcpConfig): Promise<void> {
+        if (this.container) {
+            throw new MCPError('Factory already initialized', ErrorType.INITIALIZATION_ERROR);
+        }
+
+        if (configOrContainer instanceof MCPContainer) {
+            this.container = configOrContainer;
+        } else {
+            this.container = new MCPContainer(configOrContainer);
+        }
+        
+        this.toolManager = this.container.getToolManager();
+        
+        // Ensure tools are loaded before proceeding
+        await this.toolManager.refreshToolInformation();
+        const tools = await this.toolManager.getAvailableTools();
+        console.log('[AIServiceFactory] Initialized with tools:', tools.map(t => t.name));
+    }
+
+    /**
+     * Create an AI service instance
+     * @throws MCPError if factory not initialized
+     */
+    static create(model?: string): AIService {
+        if (!this.container || !this.toolManager) {
+            throw new MCPError('Factory not initialized', ErrorType.INITIALIZATION_ERROR);
+        }
+
+        // For now, we only support OpenAI
         const selectedModel = model || defaultConfig.defaultModel;
         console.warn(`[AIServiceFactory] Using model: ${selectedModel}`);
         console.warn(`[AIServiceFactory] Environment MODEL: ${process.env.MODEL}`);
         console.warn(`[AIServiceFactory] Default config model: ${defaultConfig.defaultModel}`);
 
         try {
-            // Cast toolProvider to MCPServerManager if it exists
-            const mcpManager = toolProvider as MCPServerManager;
-
-            switch (selectedModel) {
-                case 'gpt':
-                    return new OpenAIService(mcpManager);
-                case 'claude':
-                    return new AnthropicService(mcpManager);
-                case 'ollama':
-                    return new OllamaService(mcpManager);
-                default:
-                    throw new MCPError(ErrorType.INVALID_MODEL, `Invalid model type: ${selectedModel}`);
+            if (selectedModel !== 'gpt') {
+                throw new MCPError(
+                    'Currently only OpenAI (gpt) is supported',
+                    ErrorType.INVALID_MODEL
+                );
             }
+
+            return new OpenAIService(this.container);
         } catch (error) {
-            return handleError(error);
+            if (error instanceof MCPError) {
+                throw error;
+            }
+            throw new MCPError(
+                'Failed to create AI service',
+                ErrorType.INITIALIZATION_ERROR,
+                { cause: error instanceof Error ? error : new Error(String(error)) }
+            );
         }
+    }
+
+    /**
+     * Clean up factory resources
+     */
+    static cleanup(): void {
+        this.container = null;
+        this.toolManager = null;
+    }
+
+    /**
+     * Get the tool manager instance
+     * @throws MCPError if factory not initialized
+     */
+    static getToolManager(): IToolManager {
+        if (!this.toolManager) {
+            throw new MCPError('Factory not initialized', ErrorType.INITIALIZATION_ERROR);
+        }
+        return this.toolManager;
     }
 }

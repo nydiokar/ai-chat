@@ -9,6 +9,11 @@ export interface BaseConfig {
   retryDelay: number;
   rateLimitDelay: number;
   defaultModel: AIModel;
+  openai: {
+    model: string;
+    temperature: number;
+    maxRetries: number;
+  };
   discord: {
     enabled: boolean;
     cleanupInterval: number;  // Hours before inactive sessions are cleaned up
@@ -31,18 +36,23 @@ export const defaultConfig: BaseConfig = {
     }
     return model as AIModel;
   })(),
-  maxContextMessages: 3,
-  maxMessageLength: 4000,
+  maxContextMessages: 20,
+  maxMessageLength: 8000,
   debug: process.env.DEBUG === 'true',
   maxRetries: 3,
   retryDelay: 1000,
-  rateLimitDelay: 100,
+  rateLimitDelay: 1000,
+  openai: {
+    model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo-0125',
+    temperature: Number(process.env.OPENAI_TEMPERATURE) || 0.7,
+    maxRetries: Number(process.env.OPENAI_MAX_RETRIES) || 3
+  },
   discord: {
     enabled: process.env.DISCORD_ENABLED === 'true',
-    cleanupInterval: 24,     // Clean up sessions every 24 hours
-    sessionTimeout: 1,       // Sessions inactive for 1 hour are closed
+    cleanupInterval: Number(process.env.DISCORD_CLEANUP_INTERVAL) || 24,
+    sessionTimeout: Number(process.env.DISCORD_SESSION_TIMEOUT) || 12,
     mcp: {
-      enabled: process.env.DISCORD_ENABLED === 'true' && process.env.MCP_ENABLED === 'true',
+      enabled: process.env.MCP_ENABLED === 'true',
       authToken: process.env.MCP_AUTH_TOKEN,
       logLevel: (process.env.MCP_LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug'
     }

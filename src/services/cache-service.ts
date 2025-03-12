@@ -3,11 +3,26 @@ import { KeyvFile } from 'keyv-file';
 import { DatabaseService } from './db-service.js';
 import { debug } from '../utils/config.js';
 
+// Define the Keyv instance type
+type KeyvInstance<T> = {
+    get: (key: string) => Promise<T | undefined>;
+    set: (key: string, value: T, ttl?: number) => Promise<void>;
+    delete: (key: string) => Promise<boolean>;
+    clear: () => Promise<void>;
+    on: (event: string, handler: (err: Error) => void) => void;
+};
+
+// Define strict cache types for security
+export enum CacheType {
+    SENSITIVE = 'SENSITIVE',    // Always in-memory, never persisted
+    PERSISTENT = 'PERSISTENT'   // Can be persisted to file
+}
+
 interface CacheConfig {
-    filename: string;
+    type: CacheType;           // Required security level
+    filename?: string;         // Only used if type is PERSISTENT
     namespace?: string;
     ttl?: number;
-    sensitive?: boolean;
 }
 
 interface CacheEntry<T> {
@@ -21,7 +36,6 @@ interface CacheMetrics {
     lastAccessed: Date;
 }
 
-
 export class CacheError extends Error {
     constructor(message: string, public cause?: unknown) {
         super(message);
@@ -31,10 +45,12 @@ export class CacheError extends Error {
 }
 
 export class CacheService {
-    private static instance: CacheService;
-    private readonly cache: Keyv;
-    private readonly metricsCache: Keyv;
+    private static instances: Map<string, CacheService> = new Map();
+    private readonly cache: KeyvInstance<any>;
+    private readonly longTermCache: KeyvInstance<any>;
+    private readonly metricsCache: KeyvInstance<CacheMetrics>;
     private readonly db: DatabaseService;
+    private readonly type: CacheType;
     private readonly sensitivePatterns = [
         /github_pat_[a-zA-Z0-9_]+/g,
         /ghp_[a-zA-Z0-9]{36}/g,
@@ -43,46 +59,61 @@ export class CacheService {
     ];
 
     private constructor(config: CacheConfig) {
-        // Use memory store for sensitive data
-        const store = config.sensitive ? new Map() : new KeyvFile({
-            filename: config.filename
-        });
+        this.type = config.type;
+        const defaultOptions = {
+            namespace: config.namespace || 'mcp',
+            ttl: config.ttl || 1000 * 60 * 60 // 1 hour default TTL
+        };
 
-        // Initialize cache with appropriate store
-        this.cache = new Keyv({
+        // Only allow file storage for non-sensitive data
+        const store = this.type === CacheType.PERSISTENT && config.filename ? 
+            new KeyvFile({ filename: config.filename }) : 
+            undefined;
+
+        if (this.type === CacheType.SENSITIVE && config.filename) {
+            debug('Warning: Ignoring filename for sensitive cache - data will be stored in memory only');
+        }
+
+        // Create cache instances with proper typing
+        this.cache = new (Keyv as any)({
+            ...defaultOptions,
             store,
-            namespace: config.namespace || 'conversations',
-            ttl: config.ttl || 24 * 60 * 60 * 1000 // Default 24h TTL
+            ttl: config.ttl || 1000 * 60 * 60 // 1 hour
         });
 
-        // Separate cache for metrics (always file-based as it doesn't contain sensitive data)
-        this.metricsCache = new Keyv({
-            store: new KeyvFile({
-                filename: config.filename + '.metrics'
-            }),
-            namespace: 'metrics'
+        this.longTermCache = new (Keyv as any)({
+            ...defaultOptions,
+            store,
+            ttl: config.ttl || 1000 * 60 * 60 * 24 * 7 // 1 week
+        });
+
+        this.metricsCache = new (Keyv as any)({
+            ...defaultOptions,
+            namespace: `${defaultOptions.namespace}:metrics`,
+            store,
+            ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
         });
 
         this.db = DatabaseService.getInstance();
 
-        // Handle cache errors
+        // Handle cache errors with proper typing
         this.cache.on('error', (err: Error) => console.error('Cache Error:', err));
+        this.longTermCache.on('error', (err: Error) => console.error('Long Term Cache Error:', err));
         this.metricsCache.on('error', (err: Error) => console.error('Metrics Cache Error:', err));
     }
 
-    static getInstance(config?: CacheConfig): CacheService {
-        if (!CacheService.instance) {
-            if (!config) {
-                throw new CacheError('CacheService must be initialized with config first');
-            }
-            CacheService.instance = new CacheService(config);
+    public static getInstance(config: CacheConfig): CacheService {
+        // Create a unique key combining namespace and type
+        const key = `${config.namespace || 'default'}:${config.type}`;
+        if (!this.instances.has(key)) {
+            this.instances.set(key, new CacheService(config));
         }
-        return CacheService.instance;
+        return this.instances.get(key)!;
     }
 
     private async updateMetrics(key: string, hit: boolean): Promise<void> {
         try {
-            const existingMetrics = (await this.metricsCache.get(key)) as CacheMetrics | undefined;
+            const existingMetrics = await this.metricsCache.get(key);
             const metrics: CacheMetrics = existingMetrics || {
                 hits: 0,
                 misses: 0,
@@ -112,26 +143,23 @@ export class CacheService {
         }
     }
 
-    async get<T>(key: string): Promise<T | null> {
+    async get<T>(key: string): Promise<T | undefined> {
         try {
-            const cached = await this.cache.get(key) as CacheEntry<T>;
-            
-            if (cached) {
-                debug(`Cache hit for key: ${key}`);
-                await this.updateMetrics(key, true);
-                return cached.data;
-            }
-
-            debug(`Cache miss for key: ${key}`);
-            await this.updateMetrics(key, false);
-            return null;
+            const value = await this.cache.get(key);
+            await this.updateMetrics(key, value !== undefined);
+            return value;
         } catch (error) {
             throw new CacheError(`Failed to get cache entry: ${key}`, error);
         }
     }
 
-    // Sanitize data before caching
+    // Sanitize data before caching - now always applied for sensitive caches
     private sanitizeData(data: any): any {
+        // Always sanitize if it's a sensitive cache
+        if (this.type !== CacheType.SENSITIVE) {
+            return data;
+        }
+
         if (typeof data === 'string') {
             // Replace sensitive patterns with [REDACTED]
             let sanitized = data;
@@ -156,35 +184,42 @@ export class CacheService {
         return data;
     }
 
-    // Modified set method to include sanitization
-    public async set(key: string, value: any, ttl?: number): Promise<boolean> {
+    public async set(key: string, value: any, ttl?: number): Promise<void> {
         const sanitizedValue = this.sanitizeData(value);
-        return this.cache.set(key, sanitizedValue, ttl);
+        await this.cache.set(key, sanitizedValue, ttl);
     }
 
     async delete(key: string): Promise<boolean> {
-        try {
-            return await this.cache.delete(key);
-        } catch (error) {
-            throw new CacheError(`Failed to delete cache entry: ${key}`, error);
-        }
+        return this.cache.delete(key);
     }
 
     async clear(): Promise<void> {
-        try {
-            await this.cache.clear();
-            await this.metricsCache.clear();
-        } catch (error) {
-            throw new CacheError('Failed to clear cache', error);
-        }
+        await this.cache.clear();
+        await this.metricsCache.clear();
     }
 
     async getMetrics(key: string): Promise<CacheMetrics | null> {
         try {
-            const metrics = await this.metricsCache.get(key) as CacheMetrics | undefined;
+            const metrics = await this.metricsCache.get(key);
             return metrics || null;
         } catch (error) {
             throw new CacheError(`Failed to get metrics for key: ${key}`, error);
         }
+    }
+
+    async setLongTerm(key: string, value: any, ttl?: number): Promise<void> {
+        await this.longTermCache.set(key, value, ttl);
+    }
+
+    async getLongTerm<T>(key: string): Promise<T | undefined> {
+        return this.longTermCache.get(key);
+    }
+
+    async deleteLongTerm(key: string): Promise<boolean> {
+        return this.longTermCache.delete(key);
+    }
+
+    async clearLongTerm(): Promise<void> {
+        await this.longTermCache.clear();
     }
 }

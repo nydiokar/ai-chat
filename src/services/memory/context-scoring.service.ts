@@ -1,4 +1,4 @@
-import { ConversationContext, ContextScore, ContextDecayParams, TopicContext, ConversationMessage } from '../../types/memory';
+import { ConversationContext, ContextScore, ContextDecayParams, TopicContext, ConversationMessage } from '../../types/memory.js';
 import winston from 'winston';
 
 export class ContextScoringService {

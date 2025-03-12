@@ -3,7 +3,6 @@ import { describe, it, beforeEach, afterEach } from 'mocha';
 import sinon from 'sinon';
 import { EnhancedMCPClient } from '../../enhanced/enhanced-mcp-client.js';
 import { ServerConfig } from '../../types/server.js';
-import { MCPError } from '../../types/errors.js';
 
 describe('EnhancedMCPClient', () => {
     let mcpClient: EnhancedMCPClient;
@@ -33,7 +32,7 @@ describe('EnhancedMCPClient', () => {
         console.log('Mock methods created');
 
         // Create instance
-        mcpClient = new EnhancedMCPClient(config);
+        mcpClient = new EnhancedMCPClient(config, 'test-server');
         console.log('EnhancedMCPClient instance created');
 
         // Replace the client and transport instances with our mocks

@@ -1,4 +1,4 @@
-import { MCPConfig } from "../../types/tools.js";
+import { MCPConfig } from "./migration/di/container.js";
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -12,6 +12,20 @@ const nodePath = process.execPath; // Gets the full path to the node executable
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export const mcpConfig: MCPConfig = {
+    features: {
+        core: {
+            serverManagement: true,
+            toolOperations: true,
+            clientCommunication: true
+        },
+        enhanced: {
+            analytics: false,
+            contextManagement: false,
+            caching: false,
+            stateManagement: false,
+            healthMonitoring: false
+        }
+    },
     mcpServers: {
         "github": {
             id: "github",
@@ -21,7 +35,7 @@ export const mcpConfig: MCPConfig = {
                 "node_modules/@modelcontextprotocol/server-github/dist/index.js"
             ],
             env: {
-                GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
+                GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
                 PWD: projectRoot
             }
         },

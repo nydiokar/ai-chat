@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { PrismaClient } from '@prisma/client';
-import { TaskDependencyService } from '../../tasks/task-dependency.service';
-import { DependencyType, TaskPriority, TaskStatus } from '../../types/task';
+import { TaskDependencyService } from '../../tasks/task-dependency.service.js';
+import { DependencyType, TaskPriority, TaskStatus } from '../../types/task.js';
 
 describe('TaskDependencyService', () => {
   let prisma: PrismaClient;

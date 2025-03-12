@@ -1,4 +1,4 @@
-import { TaskWithRelations, DependencyType } from '../types/task';
+import { TaskWithRelations, DependencyType } from '../types/task.js';
 
 export interface Node {
   id: number;

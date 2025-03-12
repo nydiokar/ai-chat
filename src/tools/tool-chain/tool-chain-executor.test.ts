@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import { ToolChainExecutor } from './tool-chain-executor';
+import { ToolChainExecutor } from './tool-chain-executor.js';
 import sinon from 'sinon';
 import winston from 'winston';
-import { ToolChainConfigBuilder } from './tool-chain-config';
+import { ToolChainConfigBuilder } from './tool-chain-config.js';
 import { v4 as uuidv4 } from 'uuid';
-import { ExecutionContext } from './tool-chain-executor';
+import { ExecutionContext } from './tool-chain-executor.js';
 
 describe('ToolChainExecutor', function() {
   this.timeout(5000); // Increase timeout for all tests in this suite

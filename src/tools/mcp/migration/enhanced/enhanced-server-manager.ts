@@ -1,6 +1,8 @@
 import { BaseServerManager } from '../base/base-server-manager.js';
 import { Server, ServerState, ServerEvent, ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
+import { injectable, inject } from 'inversify';
+import { Container } from 'inversify';
 
 interface ServerMetrics {
     uptime: number;
@@ -16,6 +18,7 @@ interface ServerHistory {
     metrics: ServerMetrics;
 }
 
+@injectable()
 export class EnhancedServerManager extends BaseServerManager {
     private serverHistory: Map<string, ServerHistory>;
     private readonly MAX_HISTORY_SIZE = 100;
@@ -23,8 +26,11 @@ export class EnhancedServerManager extends BaseServerManager {
     private readonly HEALTH_CHECK_INTERVAL = 60 * 1000; // 1 minute
     private healthCheckTimer?: NodeJS.Timeout;
 
-    constructor() {
-        super();
+    constructor(
+        @inject('ClientsMap') clientsMap: Map<string, string>,
+        @inject('Container') container: Container
+    ) {
+        super(clientsMap, container);
         this.serverHistory = new Map();
         this.startHealthCheck();
     }

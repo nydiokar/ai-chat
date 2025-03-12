@@ -3,7 +3,7 @@ import {
   ReferenceChain, 
   ReferenceVisualization,
   ConversationContext
-} from '../../types/memory';
+} from '../../types/memory.js';
 import type { Message } from '@prisma/client';
 import winston from 'winston';
 

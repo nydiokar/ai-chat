@@ -1,5 +1,5 @@
-import { MCPToolDefinition } from "./types/index.js";
-import { ToolInformationProvider } from "./types/tools.js";
+import { ToolDefinition, ToolResponse } from "./tools/mcp/migration/types/tools.js";
+import { IToolManager } from "./tools/mcp/migration/interfaces/core.js";
 
 export class SystemPromptGenerator {
     private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
@@ -21,10 +21,12 @@ export class SystemPromptGenerator {
    - Report unrecoverable errors clearly`;
 
     constructor(
-        private toolProvider: ToolInformationProvider
+        private toolProvider: IToolManager
     ) {}
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
+        // Ensure tools are refreshed before getting them
+        await this.toolProvider.refreshToolInformation();
         const tools = await this.toolProvider.getAvailableTools();
         
         const promptParts = [
@@ -33,10 +35,13 @@ export class SystemPromptGenerator {
         ];
 
         if (tools.length > 0) {
+            console.log('[SystemPromptGenerator] Available tools:', tools.map(t => t.name));
             promptParts.push(
                 "\nAvailable Tools:",
                 ...tools.map(tool => this.formatToolInfo(tool))
             );
+        } else {
+            console.warn('[SystemPromptGenerator] No tools available');
         }
 
         if (message && this.isToolUsageLikely(message)) {
@@ -49,55 +54,46 @@ export class SystemPromptGenerator {
         return promptParts.join("\n\n");
     }
 
-    private formatToolInfo(tool: MCPToolDefinition): string {
+    private formatToolInfo(tool: ToolDefinition): string {
         const parts = [
             `Tool: ${tool.name}`,
             tool.description && `Description: ${tool.description}`
         ];
 
+        // Format input schema for OpenAI
         if (tool.inputSchema) {
-            try {
-                const schemaStr = tool.inputSchema.toString();
-                if (schemaStr.length < 500) {
-                    parts.push(`Schema: ${schemaStr}`);
-                } else {
-                    // For large schemas, just show a simplified version
-                    parts.push('Schema: [Complex schema - see documentation for details]');
+            parts.push('Input Schema:');
+            parts.push(JSON.stringify(tool.inputSchema, null, 2));
+        } else if (tool.parameters?.length > 0) {
+            const schema = {
+                type: 'object',
+                properties: {} as Record<string, any>,
+                required: [] as string[]
+            };
+
+            tool.parameters.forEach(param => {
+                schema.properties[param.name] = {
+                    type: param.type.toLowerCase(),
+                    description: param.description
+                };
+                if (param.required) {
+                    schema.required.push(param.name);
                 }
-            } catch (error) {
-                console.error('Error formatting tool schema:', error);
-                parts.push('Schema: [Schema information unavailable]');
-            }
-        }
-
-        if (tool.examples?.length) {
-            parts.push('Examples:');
-            tool.examples.slice(0, 2).forEach(example => {
-                parts.push(`- ${example}`);
             });
+
+            parts.push('Input Schema:');
+            parts.push(JSON.stringify(schema, null, 2));
         }
 
-        if (tool.metadata) {
-            const relevantMetadata = this.filterRelevantMetadata(tool.metadata);
-            if (Object.keys(relevantMetadata).length > 0) {
-                parts.push('Additional Info:');
-                Object.entries(relevantMetadata).forEach(([key, value]) => {
-                    parts.push(`- ${key}: ${value}`);
-                });
-            }
+        if (tool.server) {
+            parts.push(`Server: ${tool.server.name}`);
+        }
+
+        if (tool.enabled !== undefined) {
+            parts.push(`Status: ${tool.enabled ? 'Enabled' : 'Disabled'}`);
         }
 
         return parts.filter(Boolean).join('\n');
-    }
-
-    private filterRelevantMetadata(metadata: Record<string, unknown>): Record<string, string> {
-        const relevantKeys = ['usage', 'limitations', 'permissions', 'version'];
-        return Object.entries(metadata)
-            .filter(([key]) => relevantKeys.includes(key))
-            .reduce((acc, [key, value]) => {
-                acc[key] = typeof value === 'string' ? value : JSON.stringify(value);
-                return acc;
-            }, {} as Record<string, string>);
     }
 
     private isToolUsageLikely(message: string): boolean {
