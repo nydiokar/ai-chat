@@ -24,13 +24,12 @@ describe('MemoryRepository', () => {
 
   describe('User Preferences', () => {
     it('should save and retrieve user preferences', async () => {
-      const userId = 'test-user-1';
       // Create user first
-      await repository.createTestUser(userId);
+      await repository.createTestUser('test-user-1');
       
       const testPrefs: UserPreferences = {
         id: 'test-prefs-1',
-        userId,
+        userId: 'test-user-1',
         settings: {
           theme: 'dark',
           notifications: true
@@ -131,12 +130,11 @@ describe('MemoryRepository', () => {
 
   describe('Command Usage Patterns', () => {
     it('should track command usage patterns', async () => {
-      const userId = 'test-user-1';
       // Create user first
-      await repository.createTestUser(userId);
+      await repository.createTestUser('test-user-1');
 
       const pattern: Omit<CommandUsagePattern, 'id'> = {
-        userId,
+        userId: 'test-user-1',
         commandName: 'test-command',
         frequency: 1,
         lastUsed: new Date(),
@@ -152,12 +150,8 @@ describe('MemoryRepository', () => {
     });
 
     it('should increment frequency on repeated command usage', async () => {
-      const userId = 'test-user-2';
-      // Create user first
-      await repository.createTestUser(userId);
-
       const pattern: Omit<CommandUsagePattern, 'id'> = {
-        userId,
+        userId: 'test-user-2',
         commandName: 'repeated-command',
         frequency: 1,
         lastUsed: new Date(),
