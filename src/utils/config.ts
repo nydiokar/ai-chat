@@ -5,6 +5,11 @@ export interface BaseConfig {
   maxContextMessages: number;
   maxMessageLength: number;
   debug: boolean;
+  logging: {
+    level: 'error' | 'warn' | 'info' | 'debug';
+    showTools: boolean;
+    showRequests: boolean;
+  };
   maxRetries: number;
   retryDelay: number;
   rateLimitDelay: number;
@@ -28,17 +33,22 @@ export interface BaseConfig {
 
 export const defaultConfig: BaseConfig = {
   defaultModel: (() => {
-    const model = process.env.MODEL || 'ollama';
+    const model = process.env.MODEL || 'gpt';
     console.warn('[Config] Resolved model:', model);
     if (!Object.values(Model).includes(model as AIModel)) {
-      console.warn(`[Config] Invalid model ${model}, defaulting to ollama`);
-      return 'ollama';
+      console.warn(`[Config] Invalid model ${model}, defaulting to gpt`);
+      return 'gpt';
     }
     return model as AIModel;
   })(),
   maxContextMessages: 20,
   maxMessageLength: 8000,
   debug: process.env.DEBUG === 'true',
+  logging: {
+    level: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
+    showTools: process.env.LOG_SHOW_TOOLS === 'true',
+    showRequests: process.env.LOG_SHOW_REQUESTS === 'true'
+  },
   maxRetries: 3,
   retryDelay: 1000,
   rateLimitDelay: 1000,
@@ -86,6 +96,14 @@ export function validateEnvironment(): void {
       const validLogLevels = ['error', 'warn', 'info', 'debug'];
       if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
         throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
+      }
+
+      // Validate MCP server-specific environment variables
+      if (process.env.MCP_GITHUB_ENABLED === 'true') {
+        required.push('GITHUB_TOKEN');
+      }
+      if (process.env.MCP_BRAVE_ENABLED === 'true') {
+        required.push('BRAVE_API_KEY');
       }
     }
   }

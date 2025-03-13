@@ -206,7 +206,7 @@ To use Ollama with the bot:
    ```
 3. Configure in your .env file:
    ```env
-   MODEL=ollama
+   MODEL=gpt // ollama, claude
    OLLAMA_HOST=http://127.0.0.1:11434
    OLLAMA_MODEL=llama3.2.latest
    ```

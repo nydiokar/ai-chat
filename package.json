@@ -15,6 +15,7 @@
     "db:init": "prisma migrate dev --name init",
     "db:sync": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",
+    "prisma:generate": "prisma generate",
     "pretest": "npm run build && npm run db:sync",
     "test": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register \"src/**/*.test.ts\"",
     "test:watch": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register --watch",
@@ -35,7 +36,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

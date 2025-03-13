@@ -87,9 +87,6 @@ export class BaseMCPClient implements IMCPClient {
                 tools = [];
             }
             
-            // Add debug logging
-            console.log('[DEBUG] Raw tools response:', JSON.stringify(tools, null, 2));
-            
             return tools.map((tool: z.infer<typeof ToolSchema>) => ({
                 name: tool.name,
                 description: tool.description || '',
@@ -111,15 +108,13 @@ export class BaseMCPClient implements IMCPClient {
                     name,
                     arguments: args
                 }
-            }, z.any());  // First get raw response to debug
-
-            console.log(`[DEBUG] Raw tool response for ${name}:`, JSON.stringify(result, null, 2));
+            }, z.any());
 
             // Transform the response to match our expected format
             const response: ToolResponse = {
-                success: true,  // If we got here without error, consider it successful
-                data: result,   // Store the entire result as data
-                metadata: {}    // Empty metadata
+                success: true,
+                data: result,
+                metadata: {}
             };
 
             return response;

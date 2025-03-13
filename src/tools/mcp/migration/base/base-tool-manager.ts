@@ -106,52 +106,32 @@ export class BaseToolManager implements IToolManager {
         console.log('[BaseToolManager] Refreshing tool information...');
         this.toolsCache.clear();
         
-        // Get tools from all clients
         for (const [serverId, client] of this.clientsMap.entries()) {
-            try {
-                console.log(`[BaseToolManager] Loading tools from server ${serverId}...`);
-                const tools = await client.listTools();
-                
-                const serverConfig = this.serverConfigs.get(serverId);
-                if (!serverConfig) {
-                    console.error(`[BaseToolManager] No server config found for ${serverId}`);
-                    continue;
-                }
-                
-                for (const tool of tools) {
-                    // Redact sensitive info from server config
-                    const safeServerConfig = redactSensitiveInfo(serverConfig);
-                    
-                    this.toolsCache.set(tool.name, {
-                        ...tool,
-                        // Ensure we have all required fields
-                        name: tool.name,
-                        description: tool.description || '',
-                        version: tool.version || '1.0.0',
-                        parameters: tool.parameters || [],
-                        enabled: tool.enabled !== false,
-                        server: safeServerConfig,
-                        inputSchema: tool.inputSchema
-                    });
-                }
-                
-                console.log(`[BaseToolManager] Loaded ${tools.length} tools from server ${serverId}`);
-                // Log the first tool's schema for debugging with sensitive info redacted
-                const firstTool = tools[0];
-                if (firstTool) {
-                    console.log(`[BaseToolManager] Sample tool schema for ${firstTool.name}:`, 
-                        JSON.stringify(redactSensitiveInfo({
-                            parameters: firstTool.parameters,
-                            inputSchema: firstTool.inputSchema,
-                            rawTool: firstTool
-                        }), null, 2)
-                    );
-                }
-            } catch (error) {
-                console.error(`[BaseToolManager] Error loading tools from server ${serverId}:`, error);
+            console.log(`[BaseToolManager] Loading tools from server ${serverId}...`);
+            const tools = await client.listTools();
+            
+            // Get server config
+            const serverConfig = this.serverConfigs.get(serverId);
+            if (!serverConfig) {
+                console.warn(`[BaseToolManager] No server config found for ${serverId}, skipping tools`);
+                continue;
             }
+            
+            // Only log the count and names of tools, not their full schemas
+            const toolNames = tools.map((t: ToolDefinition) => t.name);
+            console.log(`[BaseToolManager] Loaded ${tools.length} tools from server ${serverId}: ${toolNames.join(', ')}`);
+            
+            // Attach server information to each tool before caching
+            tools.forEach((tool: ToolDefinition) => {
+                const toolWithServer = {
+                    ...tool,
+                    server: serverConfig,
+                    enabled: true // Default to enabled
+                };
+                this.toolsCache.set(tool.name, toolWithServer);
+            });
         }
-        
-        console.log('[BaseToolManager] Tool cache updated with', this.toolsCache.size, 'total tools');
+
+        console.log(`[BaseToolManager] Tool cache updated with ${this.toolsCache.size} total tools`);
     }
 } 

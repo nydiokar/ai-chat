@@ -21,7 +21,8 @@ function createTestMessage(content: string): Message {
     discordUsername: null,
     discordGuildId: null,
     discordChannelId: null,
-    contextId: null
+    contextId: null,
+    parentMessageId: null
   };
 }
 

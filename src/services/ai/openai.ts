@@ -18,7 +18,16 @@ import { ToolDefinition, ToolResponse } from '../../tools/mcp/migration/types/to
 
 // Custom debug logger for OpenAI
 function logOpenAI(type: 'request' | 'response' | 'error', message: string, details?: any) {
-    if (!defaultConfig.debug) return;
+    if (!defaultConfig.debug || !defaultConfig.logging.showRequests) return;
+    
+    // Always log errors regardless of debug settings
+    if (type === 'error') {
+        console.error(`OpenAI Error: ${message}`, details?.error || '');
+        return;
+    }
+
+    // Only log requests/responses if log level is debug
+    if (defaultConfig.logging.level !== 'debug') return;
     
     const timestamp = new Date().toISOString();
     const logMessage: any = {
@@ -83,16 +92,7 @@ function logOpenAI(type: 'request' | 'response' | 'error', message: string, deta
         });
     }
 
-    // Format error details
-    if (type === 'error' && details) {
-        logMessage.details = redactSensitiveInfo({
-            error: details.message || details,
-            code: details.code,
-            type: details.type
-        });
-    }
-    
-    console.log(JSON.stringify(logMessage, null, 2));
+    console.log(JSON.stringify(logMessage));
 }
 
 export class OpenAIService extends BaseAIService {
@@ -317,63 +317,20 @@ export class OpenAIService extends BaseAIService {
     ): Promise<ChatCompletion> {
         try {
             const formattedTools = tools.map(tool => {
-                let parameters;
-                
-                if (tool.inputSchema && typeof tool.inputSchema === 'object') {
-                    // Use the JSON Schema directly from inputSchema
-                    parameters = {
-                        type: 'object',
-                        required: tool.inputSchema.required || [],
-                        properties: tool.inputSchema.properties || {}
-                    };
-                } else {
-                    // Fall back to building from parameters array
-                    const required = tool.parameters
-                        .filter(param => param.required !== false)
-                        .map(param => param.name);
-                    
-                    const properties = Object.fromEntries(
-                        tool.parameters.map(param => [
-                            param.name,
-                            {
-                                type: param.type.toLowerCase(),
-                                description: param.description || `The ${param.name} parameter`
-                            }
-                        ])
-                    );
-
-                    parameters = {
-                        type: 'object',
-                        required,
-                        properties
-                    };
-                }
-
-                const functionDef = {
-                    type: 'function' as const,
+                // Convert to OpenAI function definition format
+                const functionDef: ChatCompletionTool = {
+                    type: 'function',
                     function: {
                         name: tool.name,
                         description: tool.description,
-                        parameters
+                        parameters: tool.inputSchema
                     }
                 };
-
-                // Log tool definition if it's create_issue
-                if (tool.name === 'create_issue') {
-                    console.log('Create Issue Tool Definition:');
-                    console.log('Original tool:', JSON.stringify(tool, null, 2));
-                    console.log('Input Schema:', JSON.stringify(tool.inputSchema, null, 2));
-                    console.log('Formatted tool:', JSON.stringify(functionDef, null, 2));
-                }
 
                 return functionDef;
             });
 
-            logOpenAI('request', 'Creating chat completion', {
-                model: this.model,
-                messageCount: messages.length,
-                toolCount: tools.length
-            });
+            logOpenAI('request', 'Creating chat completion');
 
             const response = await this.openai.chat.completions.create({
                 model: this.model,

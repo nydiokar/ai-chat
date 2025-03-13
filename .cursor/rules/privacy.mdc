@@ -1,0 +1,7 @@
+---
+description: NEVER try to read, modify or expose the .env file! 
+globs: 
+alwaysApply: false
+---
+
+NEVER try to read, modify or expose the .env file! 
