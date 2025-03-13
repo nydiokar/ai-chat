@@ -35,7 +35,7 @@ export const mcpConfig: MCPConfig = {
                 "node_modules/@modelcontextprotocol/server-github/dist/index.js"
             ],
             env: {
-                GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
+                GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN || '',
                 PWD: projectRoot
             }
         },
