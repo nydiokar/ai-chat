@@ -64,13 +64,9 @@
     "keyv": "^5.2.3",
     "keyv-file": "^5.1.1",
     "mcp": "^1.3.4",
-<<<<<<< HEAD
     "node-cache": "^5.1.2",
     "nodecache": "^0.0.2",
     "ollama": "^0.5.14",
-=======
-    "nodecache": "^0.0.2",
->>>>>>> 1b8ea23 (added tool chaining)
     "openai": "^4.78.1",
     "ora": "^7.0.1",
     "pm2": "^5.3.1",
