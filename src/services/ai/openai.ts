@@ -5,6 +5,7 @@ import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { debug, defaultConfig } from '../../utils/config.js';
+import { CacheService, CacheType } from '../cache-service.js';
 import { 
     ChatCompletionMessageParam,
     ChatCompletionTool,
@@ -100,6 +101,7 @@ export class OpenAIService extends BaseAIService {
     private readonly model: string;
     private readonly maxRetries: number;
     private readonly temperature: number;
+    private readonly messageCache: CacheService;
 
     constructor(container: MCPContainer) {
         super(container);
@@ -115,6 +117,15 @@ export class OpenAIService extends BaseAIService {
         this.model = defaultConfig.openai.model;
         this.maxRetries = defaultConfig.openai.maxRetries;
         this.temperature = defaultConfig.openai.temperature;
+        
+        // Initialize message cache with proper store configuration
+        this.messageCache = CacheService.getInstance({
+            type: CacheType.SENSITIVE,
+            namespace: 'openai-messages',
+            ttl: 5 * 60 * 1000, // 5 minutes
+            filename: 'openai-messages.json', // Add persistent storage
+            writeDelay: 100 // Add write delay for performance
+        });
     }
 
     async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
@@ -122,7 +133,7 @@ export class OpenAIService extends BaseAIService {
             aiRateLimiter.checkLimit('gpt');
             
             const systemPrompt = await this.getSystemPrompt();
-            const messages = this.prepareMessages(systemPrompt, message, conversationHistory);
+            const messages = await this.prepareMessages(systemPrompt, message, conversationHistory);
             const tools = await this.toolManager.getAvailableTools();
 
             return tools.length > 0 
@@ -135,28 +146,63 @@ export class OpenAIService extends BaseAIService {
         }
     }
 
-    private prepareMessages(
+    private async prepareMessages(
         systemPrompt: string,
         message: string,
         conversationHistory?: AIMessage[]
-    ): ChatCompletionMessageParam[] {
+    ): Promise<ChatCompletionMessageParam[]> {
+        // Create a more reliable cache key using hash of content
+        const cacheKey = `messages:${this.hashContent(systemPrompt)}:${this.hashContent(message)}:${conversationHistory?.length || 0}`;
+        
+        // Try to get from cache first
+        const cachedMessages = await this.messageCache.get<ChatCompletionMessageParam[]>(cacheKey);
+        if (cachedMessages) {
+            return cachedMessages;
+        }
+
         const messages: ChatCompletionMessageParam[] = [
-            { role: 'system', content: systemPrompt } as ChatCompletionSystemMessageParam
+            { 
+                role: 'system', 
+                content: systemPrompt 
+            } as ChatCompletionSystemMessageParam
         ];
 
         if (conversationHistory) {
-            for (const msg of conversationHistory) {
-                let message: ChatCompletionMessageParam;
+            // Estimate tokens in system prompt and current message
+            const estimatedSystemTokens = this.estimateTokens(systemPrompt);
+            const estimatedMessageTokens = this.estimateTokens(message);
+            let availableTokens = defaultConfig.messageHandling.maxTokens - 
+                                estimatedSystemTokens - 
+                                estimatedMessageTokens - 
+                                defaultConfig.messageHandling.tokenBuffer;
 
+            // Process history from most recent to oldest
+            const relevantHistory = this.selectRelevantMessages(
+                conversationHistory,
+                availableTokens
+            );
+
+            // Add selected messages
+            for (const msg of relevantHistory) {
+                let message: ChatCompletionMessageParam | undefined;
                 switch (msg.role) {
                     case 'system':
-                        message = { role: 'system', content: msg.content } as ChatCompletionSystemMessageParam;
+                        message = {
+                            role: 'system',
+                            content: msg.content
+                        } as ChatCompletionSystemMessageParam;
                         break;
                     case 'user':
-                        message = { role: 'user', content: msg.content } as ChatCompletionUserMessageParam;
+                        message = {
+                            role: 'user',
+                            content: msg.content
+                        } as ChatCompletionUserMessageParam;
                         break;
                     case 'assistant':
-                        message = { role: 'assistant', content: msg.content } as ChatCompletionAssistantMessageParam;
+                        message = {
+                            role: 'assistant',
+                            content: msg.content
+                        } as ChatCompletionAssistantMessageParam;
                         break;
                     case 'tool':
                         if (msg.tool_call_id) {
@@ -165,21 +211,57 @@ export class OpenAIService extends BaseAIService {
                                 content: msg.content,
                                 tool_call_id: msg.tool_call_id
                             } as ChatCompletionToolMessageParam;
-                        } else {
-                            continue; // Skip invalid tool messages
                         }
                         break;
-                    default:
-                        continue; // Skip unknown message types
                 }
-
-                messages.push(message);
+                if (message) {
+                    messages.push(message);
+                }
             }
         }
 
-        messages.push({ role: 'user', content: message } as ChatCompletionUserMessageParam);
+        // Add the current user message
+        messages.push({
+            role: 'user',
+            content: message
+        } as ChatCompletionUserMessageParam);
 
+        // Cache the prepared messages
+        await this.messageCache.set(cacheKey, messages);
         return messages;
+    }
+
+    private selectRelevantMessages(
+        history: AIMessage[],
+        availableTokens: number
+    ): AIMessage[] {
+        const selected: AIMessage[] = [];
+        let tokenCount = 0;
+
+        // Start from the most recent messages
+        const recentMessages = history
+            .slice(-defaultConfig.messageHandling.maxContextMessages)
+            .reverse();
+
+        for (const msg of recentMessages) {
+            const estimatedTokens = this.estimateTokens(msg.content);
+            
+            // Check if adding this message would exceed our token budget
+            if (tokenCount + estimatedTokens > availableTokens) {
+                break;
+            }
+
+            // Add message and update token count
+            selected.unshift(msg);
+            tokenCount += estimatedTokens;
+        }
+
+        return selected;
+    }
+
+    private estimateTokens(text: string): number {
+        // Rough estimation: ~4 characters per token
+        return Math.ceil(text.length / 4);
     }
 
     private async handleSimpleCompletion(
@@ -316,6 +398,16 @@ export class OpenAIService extends BaseAIService {
         tools: ToolDefinition[]
     ): Promise<ChatCompletion> {
         try {
+            // Create a cache key based on messages and tools
+            const cacheKey = `tool_completion:${this.hashMessages(messages)}:${this.hashTools(tools)}`;
+            
+            // Try to get from cache first
+            const cachedCompletion = await this.messageCache.get<ChatCompletion>(cacheKey);
+            if (cachedCompletion) {
+                logOpenAI('response', 'Using cached chat completion');
+                return cachedCompletion;
+            }
+
             const formattedTools = tools.map(tool => {
                 // Convert to OpenAI function definition format
                 const functionDef: ChatCompletionTool = {
@@ -340,6 +432,9 @@ export class OpenAIService extends BaseAIService {
                 temperature: this.temperature
             });
 
+            // Cache the completion
+            await this.messageCache.set(cacheKey, response);
+
             logOpenAI('response', 'Chat completion created', { response });
             return response;
 
@@ -351,6 +446,30 @@ export class OpenAIService extends BaseAIService {
             });
             throw new MCPError('Failed to create chat completion', ErrorType.API_ERROR, { cause: err });
         }
+    }
+
+    private hashMessages(messages: ChatCompletionMessageParam[]): string {
+        // Create a deterministic hash of messages for caching
+        return messages.map(msg => {
+            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            return `${msg.role}:${content.slice(0, 50)}`;
+        }).join('|');
+    }
+
+    private hashTools(tools: ToolDefinition[]): string {
+        // Create a deterministic hash of tools for caching
+        return tools.map(tool => `${tool.name}`).sort().join('|');
+    }
+
+    private hashContent(content: string): string {
+        // Create a simple hash of the content
+        let hash = 0;
+        for (let i = 0; i < content.length; i++) {
+            const char = content.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString(36);
     }
 
     async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {

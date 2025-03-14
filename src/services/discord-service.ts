@@ -1,7 +1,7 @@
-import { Client, Events, GatewayIntentBits, Message as DiscordMessage, Partials, TextChannel, Message } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message } from 'discord.js';
 import { DatabaseService } from './db-service.js';
 import { AIModel, Message as DBMessage, Role } from '../types/index.js';
-import { AIService, AIMessage } from '../types/ai-service.js';
+import { AIService } from '../types/ai-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
@@ -10,18 +10,15 @@ import { debug, defaultConfig } from '../utils/config.js';
 import { IServerManager } from '../tools/mcp/migration/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/migration/di/container.js';
 import { mcpConfig } from '../tools/mcp/mcp_config.js';
-
-interface CommandHandler {
-    action: string;
-    handler: (message: DiscordMessage, params: any) => Promise<void>;
-}
+import { CacheService, CacheType } from './cache-service.js';
+import { CommandHandler, DiscordContext } from '../types/discord.js';
+import { CachedMessage, CachedConversation } from '../types/domain/cache.js';
 
 export class DiscordService {
     private client: Client;
     private db: DatabaseService;
     private static instance: DiscordService;
     private aiServices: Map<string, AIService> = new Map();
-    private readonly maxContextMessages = 3;
     private readonly contextRefreshInterval = 30 * 60 * 1000;
     private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
     private lastActivityTimestamps: Map<string, number> = new Map();
@@ -32,6 +29,7 @@ export class DiscordService {
     private serverManager?: IServerManager;
     private commandParser: CommandParserService;
     private isInitialized: boolean = false;
+    private sessionCache!: CacheService;
 
     private constructor(
         private readonly token: string,
@@ -48,12 +46,54 @@ export class DiscordService {
         this.taskManager = TaskManager.getInstance();
         this.performanceMonitoring = PerformanceMonitoringService.getInstance();
         this.commandParser = CommandParserService.getInstance();
+    }
 
-        // Initialize command handlers
-        this.initializeCommandHandlers();
+    private async initializeCache(): Promise<void> {
+        try {
+            debug('Initializing cache service...');
+            // Initialize session cache with proper error handling and memory services
+            this.sessionCache = CacheService.getInstance({
+                type: CacheType.PERSISTENT,
+                namespace: 'discord-sessions',
+                ttl: defaultConfig.discord.sessionTimeout * 60 * 60 * 1000, // Convert hours to ms
+                filename: 'discord-sessions.json',
+                writeDelay: 100
+            });
+            debug('Cache service instance created');
 
-        // Set up event handlers
-        this.setupEventHandlers();
+            // Verify cache is properly initialized by testing it
+            debug('Starting cache verification test...');
+            try {
+                debug('Testing cache write...');
+                await this.sessionCache.set('test-key', 'test-value');
+                debug('Cache write successful');
+
+                debug('Testing cache read...');
+                const testValue = await this.sessionCache.get('test-key');
+                debug(`Cache read result: ${JSON.stringify(testValue)}`);
+
+                if (testValue !== 'test-value') {
+                    throw new Error(`Cache verification failed: expected "test-value" but got ${JSON.stringify(testValue)}`);
+                }
+                debug('Cache read verification successful');
+
+                debug('Testing cache delete...');
+                await this.sessionCache.delete('test-key');
+                debug('Cache delete successful');
+
+                debug('Cache initialization verified successfully');
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                debug(`Cache verification step failed: ${err.message}`);
+                if (err.stack) debug(err.stack);
+                throw err;
+            }
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Cache initialization failed: ${err.message}`);
+            if (err.stack) debug(err.stack);
+            throw err;
+        }
     }
 
     private initializeCommandHandlers() {
@@ -224,30 +264,54 @@ export class DiscordService {
 
         // Handle as a conversation with AI
         try {
-            // First try to find an existing conversation by channel ID
-            console.log(`Looking for conversation for channel ${message.channelId}`);
-            const conversations = await this.db.getDiscordConversations(
-                message.guild?.id || 'DM',
-                message.channelId,
-                1
-            );
-            
-            let conversation = conversations[0];
-            
+            const sessionKey = `session:${message.channelId}`;
+            let conversation;
+
+            // Try to get session from cache first with error handling
+            try {
+                const cachedSession = await this.sessionCache.get<CachedConversation>(sessionKey);
+                if (cachedSession) {
+                    conversation = cachedSession;
+                    debug('Using cached session');
+                }
+            } catch (error) {
+                debug(`Cache error, falling back to database: ${error instanceof Error ? error.message : String(error)}`);
+            }
+
             if (!conversation) {
-                console.log(`Creating new conversation for channel ${message.channelId}`);
-                const conversationId = await this.db.createConversation(
-                    defaultConfig.defaultModel,
-                    undefined,
-                    undefined,
-                    { 
-                        channelId: message.channelId, 
-                        userId: message.author.id, 
+                // If not in cache or cache failed, get from database
+                debug(`Looking for conversation for channel ${message.channelId}`);
+                const conversations = await this.db.getDiscordConversations(
+                    message.guild?.id || 'DM',
+                    message.channelId,
+                    1
+                );
+                
+                conversation = conversations[0];
+                
+                if (!conversation) {
+                    debug(`Creating new conversation for channel ${message.channelId}`);
+                    const context: DiscordContext = {
+                        channelId: message.channelId,
+                        userId: message.author.id,
                         username: message.author.username,
                         guildId: message.guild?.id || 'DM'
-                    }
-                );
-                conversation = await this.db.getConversation(conversationId);
+                    };
+                    const conversationId = await this.db.createConversation(
+                        defaultConfig.defaultModel,
+                        undefined,
+                        undefined,
+                        context
+                    );
+                    conversation = await this.db.getConversation(conversationId);
+                }
+
+                // Cache the conversation with retry mechanism
+                try {
+                    await this.sessionCache.set(sessionKey, conversation as CachedConversation);
+                } catch (error) {
+                    debug(`Failed to cache conversation: ${error instanceof Error ? error.message : String(error)}`);
+                }
             }
 
             let service = this.aiServices.get(conversation.id.toString());
@@ -256,25 +320,67 @@ export class DiscordService {
                 this.aiServices.set(conversation.id.toString(), service);
             }
 
-            const messages = conversation.messages.map(msg => ({
-                id: msg.id,
-                content: msg.content,
-                role: msg.role as keyof typeof Role,
-                createdAt: msg.createdAt,
-                conversationId: msg.conversationId,
-                tokenCount: msg.tokenCount,
-                discordUserId: msg.discordUserId,
-                discordUsername: msg.discordUsername,
-                name: undefined,
-                tool_call_id: undefined
-            } as DBMessage));
+            // Get messages for context
+            const messages = conversation.messages
+                .slice(-defaultConfig.messageHandling.maxContextMessages)
+                .map((msg: CachedMessage) => ({
+                    id: msg.id,
+                    content: msg.content,
+                    role: msg.role as keyof typeof Role,
+                    createdAt: msg.createdAt,
+                    conversationId: msg.conversationId,
+                    tokenCount: msg.tokenCount,
+                    discordUserId: msg.discordUserId,
+                    discordUsername: msg.discordUsername,
+                    name: undefined,
+                    tool_call_id: undefined
+                } as DBMessage));
 
-            // Prepare context with system prompt and history management
-            const contextMessages = messages.slice(-this.maxContextMessages);
-            const response = await service.processMessage(message.content, contextMessages);
+            const response = await service.processMessage(message.content, messages);
 
+            // Update database
             await this.db.addMessage(conversation.id, message.content, 'user');
             await this.db.addMessage(conversation.id, response.content, 'assistant');
+
+            // Update cache with new messages and handle errors
+            const newUserMessage: CachedMessage = {
+                content: message.content,
+                role: 'user',
+                createdAt: new Date(),
+                id: Date.now(),
+                conversationId: conversation.id,
+                tokenCount: null,
+                discordUserId: message.author.id,
+                discordUsername: message.author.username,
+                discordChannelId: message.channelId,
+                discordGuildId: message.guild?.id || null,
+                contextId: null,
+                parentMessageId: null
+            };
+
+            const newAssistantMessage: CachedMessage = {
+                content: response.content,
+                role: 'assistant',
+                createdAt: new Date(),
+                id: Date.now() + 1,
+                conversationId: conversation.id,
+                tokenCount: null,
+                discordUserId: null,
+                discordUsername: null,
+                discordChannelId: message.channelId,
+                discordGuildId: message.guild?.id || null,
+                contextId: null,
+                parentMessageId: null
+            };
+
+            conversation.messages.push(newUserMessage, newAssistantMessage);
+            
+            // Update cache with retry mechanism
+            try {
+                await this.sessionCache.set(sessionKey, conversation as CachedConversation);
+            } catch (error) {
+                debug(`Failed to update cache with new messages: ${error instanceof Error ? error.message : String(error)}`);
+            }
 
             await message.reply(response.content);
             
@@ -314,7 +420,7 @@ export class DiscordService {
             // Only summarize if there's been no activity for 30 minutes
             if (timeSinceLastActivity >= this.contextRefreshInterval) {
                 const conversation = await this.db.getConversation(conversationId);
-                if (!conversation || conversation.messages.length <= this.maxContextMessages) return;
+                if (!conversation || conversation.messages.length <= defaultConfig.messageHandling.maxContextMessages) return;
 
                 // Just summarize, don't reinitialize services
                 await this.summarizeConversation(conversation);
@@ -331,7 +437,7 @@ export class DiscordService {
         const service = this.aiServices.get(conversation.id.toString());
         if (!service) return;
 
-        const oldMessages = conversation.messages.slice(0, -this.maxContextMessages);
+        const oldMessages = conversation.messages.slice(0, -defaultConfig.messageHandling.maxContextMessages);
         const summary = await service.generateResponse(
             "Please provide a brief summary of this conversation context.",
             oldMessages
@@ -363,6 +469,15 @@ export class DiscordService {
         }
 
         try {
+            // Initialize cache first
+            await this.initializeCache();
+
+            // Initialize command handlers
+            this.initializeCommandHandlers();
+
+            // Set up event handlers
+            this.setupEventHandlers();
+
             // Initialize MCP if enabled
             if (defaultConfig.discord.mcp.enabled) {
                 console.log('Initializing MCP...');

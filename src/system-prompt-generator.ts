@@ -1,5 +1,7 @@
 import { ToolDefinition, ToolResponse } from "./tools/mcp/migration/types/tools.js";
 import { IToolManager } from "./tools/mcp/migration/interfaces/core.js";
+import { ToolCacheService } from "./tools/tool-chain/tool-cache-service.js";
+import { debug } from "./utils/config.js";
 
 export class SystemPromptGenerator {
     private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
@@ -7,111 +9,128 @@ export class SystemPromptGenerator {
 1. Explain your intention clearly and concisely
 2. For search and information tools:
    - Summarize key points and remove duplicates
-   - Present a clear, organized response
 3. For action tools (GitHub, file operations, etc.):
    - Confirm completed actions
-   - Report any issues encountered
-   - Handle errors gracefully using provided hints
+   - Handle errors gracefully
 4. For code tools:
    - Explain significant changes
-   - Note any important findings
 5. For tool errors:
-   - Check error hints for recovery suggestions
-   - Try alternative approaches if available
-   - Report unrecoverable errors clearly`;
+   - Try alternative approaches if available`;
+
+    private toolCache: ToolCacheService;
 
     constructor(
         private toolProvider: IToolManager
-    ) {}
+    ) {
+        this.toolCache = new ToolCacheService({
+            defaultTTL: 5 * 60, // 5 minutes
+            checkPeriod: 60,    // Check every minute
+            maxKeys: 100        // Maximum number of cached tool sets
+        });
+    }
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
-        // Ensure tools are refreshed before getting them
-        await this.toolProvider.refreshToolInformation();
-        const tools = await this.toolProvider.getAvailableTools();
+        const relevantTools = await this.getRelevantTools(message);
         
         const promptParts = [
             systemPrompt || this.defaultIdentity,
-            this.toolUsageInstructions
+            this.getMinimalInstructions(relevantTools)
         ];
 
-        if (tools.length > 0) {
-            console.log('[SystemPromptGenerator] Available tools:', tools.map(t => t.name));
+        if (relevantTools.length > 0) {
             promptParts.push(
-                "\nAvailable Tools:",
-                ...tools.map(tool => this.formatToolInfo(tool))
-            );
-        } else {
-            console.warn('[SystemPromptGenerator] No tools available');
-        }
-
-        if (message && this.isToolUsageLikely(message)) {
-            promptParts.push(
-                "Note: This request might require tool usage. Consider the available tools and their capabilities. " +
-                "Remember to handle errors gracefully and use hints when provided."
+                "\nRelevant Tools:",
+                ...relevantTools.map(tool => this.formatMinimalToolInfo(tool))
             );
         }
 
         return promptParts.join("\n\n");
     }
 
-    private formatToolInfo(tool: ToolDefinition): string {
-        const parts = [
-            `Tool: ${tool.name}`,
-            tool.description && `Description: ${tool.description}`
-        ];
-
-        // Format input schema for OpenAI
-        if (tool.inputSchema) {
-            parts.push('Input Schema:');
-            parts.push(JSON.stringify(tool.inputSchema, null, 2));
-        } else if (tool.parameters?.length > 0) {
-            const schema = {
-                type: 'object',
-                properties: {} as Record<string, any>,
-                required: [] as string[]
-            };
-
-            tool.parameters.forEach(param => {
-                schema.properties[param.name] = {
-                    type: param.type.toLowerCase(),
-                    description: param.description
-                };
-                if (param.required) {
-                    schema.required.push(param.name);
-                }
-            });
-
-            parts.push('Input Schema:');
-            parts.push(JSON.stringify(schema, null, 2));
+    private async getRelevantTools(message: string): Promise<ToolDefinition[]> {
+        const cacheKey = message.slice(0, 50);
+        
+        // Try cache first
+        const cachedTools = await this.toolCache.get<ToolDefinition[]>('tools', cacheKey);
+        if (cachedTools) {
+            debug('Using cached tools');
+            return cachedTools;
         }
 
-        if (tool.server) {
-            parts.push(`Server: ${tool.server.name}`);
-        }
-
-        if (tool.enabled !== undefined) {
-            parts.push(`Status: ${tool.enabled ? 'Enabled' : 'Disabled'}`);
-        }
-
-        return parts.filter(Boolean).join('\n');
+        // Get fresh tools if not in cache
+        await this.toolProvider.refreshToolInformation();
+        const allTools = await this.toolProvider.getAvailableTools();
+        
+        const relevantTools = this.filterRelevantTools(allTools, message);
+        
+        // Cache the filtered tools
+        await this.toolCache.set('tools', cacheKey, relevantTools, {
+            ttl: 5 * 60,  // 5 minutes
+            tags: ['tools', 'relevance']
+        });
+        
+        return relevantTools;
     }
 
-    private isToolUsageLikely(message: string): boolean {
-        const toolKeywords = [
-            'search', 'find', 'look up',
-            'create', 'make', 'add',
-            'update', 'change', 'modify',
-            'delete', 'remove',
-            'run', 'execute',
-            'check', 'verify',
-            'analyze', 'examine',
-            'tool', 'function', 'command',
-            'help', 'assist', 'automate'
-        ];
+    private filterRelevantTools(tools: ToolDefinition[], message: string): ToolDefinition[] {
+        if (!message) return tools;
+        
+        const keywords = this.extractKeywords(message);
+        return tools
+            .filter(tool => this.isToolRelevant(tool, keywords))
+            .slice(0, 5); // Limit to 5 most relevant tools
+    }
 
-        const lowercaseMessage = message.toLowerCase();
-        return toolKeywords.some(keyword => 
-            lowercaseMessage.includes(keyword.toLowerCase())
-        ) || /\b(can|could|would|please)\b.*\b(help|do|perform|execute)\b/i.test(message);
+    private extractKeywords(message: string): Set<string> {
+        const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with']);
+        return new Set(
+            message.toLowerCase()
+                .split(/\s+/)
+                .filter(word => word.length > 2 && !stopWords.has(word))
+        );
+    }
+
+    private isToolRelevant(tool: ToolDefinition, keywords: Set<string>): boolean {
+        const toolText = `${tool.name} ${tool.description || ''}`.toLowerCase();
+        return Array.from(keywords).some(keyword => toolText.includes(keyword));
+    }
+
+    private getMinimalInstructions(tools: ToolDefinition[]): string {
+        if (tools.length === 0) return this.toolUsageInstructions;
+        
+        // Only include relevant sections based on tool types
+        const sections: string[] = [];
+        const hasSearchTools = tools.some(t => t.name.includes('search'));
+        const hasActionTools = tools.some(t => t.name.includes('create') || t.name.includes('update'));
+        const hasCodeTools = tools.some(t => t.name.includes('code') || t.name.includes('file'));
+
+        sections.push("When using tools:");
+        if (hasSearchTools) sections.push("- Summarize search results concisely");
+        if (hasActionTools) sections.push("- Confirm completed actions");
+        if (hasCodeTools) sections.push("- Explain code changes briefly");
+        sections.push("- Handle errors gracefully");
+
+        return sections.join('\n');
+    }
+
+    private formatMinimalToolInfo(tool: ToolDefinition): string {
+        const parts = [`Tool: ${tool.name}`];
+        
+        if (tool.description) {
+            parts.push(`Description: ${tool.description}`);
+        }
+
+        // Only include minimal schema information
+        if (tool.parameters?.length > 0) {
+            const requiredParams = tool.parameters
+                .filter(p => p.required)
+                .map(p => p.name)
+                .join(', ');
+            if (requiredParams) {
+                parts.push(`Required: ${requiredParams}`);
+            }
+        }
+
+        return parts.join('\n');
     }
 }

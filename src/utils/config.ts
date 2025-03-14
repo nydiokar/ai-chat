@@ -2,8 +2,6 @@ import { AIModel, Model } from '../types/index.js';
 
 // Base configuration interface
 export interface BaseConfig {
-  maxContextMessages: number;
-  maxMessageLength: number;
   debug: boolean;
   logging: {
     level: 'error' | 'warn' | 'info' | 'debug';
@@ -14,6 +12,12 @@ export interface BaseConfig {
   retryDelay: number;
   rateLimitDelay: number;
   defaultModel: AIModel;
+  messageHandling: {
+    maxContextMessages: number;
+    maxTokens: number;
+    tokenBuffer: number;
+    maxMessageLength: number;
+  };
   openai: {
     model: string;
     temperature: number;
@@ -41,8 +45,12 @@ export const defaultConfig: BaseConfig = {
     }
     return model as AIModel;
   })(),
-  maxContextMessages: 20,
-  maxMessageLength: 8000,
+  messageHandling: {
+    maxContextMessages: 7,  // Unified limit between OpenAI and Discord
+    maxTokens: 4096,
+    tokenBuffer: 1000,
+    maxMessageLength: 8000
+  },
   debug: process.env.DEBUG === 'true',
   logging: {
     level: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
@@ -129,8 +137,8 @@ export function validateInput(input: string, config: BaseConfig = defaultConfig)
     return 'Input cannot be empty';
   }
 
-  if (sanitized.length > config.maxMessageLength) {
-    return `Input exceeds maximum length of ${config.maxMessageLength} characters`;
+  if (sanitized.length > config.messageHandling.maxMessageLength) {
+    return `Input exceeds maximum length of ${config.messageHandling.maxMessageLength} characters`;
   }
 
   return null;

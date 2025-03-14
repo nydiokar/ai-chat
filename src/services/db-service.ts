@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Role, MessageContext, MCPToolResponse } from '../types/index.js';
 import { MCPError } from '../types/errors.js';
 import { debug } from '../utils/config.js';
+import { DiscordContext } from '../types/discord.js';
 
 export class DatabaseError extends Error {
   public cause?: any;
@@ -89,7 +90,7 @@ export class DatabaseService {
     model: AIModel,
     title?: string,
     summary?: string,
-    discordContext?: MessageContext
+    discordContext?: DiscordContext
   ): Promise<number> {
     try {
       if (title && title.length > this.MAX_TITLE_LENGTH) {

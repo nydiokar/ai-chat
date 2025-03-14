@@ -2,39 +2,14 @@ import Keyv from 'keyv';
 import { KeyvFile } from 'keyv-file';
 import { DatabaseService } from './db-service.js';
 import { debug } from '../utils/config.js';
+import type { 
+    CacheConfig, 
+    CacheMetrics,
+    KeyvInstance 
+} from '../types/services/cache.js';
+import { CacheType } from '../types/services/cache.js';
 
-// Define the Keyv instance type
-type KeyvInstance<T> = {
-    get: (key: string) => Promise<T | undefined>;
-    set: (key: string, value: T, ttl?: number) => Promise<void>;
-    delete: (key: string) => Promise<boolean>;
-    clear: () => Promise<void>;
-    on: (event: string, handler: (err: Error) => void) => void;
-};
-
-// Define strict cache types for security
-export enum CacheType {
-    SENSITIVE = 'SENSITIVE',    // Always in-memory, never persisted
-    PERSISTENT = 'PERSISTENT'   // Can be persisted to file
-}
-
-interface CacheConfig {
-    type: CacheType;           // Required security level
-    filename?: string;         // Only used if type is PERSISTENT
-    namespace?: string;
-    ttl?: number;
-}
-
-interface CacheEntry<T> {
-    data: T;
-    expires: number;
-}
-
-interface CacheMetrics {
-    hits: number;
-    misses: number;
-    lastAccessed: Date;
-}
+export { CacheType };
 
 export class CacheError extends Error {
     constructor(message: string, public cause?: unknown) {
@@ -65,50 +40,98 @@ export class CacheService {
             ttl: config.ttl || 1000 * 60 * 60 // 1 hour default TTL
         };
 
-        // Only allow file storage for non-sensitive data
-        const store = this.type === CacheType.PERSISTENT && config.filename ? 
-            new KeyvFile({ filename: config.filename }) : 
-            undefined;
+        try {
+            // Initialize store based on type
+            let store;
+            if ((this.type === CacheType.PERSISTENT || this.type === CacheType.SENSITIVE) && config.filename) {
+                store = new KeyvFile({
+                    filename: config.filename,
+                    writeDelay: config.writeDelay || 100,
+                    serialize: (data: any) => JSON.stringify({
+                        value: data,
+                        expires: Date.now() + (config.ttl || defaultOptions.ttl)
+                    }),
+                    deserialize: (text: string) => {
+                        const parsed = JSON.parse(text);
+                        return parsed.value;
+                    }
+                });
+            }
 
-        if (this.type === CacheType.SENSITIVE && config.filename) {
-            debug('Warning: Ignoring filename for sensitive cache - data will be stored in memory only');
+            // Create cache instances with proper typing and error handling
+            const cacheInstance = new Keyv({
+                ...defaultOptions,
+                store,  // Pass store directly without undefined check
+                namespace: `${defaultOptions.namespace}:data`
+            });
+
+            // Verify store is properly initialized
+            if (!cacheInstance.store) {
+                throw new Error('Cache store not properly initialized');
+            }
+
+            this.cache = cacheInstance as unknown as KeyvInstance<any>;
+
+            const longTermCacheInstance = new Keyv({
+                ...defaultOptions,
+                store,  // Pass store directly without undefined check
+                namespace: `${defaultOptions.namespace}:long-term`
+            });
+            this.longTermCache = longTermCacheInstance as unknown as KeyvInstance<any>;
+
+            const metricsCacheInstance = new Keyv({
+                ...defaultOptions,
+                store,  // Pass store directly without undefined check
+                namespace: `${defaultOptions.namespace}:metrics`
+            });
+            this.metricsCache = metricsCacheInstance as unknown as KeyvInstance<CacheMetrics>;
+
+            // Set up error handlers with more detailed logging
+            this.cache.on('error', err => {
+                debug(`Cache error in main cache: ${err.message}`);
+                if (err.stack) debug(err.stack);
+            });
+
+            this.longTermCache.on('error', err => {
+                debug(`Cache error in long-term cache: ${err.message}`);
+                if (err.stack) debug(err.stack);
+            });
+
+            this.metricsCache.on('error', err => {
+                debug(`Cache error in metrics cache: ${err.message}`);
+                if (err.stack) debug(err.stack);
+            });
+
+            this.db = DatabaseService.getInstance();
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Failed to initialize cache: ${err.message}`);
+            if (err.stack) debug(err.stack);
+            throw new CacheError('Failed to initialize cache service', err);
         }
-
-        // Create cache instances with proper typing
-        this.cache = new (Keyv as any)({
-            ...defaultOptions,
-            store,
-            ttl: config.ttl || 1000 * 60 * 60 // 1 hour
-        });
-
-        this.longTermCache = new (Keyv as any)({
-            ...defaultOptions,
-            store,
-            ttl: config.ttl || 1000 * 60 * 60 * 24 * 7 // 1 week
-        });
-
-        this.metricsCache = new (Keyv as any)({
-            ...defaultOptions,
-            namespace: `${defaultOptions.namespace}:metrics`,
-            store,
-            ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
-        });
-
-        this.db = DatabaseService.getInstance();
-
-        // Handle cache errors with proper typing
-        this.cache.on('error', (err: Error) => console.error('Cache Error:', err));
-        this.longTermCache.on('error', (err: Error) => console.error('Long Term Cache Error:', err));
-        this.metricsCache.on('error', (err: Error) => console.error('Metrics Cache Error:', err));
     }
 
     public static getInstance(config: CacheConfig): CacheService {
-        // Create a unique key combining namespace and type
-        const key = `${config.namespace || 'default'}:${config.type}`;
-        if (!this.instances.has(key)) {
-            this.instances.set(key, new CacheService(config));
+        try {
+            // Create a unique key combining namespace and type
+            const key = `${config.namespace || 'default'}:${config.type}`;
+            
+            if (!this.instances.has(key)) {
+                const instance = new CacheService(config);
+                this.instances.set(key, instance);
+            }
+            
+            const instance = this.instances.get(key);
+            if (!instance) {
+                throw new Error('Failed to get cache instance');
+            }
+            
+            return instance;
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Failed to get cache instance: ${err.message}`);
+            throw new CacheError('Failed to get cache instance', err);
         }
-        return this.instances.get(key)!;
     }
 
     private async updateMetrics(key: string, hit: boolean): Promise<void> {
@@ -149,6 +172,9 @@ export class CacheService {
             await this.updateMetrics(key, value !== undefined);
             return value;
         } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Cache get error for key ${key}: ${err.message}`);
+            if (err.stack) debug(err.stack);
             throw new CacheError(`Failed to get cache entry: ${key}`, error);
         }
     }
@@ -185,8 +211,15 @@ export class CacheService {
     }
 
     public async set(key: string, value: any, ttl?: number): Promise<void> {
-        const sanitizedValue = this.sanitizeData(value);
-        await this.cache.set(key, sanitizedValue, ttl);
+        try {
+            const sanitizedValue = this.sanitizeData(value);
+            await this.cache.set(key, sanitizedValue, ttl);
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Cache set error for key ${key}: ${err.message}`);
+            if (err.stack) debug(err.stack);
+            throw new CacheError(`Failed to set cache entry: ${key}`, error);
+        }
     }
 
     async delete(key: string): Promise<boolean> {
