@@ -19,10 +19,10 @@ model Message {
   discordGuildId  String?
   discordChannelId String?
   contextId       String?      // Link to ConversationContext
+  parentMessageId Int?         // Added this field
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   parentMessage   Message?     @relation("MessageThread", fields: [parentMessageId], references: [id])
   childMessages   Message[]    @relation("MessageThread")
-  context         ConversationContext? @relation(fields: [contextId], references: [id])
   context         ConversationContext? @relation(fields: [contextId], references: [id])
 
   @@index([conversationId, createdAt])
@@ -337,4 +337,47 @@ model UserMemoryPreferences {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([lastUpdated])
+}
+
+enum TokenCategory {
+  MEME
+  DEFI
+  GAMING
+  LAYER1
+  LAYER2
+  INFRASTRUCTURE
+  AI
+  OTHER
+}
+
+model HotToken {
+  id                 String        @id @default(cuid())
+  name               String
+  contractAddress    String        @unique
+  note              String?
+  marketCapNow      Float?
+  marketCapFirstEntry Float?
+  category          TokenCategory
+  meta              Json?
+  isCommunity       Boolean       @default(false)
+  firstSeen         DateTime      @default(now())
+  priceAlerts       PriceAlert[]
+
+  @@index([category])
+  @@index([isCommunity])
+}
+
+model PriceAlert {
+  id              String    @id @default(cuid())
+  contractAddress String
+  targetPrice     Float
+  condition       String    // 'above' or 'below'
+  userId          String
+  createdAt       DateTime  @default(now())
+  triggered       Boolean   @default(false)
+  token          HotToken  @relation(fields: [contractAddress], references: [contractAddress], onDelete: Cascade)
+
+  @@index([contractAddress])
+  @@index([userId])
+  @@index([triggered])
 }

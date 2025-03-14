@@ -44,6 +44,12 @@ export class CommandParserService {
     delete: [
       /(?:delete|remove) task #?(\d+)/i
     ],
+    help: [
+      /help(?: me)?(?: with)?(?: the)? tasks?/i,
+      /help(?: me)?(?: with)?(?: the)? tokens?/i,
+      /help(?: me)?(?: with)?(?: the)? ht/i,
+      /show(?: me)?(?: the)? commands?/i
+    ]
   };
 
   private constructor() {}
@@ -138,6 +144,10 @@ export class CommandParserService {
       case 'delete':
         params.id = parseInt(match[1]);
         return { command: 'task', action: 'delete', parameters: params };
+
+      case 'help':
+        params.topic = match[1]?.toLowerCase() || 'general';
+        return { command: 'help', action: 'show', parameters: params };
 
       default:
         throw new CommandParserError('Invalid command type');

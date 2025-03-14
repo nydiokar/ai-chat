@@ -1,4 +1,4 @@
-import { ToolChainConfig, ToolInput } from './tool-chain-config';
+import { ToolChainConfig, ToolInput } from './tool-chain-config.js';
 import { performance } from 'perf_hooks';
 import winston from 'winston';
 

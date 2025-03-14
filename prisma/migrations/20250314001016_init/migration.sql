@@ -8,8 +8,12 @@ CREATE TABLE "Message" (
     "tokenCount" INTEGER,
     "discordUserId" TEXT,
     "discordUsername" TEXT,
+    "discordGuildId" TEXT,
+    "discordChannelId" TEXT,
     "contextId" TEXT,
+    "parentMessageId" INTEGER,
     CONSTRAINT "Message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Message_parentMessageId_fkey" FOREIGN KEY ("parentMessageId") REFERENCES "Message" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Message_contextId_fkey" FOREIGN KEY ("contextId") REFERENCES "ConversationContext" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -48,6 +52,17 @@ CREATE TABLE "MCPServer" (
 );
 
 -- CreateTable
+CREATE TABLE "Tool" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "toolType" TEXT NOT NULL,
+    "metadata" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "MCPTool" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "serverId" TEXT NOT NULL,
@@ -56,7 +71,9 @@ CREATE TABLE "MCPTool" (
     "isEnabled" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "MCPTool_serverId_fkey" FOREIGN KEY ("serverId") REFERENCES "MCPServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "toolId" TEXT,
+    CONSTRAINT "MCPTool_serverId_fkey" FOREIGN KEY ("serverId") REFERENCES "MCPServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "MCPTool_toolId_fkey" FOREIGN KEY ("toolId") REFERENCES "Tool" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -72,9 +89,9 @@ CREATE TABLE "MCPToolContext" (
 );
 
 -- CreateTable
-CREATE TABLE "MCPToolUsage" (
+CREATE TABLE "ToolUsage" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "toolId" TEXT NOT NULL,
+    "toolId" TEXT,
     "conversationId" INTEGER NOT NULL,
     "input" JSONB,
     "output" TEXT,
@@ -82,7 +99,9 @@ CREATE TABLE "MCPToolUsage" (
     "duration" INTEGER NOT NULL,
     "status" TEXT NOT NULL,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "MCPToolUsage_toolId_fkey" FOREIGN KEY ("toolId") REFERENCES "MCPTool" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "mcpToolId" TEXT NOT NULL,
+    CONSTRAINT "ToolUsage_toolId_fkey" FOREIGN KEY ("toolId") REFERENCES "Tool" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "ToolUsage_mcpToolId_fkey" FOREIGN KEY ("mcpToolId") REFERENCES "MCPTool" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -115,6 +134,18 @@ CREATE TABLE "cache_metrics" (
     "hits" INTEGER NOT NULL DEFAULT 0,
     "misses" INTEGER NOT NULL DEFAULT 0,
     "lastAccessed" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "QueryMetrics" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "queryHash" TEXT NOT NULL,
+    "queryString" TEXT NOT NULL,
+    "executionTime" INTEGER NOT NULL,
+    "rowCount" INTEGER,
+    "timestamp" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -193,12 +224,52 @@ CREATE TABLE "CommandUsagePattern" (
 );
 
 -- CreateTable
+CREATE TABLE "PerformanceMetric" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "timestamp" DATETIME NOT NULL,
+    "cpuUsage" REAL NOT NULL,
+    "memoryTotal" BIGINT NOT NULL,
+    "memoryFree" BIGINT NOT NULL,
+    "totalToolCalls" INTEGER NOT NULL,
+    "toolSuccessRate" REAL NOT NULL,
+    "averageQueryTime" REAL NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "UserMemoryPreferences" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
     "settings" JSONB NOT NULL,
     "lastUpdated" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "UserMemoryPreferences_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "HotToken" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "contractAddress" TEXT NOT NULL,
+    "note" TEXT,
+    "marketCapNow" REAL,
+    "marketCapFirstEntry" REAL,
+    "category" TEXT NOT NULL,
+    "meta" JSONB,
+    "isCommunity" BOOLEAN NOT NULL DEFAULT false,
+    "firstSeen" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "PriceAlert" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "contractAddress" TEXT NOT NULL,
+    "targetPrice" REAL NOT NULL,
+    "condition" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "triggered" BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT "PriceAlert_contractAddress_fkey" FOREIGN KEY ("contractAddress") REFERENCES "HotToken" ("contractAddress") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -209,6 +280,9 @@ CREATE INDEX "Message_discordUserId_idx" ON "Message"("discordUserId");
 
 -- CreateIndex
 CREATE INDEX "Message_contextId_idx" ON "Message"("contextId");
+
+-- CreateIndex
+CREATE INDEX "Message_discordGuildId_discordChannelId_idx" ON "Message"("discordGuildId", "discordChannelId");
 
 -- CreateIndex
 CREATE INDEX "Conversation_createdAt_idx" ON "Conversation"("createdAt");
@@ -226,6 +300,15 @@ CREATE INDEX "Session_discordUserId_idx" ON "Session"("discordUserId");
 CREATE INDEX "Session_lastActivity_idx" ON "Session"("lastActivity");
 
 -- CreateIndex
+CREATE INDEX "Tool_toolType_idx" ON "Tool"("toolType");
+
+-- CreateIndex
+CREATE INDEX "Tool_createdAt_idx" ON "Tool"("createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "MCPTool_toolId_key" ON "MCPTool"("toolId");
+
+-- CreateIndex
 CREATE INDEX "MCPTool_serverId_idx" ON "MCPTool"("serverId");
 
 -- CreateIndex
@@ -238,13 +321,13 @@ CREATE UNIQUE INDEX "MCPToolContext_toolId_key" ON "MCPToolContext"("toolId");
 CREATE INDEX "MCPToolContext_toolId_idx" ON "MCPToolContext"("toolId");
 
 -- CreateIndex
-CREATE INDEX "MCPToolUsage_toolId_idx" ON "MCPToolUsage"("toolId");
+CREATE INDEX "ToolUsage_toolId_idx" ON "ToolUsage"("toolId");
 
 -- CreateIndex
-CREATE INDEX "MCPToolUsage_conversationId_idx" ON "MCPToolUsage"("conversationId");
+CREATE INDEX "ToolUsage_conversationId_idx" ON "ToolUsage"("conversationId");
 
 -- CreateIndex
-CREATE INDEX "MCPToolUsage_createdAt_idx" ON "MCPToolUsage"("createdAt");
+CREATE INDEX "ToolUsage_createdAt_idx" ON "ToolUsage"("createdAt");
 
 -- CreateIndex
 CREATE INDEX "User_username_idx" ON "User"("username");
@@ -263,6 +346,15 @@ CREATE INDEX "cache_metrics_hits_idx" ON "cache_metrics"("hits");
 
 -- CreateIndex
 CREATE INDEX "cache_metrics_lastAccessed_idx" ON "cache_metrics"("lastAccessed");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "QueryMetrics_queryHash_key" ON "QueryMetrics"("queryHash");
+
+-- CreateIndex
+CREATE INDEX "QueryMetrics_executionTime_idx" ON "QueryMetrics"("executionTime");
+
+-- CreateIndex
+CREATE INDEX "QueryMetrics_timestamp_idx" ON "QueryMetrics"("timestamp");
 
 -- CreateIndex
 CREATE INDEX "Task_creatorId_idx" ON "Task"("creatorId");
@@ -329,3 +421,24 @@ CREATE UNIQUE INDEX "UserMemoryPreferences_userId_key" ON "UserMemoryPreferences
 
 -- CreateIndex
 CREATE INDEX "UserMemoryPreferences_lastUpdated_idx" ON "UserMemoryPreferences"("lastUpdated");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "HotToken_contractAddress_key" ON "HotToken"("contractAddress");
+
+-- CreateIndex
+CREATE INDEX "HotToken_contractAddress_idx" ON "HotToken"("contractAddress");
+
+-- CreateIndex
+CREATE INDEX "HotToken_category_idx" ON "HotToken"("category");
+
+-- CreateIndex
+CREATE INDEX "HotToken_firstSeen_idx" ON "HotToken"("firstSeen");
+
+-- CreateIndex
+CREATE INDEX "PriceAlert_contractAddress_idx" ON "PriceAlert"("contractAddress");
+
+-- CreateIndex
+CREATE INDEX "PriceAlert_userId_idx" ON "PriceAlert"("userId");
+
+-- CreateIndex
+CREATE INDEX "PriceAlert_triggered_idx" ON "PriceAlert"("triggered");

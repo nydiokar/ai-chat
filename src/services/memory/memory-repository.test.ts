@@ -1,8 +1,7 @@
 import { expect } from 'chai';
-import { MemoryRepository } from './memory-repository';
-import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../types/memory';
-import { ConversationMessage } from '../../types/conversation';
-import { Message } from '@prisma/client';
+import { MemoryRepository } from './memory-repository.js';
+import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../types/memory.js';
+
 
 describe('MemoryRepository', () => {
   let repository: MemoryRepository;
