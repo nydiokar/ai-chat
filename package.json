@@ -22,6 +22,7 @@
     "test:coverage": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" c8 mocha --require ts-node/register",
     "test:unit": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register \"src/**/*.test.ts\"",
     "test:integration": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register src/tests/mcp_openai_integration.test.ts",
+    "test:tokens": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register \"src/features/hot-tokens/services/hot-tokens-service.test.ts\"",
     "test:mcp": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register \"src/tools/mcp/**/*.test.ts\"",
     "test:mcp:watch": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register --watch \"src/tools/mcp/**/*.test.ts\"",
     "test:ci": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --require ts-node/register --forbid-only \"src/**/*.test.ts\"",
