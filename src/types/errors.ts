@@ -17,7 +17,8 @@ export enum ErrorType {
     TOOL_ERROR = 'TOOL_ERROR',
     VALIDATION_ERROR = 'VALIDATION_ERROR',
     QUERY_ERROR = 'QUERY_ERROR',
-    UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+    UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+    CACHE_ERROR = 'CACHE_ERROR'
 }
 
 export class MCPError extends Error {

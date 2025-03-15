@@ -1,6 +1,6 @@
-import { ToolDefinition, ToolResponse } from "./tools/mcp/migration/types/tools.js";
-import { IToolManager } from "./tools/mcp/migration/interfaces/core.js";
-import { ToolCacheService } from "./tools/tool-chain/tool-cache-service.js";
+import { ToolDefinition } from "./tools/mcp/types/tools.js";
+import { IToolManager } from "./tools/mcp/interfaces/core.js";
+import { ToolCache } from "./services/cache/specialized/tool-cache.js";
 import { debug } from "./utils/config.js";
 
 export class SystemPromptGenerator {
@@ -17,16 +17,12 @@ export class SystemPromptGenerator {
 5. For tool errors:
    - Try alternative approaches if available`;
 
-    private toolCache: ToolCacheService;
+    private toolCache: ToolCache;
 
     constructor(
         private toolProvider: IToolManager
     ) {
-        this.toolCache = new ToolCacheService({
-            defaultTTL: 5 * 60, // 5 minutes
-            checkPeriod: 60,    // Check every minute
-            maxKeys: 100        // Maximum number of cached tool sets
-        });
+        this.toolCache = ToolCache.getInstance();
     }
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
@@ -48,28 +44,34 @@ export class SystemPromptGenerator {
     }
 
     private async getRelevantTools(message: string): Promise<ToolDefinition[]> {
-        const cacheKey = message.slice(0, 50);
-        
-        // Try cache first
-        const cachedTools = await this.toolCache.get<ToolDefinition[]>('tools', cacheKey);
-        if (cachedTools) {
-            debug('Using cached tools');
-            return cachedTools;
-        }
+        try {
+            // Try cache first
+            const cachedTools = await this.toolCache.get<ToolDefinition[]>('relevantTools', message);
+            if (cachedTools) {
+                debug('Using cached tools');
+                return cachedTools;
+            }
 
-        // Get fresh tools if not in cache
-        await this.toolProvider.refreshToolInformation();
-        const allTools = await this.toolProvider.getAvailableTools();
-        
-        const relevantTools = this.filterRelevantTools(allTools, message);
-        
-        // Cache the filtered tools
-        await this.toolCache.set('tools', cacheKey, relevantTools, {
-            ttl: 5 * 60,  // 5 minutes
-            tags: ['tools', 'relevance']
-        });
-        
-        return relevantTools;
+            // Get fresh tools if not in cache
+            await this.toolProvider.refreshToolInformation();
+            const allTools = await this.toolProvider.getAvailableTools();
+            
+            const relevantTools = this.filterRelevantTools(allTools, message);
+            
+            // Cache the filtered tools
+            await this.toolCache.set('relevantTools', message, relevantTools, {
+                ttl: 5 * 60,  // 5 minutes
+                tags: ['tools', 'relevance']
+            });
+            
+            return relevantTools;
+        } catch (error) {
+            debug(`Error getting relevant tools: ${error instanceof Error ? error.message : String(error)}`);
+            // Fallback to getting tools directly without caching
+            await this.toolProvider.refreshToolInformation();
+            const allTools = await this.toolProvider.getAvailableTools();
+            return this.filterRelevantTools(allTools, message);
+        }
     }
 
     private filterRelevantTools(tools: ToolDefinition[], message: string): ToolDefinition[] {

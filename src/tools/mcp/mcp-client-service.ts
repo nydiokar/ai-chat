@@ -1,5 +1,5 @@
 // Temporary mock implementation to satisfy dependencies
-import { ToolDefinition } from './migration/types/tools.js';
+import { ToolDefinition } from './types/tools.js';
 
 export interface MCPServerConfig {
     id: string;

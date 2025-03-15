@@ -1,5 +1,5 @@
 // Temporary mock implementation to satisfy dependencies
-import { ToolDefinition } from './mcp/migration/types/tools.js';
+import { ToolDefinition } from './mcp/types/tools.js';
 import { DatabaseService } from '../services/db-service.js';
 import { MCPClientService } from './mcp/mcp-client-service.js';
 

@@ -5,7 +5,7 @@ import { BaseMCPClient } from '../base/base-mcp-client.js';
 import { BaseToolManager } from '../base/base-tool-manager.js';
 import { BaseServerManager } from '../base/base-server-manager.js';
 import { ServerState } from '../types/server.js';
-import { mcpConfig } from '../../mcp_config.js';
+import { mcpConfig } from '../mcp_config.js';
 import sinon from 'sinon';
 
 describe('MCP Base Functionality Tests', () => {

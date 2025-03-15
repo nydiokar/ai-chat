@@ -2,9 +2,9 @@ import { AIService } from '../types/ai-service.js';
 import { OpenAIService } from './ai/openai.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { defaultConfig } from '../utils/config.js';
-import { MCPContainer, MCPConfig } from '../tools/mcp/migration/di/container.js';
+import { MCPContainer, MCPConfig } from '../tools/mcp/di/container.js';
 import { mcpConfig } from '../tools/mcp/mcp_config.js';
-import { IToolManager } from '../tools/mcp/migration/interfaces/core.js';
+import { IToolManager } from '../tools/mcp/interfaces/core.js';
 
 export class AIServiceFactory {
     private static container: MCPContainer | null = null;

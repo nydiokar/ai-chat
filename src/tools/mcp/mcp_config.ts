@@ -1,4 +1,4 @@
-import { MCPConfig } from "./migration/di/container.js";
+import { MCPConfig } from "./di/container.js";
 import dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';

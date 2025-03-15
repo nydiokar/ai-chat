@@ -7,12 +7,11 @@ import { TaskManager } from '../tasks/task-manager.js';
 import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
 import { PerformanceMonitoringService } from './performance/performance-monitoring.service.js';
 import { debug, defaultConfig } from '../utils/config.js';
-import { IServerManager } from '../tools/mcp/migration/interfaces/core.js';
-import { MCPContainer } from '../tools/mcp/migration/di/container.js';
+import { IServerManager } from '../tools/mcp/interfaces/core.js';
+import { MCPContainer } from '../tools/mcp/di/container.js';
 import { mcpConfig } from '../tools/mcp/mcp_config.js';
-import { CacheService, CacheType } from './cache-service.js';
-import { CommandHandler, DiscordContext } from '../types/discord.js';
-import { CachedMessage, CachedConversation } from '../types/domain/cache.js';
+import { CacheService, CacheType } from './cache/cache-service.js';
+import { CommandHandler, DiscordContext, DiscordCachedMessage, DiscordCachedConversation } from '../types/discord.js';
 
 export class DiscordService {
     private client: Client;
@@ -269,7 +268,7 @@ export class DiscordService {
 
             // Try to get session from cache first with error handling
             try {
-                const cachedSession = await this.sessionCache.get<CachedConversation>(sessionKey);
+                const cachedSession = await this.sessionCache.get<DiscordCachedConversation>(sessionKey);
                 if (cachedSession) {
                     conversation = cachedSession;
                     debug('Using cached session');
@@ -308,7 +307,7 @@ export class DiscordService {
 
                 // Cache the conversation with retry mechanism
                 try {
-                    await this.sessionCache.set(sessionKey, conversation as CachedConversation);
+                    await this.sessionCache.set(sessionKey, conversation as DiscordCachedConversation);
                 } catch (error) {
                     debug(`Failed to cache conversation: ${error instanceof Error ? error.message : String(error)}`);
                 }
@@ -323,7 +322,7 @@ export class DiscordService {
             // Get messages for context
             const messages = conversation.messages
                 .slice(-defaultConfig.messageHandling.maxContextMessages)
-                .map((msg: CachedMessage) => ({
+                .map((msg: DiscordCachedMessage) => ({
                     id: msg.id,
                     content: msg.content,
                     role: msg.role as keyof typeof Role,
@@ -343,7 +342,7 @@ export class DiscordService {
             await this.db.addMessage(conversation.id, response.content, 'assistant');
 
             // Update cache with new messages and handle errors
-            const newUserMessage: CachedMessage = {
+            const newUserMessage: DiscordCachedMessage = {
                 content: message.content,
                 role: 'user',
                 createdAt: new Date(),
@@ -358,7 +357,7 @@ export class DiscordService {
                 parentMessageId: null
             };
 
-            const newAssistantMessage: CachedMessage = {
+            const newAssistantMessage: DiscordCachedMessage = {
                 content: response.content,
                 role: 'assistant',
                 createdAt: new Date(),
@@ -377,7 +376,7 @@ export class DiscordService {
             
             // Update cache with retry mechanism
             try {
-                await this.sessionCache.set(sessionKey, conversation as CachedConversation);
+                await this.sessionCache.set(sessionKey, conversation as DiscordCachedConversation);
             } catch (error) {
                 debug(`Failed to update cache with new messages: ${error instanceof Error ? error.message : String(error)}`);
             }

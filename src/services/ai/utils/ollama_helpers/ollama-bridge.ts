@@ -5,8 +5,8 @@ import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, Ollam
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
 import { ToolsHandler } from "../../../../tools/tools-handler.js";
-import { IToolManager } from "../../../../tools/mcp/migration/interfaces/core.js";
-import { ToolDefinition, ToolResponse } from "../../../../tools/mcp/migration/types/tools.js";
+import { IToolManager } from "../../../../tools/mcp/interfaces/core.js";
+import { ToolDefinition, ToolResponse } from "../../../../tools/mcp/types/tools.js";
 
 export class OllamaBridge {
     private model: string;

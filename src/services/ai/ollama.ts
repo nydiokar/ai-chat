@@ -11,9 +11,9 @@ import {
 import { debug } from '../../utils/config.js';
 import { AIResponse, AIMessage } from '../../types/ai-service.js';
 import { MCPToolResponse, MCPToolDefinition } from '../../types/tools.js';
-import { Server } from '../../tools/mcp/migration/types/server.js';
-import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
-import { ToolDefinition } from '../../tools/mcp/migration/types/tools.js';
+import { Server } from '../../tools/mcp/types/server.js';
+import { MCPContainer } from '../../tools/mcp/di/container.js';
+import { ToolDefinition } from '../../tools/mcp/types/tools.js';
 
 export class OllamaService extends BaseAIService {
     private bridge!: OllamaBridge;

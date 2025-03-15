@@ -1,11 +1,11 @@
 import { OpenAI } from 'openai';
 import { AIResponse, AIMessage } from '../../types/ai-service.js';
 import { BaseAIService } from './base-service.js';
-import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
+import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
 import { debug, defaultConfig } from '../../utils/config.js';
-import { CacheService, CacheType } from '../cache-service.js';
+import { CacheService, CacheType } from '../cache/cache-service.js';
 import { 
     ChatCompletionMessageParam,
     ChatCompletionTool,
@@ -15,7 +15,7 @@ import {
     ChatCompletionAssistantMessageParam,
     ChatCompletionToolMessageParam
 } from 'openai/resources/chat/completions.js';
-import { ToolDefinition, ToolResponse } from '../../tools/mcp/migration/types/tools.js';
+import { ToolDefinition, ToolResponse } from '../../tools/mcp/types/tools.js';
 
 // Custom debug logger for OpenAI
 function logOpenAI(type: 'request' | 'response' | 'error', message: string, details?: any) {

@@ -1,12 +1,12 @@
 import { expect } from 'chai';
 import { OpenAIService } from './openai.js';
-import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
+import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError } from '../../types/errors.js';
 import { mcpConfig } from '../../tools/mcp/mcp_config.js';
 import { AIMessage } from '../../types/ai-service.js';
 import sinon from 'sinon';
-import { IMCPClient, IToolManager, IServerManager } from '../../tools/mcp/migration/interfaces/core.js';
-import { ToolDefinition, ToolResponse, ToolHandler } from '../../tools/mcp/migration/types/tools.js';
+import { IMCPClient, IToolManager, IServerManager } from '../../tools/mcp/interfaces/core.js';
+import { ToolDefinition, ToolResponse, ToolHandler } from '../../tools/mcp/types/tools.js';
 
 describe('OpenAIService Integration Tests', () => {
     let service: OpenAIService;

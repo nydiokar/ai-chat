@@ -1,13 +1,13 @@
 import Keyv from 'keyv';
 import { KeyvFile } from 'keyv-file';
-import { DatabaseService } from './db-service.js';
-import { debug } from '../utils/config.js';
+import { DatabaseService } from '../db-service.js';
+import { debug } from '../../utils/config.js';
 import type { 
     CacheConfig, 
-    CacheMetrics,
     KeyvInstance 
-} from '../types/services/cache.js';
-import { CacheType } from '../types/services/cache.js';
+} from '../../types/cache/base.js';
+import { CacheType } from '../../types/cache/types.js';
+import { CacheMetrics } from '../../types/cache/types.js';
 
 export { CacheType };
 
@@ -87,17 +87,17 @@ export class CacheService {
             this.metricsCache = metricsCacheInstance as unknown as KeyvInstance<CacheMetrics>;
 
             // Set up error handlers with more detailed logging
-            this.cache.on('error', err => {
+            this.cache.on('error', (err: Error) => {
                 debug(`Cache error in main cache: ${err.message}`);
                 if (err.stack) debug(err.stack);
             });
 
-            this.longTermCache.on('error', err => {
+            this.longTermCache.on('error', (err: Error) => {
                 debug(`Cache error in long-term cache: ${err.message}`);
                 if (err.stack) debug(err.stack);
             });
 
-            this.metricsCache.on('error', err => {
+            this.metricsCache.on('error', (err: Error) => {
                 debug(`Cache error in metrics cache: ${err.message}`);
                 if (err.stack) debug(err.stack);
             });
@@ -140,7 +140,8 @@ export class CacheService {
             const metrics: CacheMetrics = existingMetrics || {
                 hits: 0,
                 misses: 0,
-                lastAccessed: new Date()
+                lastAccessed: new Date(),
+                errorCount: 0
             };
 
             if (hit) {

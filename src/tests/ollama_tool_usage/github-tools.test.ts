@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { MCPClientService } from "../../tools/mcp/mcp-client-service.js";
-import { ToolDefinition } from "../../tools/mcp/migration/types/tools.js";
+import { ToolDefinition } from "../../tools/mcp/types/tools.js";
 import mcpServers from '../../tools/mcp/mcp_config.js';
 
 // Custom test logger

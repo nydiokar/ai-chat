@@ -1,7 +1,7 @@
 import { AIService, AIMessage, AIResponse } from '../../types/ai-service.js';
-import { IToolManager } from '../../tools/mcp/migration/interfaces/core.js';
+import { IToolManager } from '../../tools/mcp/interfaces/core.js';
 import { SystemPromptGenerator } from '../../system-prompt-generator.js';
-import { MCPContainer } from '../../tools/mcp/migration/di/container.js';
+import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { Cleanable } from '../../types/cleanable.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 
