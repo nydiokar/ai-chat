@@ -3,12 +3,19 @@ import { ToolDefinition } from '../../../tools/mcp/types/tools.js';
 import { debug } from '../../../utils/config.js';
 import crypto from 'crypto';
 import winston from 'winston';
+import zlib from 'zlib';
+import { promisify } from 'util';
+
+const compress = promisify(zlib.gzip);
+const decompress = promisify(zlib.gunzip);
 
 export interface ToolCacheOptions {
     ttl?: number;
     namespace?: string;
     tags?: string[];
     strategy?: 'replace' | 'increment' | 'max';
+    isSchema?: boolean;   // Flag for schema entries
+    compress?: boolean;   // Enable compression for large entries
 }
 
 export interface ToolCacheStats {
@@ -27,11 +34,15 @@ export class ToolCache {
     private stats = {
         hits: 0,
         misses: 0,
-        totalQueries: 0
+        totalQueries: 0,
+        schemaHits: 0,
+        schemaMisses: 0
     };
 
     private readonly memoryLimit = 256; // MB
     private readonly checkPeriod = 600; // 10 minutes
+    private readonly SCHEMA_TTL = 24 * 60 * 60; // 24 hours for schemas
+    private readonly COMPRESSION_THRESHOLD = 1024; // Compress if larger than 1KB
 
     private constructor() {
         this.cacheService = CacheService.getInstance({
@@ -41,7 +52,6 @@ export class ToolCache {
             filename: 'tool-cache.json'
         });
 
-        // Setup logging
         this.logger = winston.createLogger({
             level: 'info',
             format: winston.format.combine(
@@ -54,7 +64,6 @@ export class ToolCache {
             ]
         });
 
-        // Setup monitoring
         this.setupCacheMonitoring();
     }
 
@@ -65,11 +74,12 @@ export class ToolCache {
         return ToolCache.instance;
     }
 
-    private generateCacheKey(toolName: string, input: any, tags?: string[]): string {
+    private generateCacheKey(toolName: string, input: any, tags?: string[], isSchema: boolean = false): string {
         const data = {
             tool: toolName,
-            input: typeof input === 'string' ? input.slice(0, 100) : input,
-            tags: tags?.sort() // Sort tags for consistent keys
+            input: isSchema ? 'schema' : (typeof input === 'string' ? input.slice(0, 100) : input),
+            tags: tags?.sort(),
+            type: isSchema ? 'schema' : 'data'
         };
         return crypto
             .createHash('sha256')
@@ -89,86 +99,139 @@ export class ToolCache {
         }
     }
 
+    private async compressData(data: any): Promise<Buffer> {
+        const jsonString = JSON.stringify(data);
+        return compress(jsonString);
+    }
+
+    private async decompressData<T>(buffer: Buffer): Promise<T> {
+        const jsonString = (await decompress(buffer)).toString();
+        return JSON.parse(jsonString);
+    }
+
+    async getSchema<T extends ToolDefinition>(toolName: string): Promise<T | undefined> {
+        try {
+            const key = this.generateCacheKey(toolName, null, undefined, true);
+            const entry = await this.cacheService.get<{
+                compressed: boolean;
+                data: Buffer | T;
+            }>(key);
+
+            this.stats.totalQueries++;
+            
+            if (!entry) {
+                this.stats.schemaMisses++;
+                debug(`Schema cache miss for tool: ${toolName}`);
+                return undefined;
+            }
+
+            this.stats.schemaHits++;
+            debug(`Schema cache hit for tool: ${toolName}`);
+            
+            if (entry.compressed) {
+                return await this.decompressData<T>(entry.data as Buffer);
+            }
+            return entry.data as T;
+        } catch (error) {
+            debug(`Schema cache get error: ${error instanceof Error ? error.message : String(error)}`);
+            return undefined;
+        }
+    }
+
     async get<T>(toolName: string, input: any, tags?: string[]): Promise<T | undefined> {
         try {
             const key = this.generateCacheKey(toolName, input, tags);
-            const result = await this.cacheService.get<T>(key);
-            
-            // Update stats
+            const entry = await this.cacheService.get<{
+                compressed: boolean;
+                data: Buffer | T;
+            }>(key);
+
             this.stats.totalQueries++;
-            if (result !== undefined) {
-                this.stats.hits++;
-                debug('Cache hit for tool: ' + toolName);
-            } else {
+
+            if (!entry) {
                 this.stats.misses++;
-                debug('Cache miss for tool: ' + toolName);
+                debug(`Tool cache miss for tool: ${toolName}`);
+                return undefined;
             }
 
-            return result;
+            this.stats.hits++;
+            debug(`Tool cache hit for tool: ${toolName}`);
+            
+            if (entry.compressed) {
+                return await this.decompressData<T>(entry.data as Buffer);
+            }
+            return entry.data as T;
+
         } catch (error) {
             debug(`Tool cache get error: ${error instanceof Error ? error.message : String(error)}`);
             return undefined;
         }
     }
 
+    async setSchema<T extends ToolDefinition>(toolName: string, value: T): Promise<void> {
+        try {
+            const key = this.generateCacheKey(toolName, null, undefined, true);
+            const size = this.calculateObjectSize(value);
+
+            let entry: { compressed: boolean; data: Buffer | T };
+            
+            if (size > this.COMPRESSION_THRESHOLD) {
+                const compressed = await this.compressData(value);
+                entry = { compressed: true, data: compressed };
+            } else {
+                entry = { compressed: false, data: value };
+            }
+
+            await this.cacheService.set(key, entry, this.SCHEMA_TTL);
+            debug(`Cached schema for tool: ${toolName}`);
+        } catch (error) {
+            debug(`Schema cache set error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     async set<T>(toolName: string, input: any, value: T, options: ToolCacheOptions = {}): Promise<void> {
         try {
             const key = this.generateCacheKey(toolName, input, options.tags);
-            const entrySize = this.calculateObjectSize(value);
+            const size = this.calculateObjectSize(value);
 
-            // Check memory limit
-            if (this.getCurrentMemoryUsage() + entrySize > this.memoryLimit * 1024 * 1024) {
-                this.logger.warn('Cache memory limit exceeded', {
-                    toolName,
-                    entrySize,
-                    currentMemory: this.getCurrentMemoryUsage()
-                });
-                await this.cleanup(); // Try to free up space
+            if (this.getCurrentMemoryUsage() + size > this.memoryLimit * 1024 * 1024) {
+                await this.cleanup();
             }
 
-            // Handle different cache strategies
-            if (options.strategy) {
-                const existing = await this.cacheService.get<T>(key);
-                if (existing !== undefined) {
-                    let finalValue = value;
-                    switch (options.strategy) {
-                        case 'increment':
-                            if (typeof value === 'number' && typeof existing === 'number') {
-                                finalValue = (existing + value) as T;
-                            }
-                            break;
-                        case 'max':
-                            if (typeof value === 'number' && typeof existing === 'number') {
-                                finalValue = Math.max(existing, value) as T;
-                            }
-                            break;
-                    }
-                    value = finalValue;
-                }
+            let entry: { compressed: boolean; data: Buffer | T };
+            
+            if ((size > this.COMPRESSION_THRESHOLD && options.compress !== false) || options.compress) {
+                const compressed = await this.compressData(value);
+                entry = { compressed: true, data: compressed };
+            } else {
+                entry = { compressed: false, data: value };
             }
 
-            await this.cacheService.set(key, value, options.ttl);
-            debug(`Cached tool result: ${toolName}`);
+            const ttl = options.isSchema ? this.SCHEMA_TTL : options.ttl;
+            await this.cacheService.set(key, entry, ttl);
+            debug(`Cached ${options.isSchema ? 'schema' : 'result'} for tool: ${toolName}`);
         } catch (error) {
-            debug(`Tool cache set error: ${error instanceof Error ? error.message : String(error)}`);
+            debug(`Cache set error: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+
+    async invalidateSchema(toolName: string): Promise<void> {
+        const key = this.generateCacheKey(toolName, null, undefined, true);
+        await this.cacheService.delete(key);
     }
 
     private async cleanup(): Promise<void> {
         try {
             const stats = await this.getStats();
             
-            // If hit rate is low, try smart cleanup first
             if (stats.hitRate < 0.5) {
                 this.logger.info('Low hit rate detected, performing selective cleanup');
                 await this.invalidateUnusedEntries();
             }
             
-            // If memory is still high, clear everything
             if (this.getCurrentMemoryUsage() > this.memoryLimit * 1024 * 1024 * 0.9) {
-                this.logger.warn('Memory still high after selective cleanup, clearing all cache');
-                await this.cacheService.clear();
-                this.resetStats();
+                this.logger.warn('Memory still high after selective cleanup, clearing non-schema cache');
+                await this.clearNonSchemaEntries();
             }
         } catch (error) {
             debug(`Cleanup error: ${error instanceof Error ? error.message : String(error)}`);
@@ -177,35 +240,28 @@ export class ToolCache {
 
     private async invalidateUnusedEntries(): Promise<void> {
         try {
-            // Get all keys from cache service metrics
             const metrics = await this.cacheService.getMetrics('*');
             if (!metrics) return;
 
-            interface EntryMetrics {
-                key: string;
-                hits: number;
-                lastAccessed: Date;
-            }
-
-            const entriesWithMetrics: EntryMetrics[] = Object.entries(metrics)
+            const entriesWithMetrics = Object.entries(metrics)
                 .map(([key, value]) => ({
                     key,
                     hits: value?.hits || 0,
-                    lastAccessed: value?.lastAccessed || new Date(0)
-                }));
+                    lastAccessed: value?.lastAccessed || new Date(0),
+                    isSchema: key.includes(':schema:')
+                }))
+                .filter(entry => !entry.isSchema); // Don't remove schema entries
 
             if (entriesWithMetrics.length === 0) return;
 
-            // Sort by least hits and oldest access
-            entriesWithMetrics.sort((a: EntryMetrics, b: EntryMetrics) => {
+            entriesWithMetrics.sort((a, b) => {
                 if (a.hits !== b.hits) return a.hits - b.hits;
                 return a.lastAccessed.getTime() - b.lastAccessed.getTime();
             });
 
-            // Remove bottom 20% of entries
             const entriesToRemove = entriesWithMetrics
                 .slice(0, Math.floor(entriesWithMetrics.length * 0.2))
-                .map((entry: EntryMetrics) => entry.key);
+                .map(entry => entry.key);
 
             for (const key of entriesToRemove) {
                 await this.cacheService.delete(key);
@@ -220,28 +276,59 @@ export class ToolCache {
         }
     }
 
+    private async clearNonSchemaEntries(): Promise<void> {
+        // TODO: Implement selective clearing of non-schema entries
+        // For now, we'll preserve schema entries during cleanup
+        this.resetStats();
+    }
+
     private setupCacheMonitoring(): void {
+        // Use a shorter interval in development mode
+        const monitoringInterval = process.env.NODE_ENV === 'production' 
+            ? this.checkPeriod * 1000  // 10 minutes in production
+            : 60 * 1000;               // 1 minute in development
+        
         if (process.env.NODE_ENV !== 'test') {
             setInterval(async () => {
                 const stats = await this.getStats();
-                this.logger.info('Cache Performance', stats);
+                this.logger.info('Cache Performance', {
+                    ...stats,
+                    timestamp: new Date().toISOString(),
+                    environment: process.env.NODE_ENV || 'development'
+                });
 
-                // Auto cleanup if memory usage is high
-                if (this.getCurrentMemoryUsage() > this.memoryLimit * 1024 * 1024 * 0.9) { // 90% of limit
+                if (this.getCurrentMemoryUsage() > this.memoryLimit * 1024 * 1024 * 0.9) {
                     await this.cleanup();
                 }
-            }, this.checkPeriod * 1000);
+            }, monitoringInterval);
         }
     }
 
     async getStats(): Promise<ToolCacheStats> {
+        // Get the actual count of entries from the cache file
+        let totalEntries = 0;
+        try {
+            // Read the cache file directly to count entries
+            const fs = await import('fs/promises');
+            const path = await import('path');
+            const cacheFilePath = path.resolve('tool-cache.json');
+            
+            if (await fs.access(cacheFilePath).then(() => true).catch(() => false)) {
+                const cacheContent = await fs.readFile(cacheFilePath, 'utf8');
+                const cacheData = JSON.parse(cacheContent);
+                totalEntries = cacheData?.value?.cache?.length || 0;
+            }
+        } catch (error) {
+            debug(`Error counting cache entries: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        
         return {
-            totalEntries: 0, // We'll need to implement this with Keyv
+            totalEntries,
             memoryUsage: this.getCurrentMemoryUsage(),
             hitRate: this.stats.hits / (this.stats.totalQueries || 1),
             missRate: this.stats.misses / (this.stats.totalQueries || 1),
-            totalHits: this.stats.hits,
-            totalMisses: this.stats.misses
+            totalHits: this.stats.hits + this.stats.schemaHits,
+            totalMisses: this.stats.misses + this.stats.schemaMisses
         };
     }
 
@@ -249,18 +336,22 @@ export class ToolCache {
         this.stats = {
             hits: 0,
             misses: 0,
-            totalQueries: 0
+            totalQueries: 0,
+            schemaHits: 0,
+            schemaMisses: 0
         };
     }
 
     async invalidate(toolName?: string, tags?: string[]): Promise<void> {
-        // TODO: Implement selective invalidation based on toolName and tags
-        // For now, we'll just clear everything as before
-        await this.cacheService.clear();
-        this.resetStats();
+        if (toolName) {
+            const key = this.generateCacheKey(toolName, '*', tags);
+            await this.cacheService.delete(key);
+        } else {
+            await this.clearNonSchemaEntries();
+        }
     }
 
     async getMetrics(toolName: string): Promise<any> {
         return this.cacheService.getMetrics(toolName);
     }
-} 
+}

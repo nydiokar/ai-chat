@@ -116,20 +116,54 @@ export class HotTokensService {
                 const categoryEmoji = this.getCategoryEmoji(token.category);
                 const price = await this.getTokenPrice(token.contractAddress);
                 
+                // Format market caps with proper formatting
+                const marketCapNow = token.marketCapNow 
+                    ? `$${this.formatLargeNumber(token.marketCapNow)}`
+                    : 'N/A';
+                
+                const marketCapFirstEntry = token.marketCapFirstEntry
+                    ? `$${this.formatLargeNumber(token.marketCapFirstEntry)}`
+                    : 'N/A';
+                
+                // Calculate growth percentage if both values exist
+                let growthPercentage = '';
+                if (token.marketCapNow && token.marketCapFirstEntry && token.marketCapFirstEntry > 0) {
+                    const growth = ((token.marketCapNow - token.marketCapFirstEntry) / token.marketCapFirstEntry) * 100;
+                    growthPercentage = ` (${growth > 0 ? '+' : ''}${growth.toFixed(2)}%)`;
+                }
+                
                 let priceInfo = '';
                 if (price) {
-                    priceInfo = `\n   💰 $${price.currentPrice.toFixed(6)} (24h: ${price.priceChange['24h'].toFixed(2)}%)\n` +
-                               `   💧 Liquidity: $${price.liquidity.toLocaleString()}\n` +
-                               `   📊 Volume: $${price.volume24h.toLocaleString()}`;
+                    priceInfo = `\n   💰 **Price:** $${price.currentPrice.toFixed(7)}` +
+                               `\n   📈 **24h Change:** ${price.priceChange['24h'].toFixed(2)}%` +
+                               `\n   💧 **Liquidity:** $${price.liquidity.toLocaleString()}`;
                 }
 
-                return `${index + 1}. ${categoryEmoji} **${token.name}**\n   \`${token.contractAddress}\`${priceInfo}\n   ${token.category}`;
+                return `**${index + 1}. ${categoryEmoji} ${token.name}** (${token.category})` +
+                       `\n   📝 **Contract:** \`${token.contractAddress}\`` +
+                       `${priceInfo}` +
+                       `\n   📊 **Current Market Cap:** ${marketCapNow}` +
+                       `\n   🚀 **Initial Market Cap:** ${marketCapFirstEntry}${growthPercentage}` +
+                       (token.note ? `\n   📌 **Note:** ${token.note}` : '');
             }));
             
             embed.addFields({ name: 'Tokens', value: tokenList.join('\n\n') });
         }
 
         return embed;
+    }
+
+    // Helper method to format large numbers with K, M, B suffixes
+    private formatLargeNumber(num: number): string {
+        if (num >= 1_000_000_000) {
+            return (num / 1_000_000_000).toFixed(2) + 'B';
+        } else if (num >= 1_000_000) {
+            return (num / 1_000_000).toFixed(2) + 'M';
+        } else if (num >= 1_000) {
+            return (num / 1_000).toFixed(2) + 'K';
+        } else {
+            return num.toLocaleString();
+        }
     }
 
     private getCategoryEmoji(category: TokenCategory): string {

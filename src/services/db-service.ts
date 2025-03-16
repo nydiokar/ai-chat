@@ -100,6 +100,26 @@ export class DatabaseService {
         throw new DatabaseError(`Summary exceeds maximum length of ${this.MAX_SUMMARY_LENGTH}`);
       }
 
+      // If we have Discord context, ensure the user exists
+      if (discordContext?.userId) {
+        const existingUser = await this.prisma.user.findUnique({
+          where: { id: discordContext.userId }
+        });
+        
+        if (!existingUser) {
+          debug(`Creating user record for Discord user ${discordContext.userId}`);
+          await this.prisma.user.create({
+            data: {
+              id: discordContext.userId,
+              username: discordContext.username || `Discord User ${discordContext.userId}`,
+              isActive: true,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }
+          });
+        }
+      }
+
       debug('Creating new conversation');
       const conversation = await this.prisma.conversation.create({
         data: {

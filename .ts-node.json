@@ -1,8 +1,0 @@
-{
-    "compilerOptions": {
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext"
-    },
-    "esm": true,
-    "experimentalSpecifierResolution": "node"
-} 

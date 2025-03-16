@@ -64,8 +64,34 @@ export class CommandParserService {
   parse(input: string): ParsedCommand {
     debug(`Parsing command: ${input}`);
     
+    // Check for help command first
+    const helpMatch = input.match(/^help(?:\s+(\w+))?$/i);
+    if (helpMatch) {
+      return {
+        command: 'help',
+        action: 'help',
+        parameters: {
+          topic: helpMatch[1]?.toLowerCase() || 'general'
+        }
+      };
+    }
 
-    // Try each pattern set
+    // Check for hot tokens commands
+    const htMatch = input.match(/^(?:ht|hot tokens?|tokens?)\s+(\w+)(?:\s+(.+))?$/i);
+    if (htMatch) {
+      const action = htMatch[1]?.toLowerCase();
+      const value = htMatch[2];
+      
+      if (['add', 'remove', 'list', 'stats'].includes(action)) {
+        return {
+          command: 'ht',
+          action,
+          parameters: value ? { value } : {}
+        };
+      }
+    }
+
+    // Try each pattern set for task commands
     for (const [command, patterns] of Object.entries(this.patterns)) {
       for (const pattern of patterns) {
         const match = input.match(pattern);
@@ -100,6 +126,17 @@ export class CommandParserService {
         throw new CommandParserError('To delete a task, use format: delete task #id');
       }
     }
+    
+    // Check for hot tokens keywords
+    if (words.some(w => ['token', 'tokens', 'ht'].includes(w))) {
+      throw new CommandParserError(
+        'For hot tokens commands, use:\n' +
+        '- ht add <token>\n' +
+        '- ht list\n' +
+        '- ht remove <token>\n' +
+        '- ht stats'
+      );
+    }
 
     throw new CommandParserError(
       'Unrecognized command. Try:\n' +
@@ -108,7 +145,9 @@ export class CommandParserService {
       '- update task #id status to [status]\n' +
       '- assign task #id to @user\n' +
       '- list tasks\n' +
-      '- delete task #id'
+      '- delete task #id\n' +
+      '- help\n' +
+      '- ht list'
     );
   }
 

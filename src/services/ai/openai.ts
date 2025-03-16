@@ -132,12 +132,20 @@ export class OpenAIService extends BaseAIService {
         try {
             aiRateLimiter.checkLimit('gpt');
             
+            // Get the system prompt (this also filters and caches relevant tools)
             const systemPrompt = await this.getSystemPrompt();
+            
+            // Prepare messages for the API call
             const messages = await this.prepareMessages(systemPrompt, message, conversationHistory);
-            const tools = await this.toolManager.getAvailableTools();
-
-            return tools.length > 0 
-                ? this.handleToolBasedCompletion(messages, tools)
+            
+            // Get relevant tools from the promptGenerator
+            // This reuses the filtering logic already in SystemPromptGenerator
+            const relevantTools = await this.promptGenerator.getRelevantTools(message);
+            
+            debug(`Using ${relevantTools.length} relevant tools for message`);
+            
+            return relevantTools.length > 0 
+                ? this.handleToolBasedCompletion(messages, relevantTools)
                 : this.handleSimpleCompletion(messages);
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));

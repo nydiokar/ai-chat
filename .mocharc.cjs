@@ -1,9 +1,7 @@
-export default {
-    require: ['ts-node/register'],
+module.exports = {
     extension: ['.ts'],
     'node-option': [
-        'experimental-specifier-resolution=node',
-        'loader=ts-node/esm'
+        'experimental-specifier-resolution=node'
     ],
     spec: ['src/**/*.test.ts'],
     watchFiles: ['src/**/*.ts'],
@@ -12,6 +10,6 @@ export default {
     color: true,
     reporter: 'spec',
     ui: 'bdd',
-    parallel: false, // Disable parallel for now until ESM issues are resolved
+    parallel: false,
     recursive: true
 }; 

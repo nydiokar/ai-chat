@@ -1,6 +1,10 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { HotTokensService } from '../services/hot-tokens-service.js';
 import { TokenCategory } from '../types/token-category.js';
+import { PriceTrackingService } from '../services/price-tracking-service.js';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export const hotTokensCommands = new SlashCommandBuilder()
     .setName('ht')
@@ -9,10 +13,6 @@ export const hotTokensCommands = new SlashCommandBuilder()
         subcommand
             .setName('add')
             .setDescription('Add a new token to the hot list')
-            .addStringOption(option =>
-                option.setName('name')
-                    .setDescription('Token name')
-                    .setRequired(true))
             .addStringOption(option =>
                 option.setName('contract')
                     .setDescription('Token contract address')
@@ -27,12 +27,12 @@ export const hotTokensCommands = new SlashCommandBuilder()
                             value
                         }))))
             .addStringOption(option =>
+                option.setName('name')
+                    .setDescription('Token name (optional, will auto-fetch if not provided)')
+                    .setRequired(false))
+            .addStringOption(option =>
                 option.setName('note')
                     .setDescription('Additional notes about the token')
-                    .setRequired(false))
-            .addBooleanOption(option =>
-                option.setName('community')
-                    .setDescription('Is this a community token?')
                     .setRequired(false)))
     .addSubcommand(subcommand =>
         subcommand
@@ -145,7 +145,15 @@ export const hotTokensCommands = new SlashCommandBuilder()
     .addSubcommand(subcommand =>
         subcommand
             .setName('help')
-            .setDescription('Show hot tokens commands and tips'));
+            .setDescription('Show hot tokens commands and tips'))
+    .addSubcommand(subcommand =>
+        subcommand
+            .setName('debug')
+            .setDescription('Debug token price fetching')
+            .addStringOption(option =>
+                option.setName('contract')
+                    .setDescription('Token contract address or "test" for known tokens')
+                    .setRequired(true)));
 
 export function getHotTokensHelpMenu(): string {
     return `🔥 **Hot Tokens Tracking System** 🔥
@@ -189,7 +197,9 @@ Track and manage potentially interesting tokens with the community.
 
 export async function handleHotTokensCommand(interaction: ChatInputCommandInteraction, hotTokensService: HotTokensService) {
     try {
-        switch (interaction.options.getSubcommand()) {
+        const subcommand = interaction.options.getSubcommand();
+        
+        switch (subcommand) {
             case 'help': {
                 await interaction.reply({
                     content: getHotTokensHelpMenu(),
@@ -199,27 +209,55 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
             }
             
             case 'add': {
-                const name = interaction.options.getString('name', true);
+                await interaction.deferReply({ ephemeral: true });
+                
                 const contractAddress = interaction.options.getString('contract', true);
-                const category = interaction.options.getString('category', true) as TokenCategory;
-                const note = interaction.options.getString('note');
-                const isCommunity = interaction.options.getBoolean('community') || false;
-
-                await hotTokensService.addToken({
-                    name,
-                    contractAddress,
-                    category,
-                    note: note ?? null,
-                    isCommunity,
-                    marketCapNow: null,
-                    marketCapFirstEntry: null,
-                    meta: null
-                });
-
-                await interaction.reply({ 
-                    content: `✅ Added ${name} to hot tokens list! 🔥`,
-                    ephemeral: true 
-                });
+                const providedName = interaction.options.getString('name');
+                const category = interaction.options.getString('category') as TokenCategory || 'UNKNOWN';
+                const note = interaction.options.getString('note') || '';
+                
+                try {
+                    // First fetch the token data to get name and details
+                    const priceTrackingService = new PriceTrackingService(prisma);
+                    const priceData = await priceTrackingService.getTokenPrice(contractAddress);
+                    
+                    if (!priceData && !providedName) {
+                        await interaction.editReply(`❌ Could not fetch token data and no name was provided. Please provide a name or try again later.`);
+                        return;
+                    }
+                    
+                    // Use provided name or fetched name
+                    const name = providedName || priceData?.name || 'Unknown Token';
+                    
+                    // Add the token to the database
+                    const token = await hotTokensService.addToken({
+                        contractAddress,
+                        name,
+                        category,
+                        note: note || null,
+                        isCommunity: false,
+                        marketCapNow: priceData?.marketCap || null,
+                        marketCapFirstEntry: priceData?.marketCap || null,
+                        meta: null
+                    });
+                    
+                    let responseMessage = `✅ Added **${name}** to the hot tokens list!`;
+                    
+                    if (priceData) {
+                        responseMessage += `\n\n**Current Data:**\n`;
+                        responseMessage += `💰 Price: $${priceData.currentPrice.toFixed(8)}\n`;
+                        responseMessage += `📊 Market Cap: $${priceData.marketCap.toLocaleString()}\n`;
+                        responseMessage += `💧 Liquidity: $${priceData.liquidity.toLocaleString()}\n`;
+                        responseMessage += `📈 24h Change: ${priceData.priceChange['24h'].toFixed(2)}%`;
+                    } else {
+                        responseMessage += `\n\n⚠️ Could not fetch price data for this token.`;
+                    }
+                    
+                    await interaction.editReply(responseMessage);
+                } catch (error) {
+                    console.error('Error adding token:', error);
+                    await interaction.editReply(`❌ Failed to add token: ${(error as Error).message}`);
+                }
                 break;
             }
 
@@ -295,31 +333,122 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
             }
 
             case 'list': {
-                const category = (interaction.options.getString('category') || undefined) as TokenCategory | undefined;
-                const communityOnly = interaction.options.getBoolean('community') ?? undefined;
-
-                const tokens = await hotTokensService.listTokens({ category, communityOnly });
-                const embed = await hotTokensService.createListEmbed(tokens);
+                await interaction.deferReply({ ephemeral: true });
+                const tokens = await prisma.hotToken.findMany({
+                    orderBy: { id: 'desc' }
+                });
                 
-                await interaction.reply({ embeds: [embed] });
+                if (tokens.length === 0) {
+                    await interaction.editReply('No tokens in the hot list yet.');
+                    return;
+                }
+                
+                const priceTrackingService = new PriceTrackingService(prisma);
+                
+                // Fetch current prices for all tokens
+                const tokenPrices = await Promise.all(
+                    tokens.map(async (token) => {
+                        const price = await priceTrackingService.getTokenPrice(token.contractAddress);
+                        return { token, price };
+                    })
+                );
+                
+                let response = `## 🔥 Hot Tokens List\n\nTotal tokens: ${tokens.length}\n\n### Tokens\n`;
+                
+                tokenPrices.forEach((item, index) => {
+                    const { token, price } = item;
+                    
+                    // Format market cap values
+                    const initialMC = token.marketCapFirstEntry !== null 
+                        ? `$${token.marketCapFirstEntry.toLocaleString()}`
+                        : 'N/A';
+                    
+                    const currentMC = token.marketCapNow !== null 
+                        ? `$${token.marketCapNow.toLocaleString()}`
+                        : 'N/A';
+                    
+                    // Calculate market cap change if both values exist
+                    let mcChangeText = '';
+                    if (token.marketCapFirstEntry !== null && token.marketCapNow !== null && token.marketCapFirstEntry > 0) {
+                        const mcChange = ((token.marketCapNow - token.marketCapFirstEntry) / token.marketCapFirstEntry) * 100;
+                        const changeEmoji = mcChange >= 0 ? '📈' : '📉';
+                        mcChangeText = ` ${changeEmoji} ${mcChange.toFixed(2)}%`;
+                    }
+                    
+                    // Current price from API
+                    const currentPrice = price ? `$${price.currentPrice.toFixed(8)}` : 'N/A';
+                    
+                    response += `**${index + 1}. ${token.name}** (${token.category})\n`;
+                    response += `📝 Contract: \`${token.contractAddress}\`\n`;
+                    response += `💰 Current Price: ${currentPrice}\n`;
+                    response += `📊 Initial Market Cap: ${initialMC}\n`;
+                    response += `📈 Current Market Cap: ${currentMC}${mcChangeText}\n`;
+                    
+                    if (token.note) {
+                        response += `📝 Note: ${token.note}\n`;
+                    }
+                    
+                    response += '\n';
+                });
+                
+                await interaction.editReply(response);
                 break;
             }
 
             case 'price': {
+                await interaction.deferReply();
                 const contractAddress = interaction.options.getString('contract', true);
-                const priceData = await hotTokensService.getTokenPrice(contractAddress);
+                
+                const priceTrackingService = new PriceTrackingService(prisma);
+                const priceData = await priceTrackingService.getTokenPrice(contractAddress);
                 
                 if (!priceData) {
-                    await interaction.reply({ 
-                        content: '❌ Unable to fetch price data for the token.',
-                        ephemeral: true 
-                    });
+                    await interaction.editReply('❌ Unable to fetch price data for the token.');
                     return;
                 }
 
-                const embed = await hotTokensService.createPriceEmbed(priceData);
+                // Create a rich embed with token details
+                const embed = priceTrackingService.createPriceEmbed(priceData);
                 
-                await interaction.reply({ embeds: [embed] });
+                // Create a formatted message with token details
+                let message = '';
+                
+                // Add token name and symbol
+                message += `# ${priceData.name} (${priceData.symbol})\n\n`;
+                
+                // Add price and market data
+                message += `💰 **Price:** $${priceData.currentPrice.toFixed(8)}\n`;
+                message += `📊 **Market Cap:** $${priceData.marketCap.toLocaleString()}\n`;
+                message += `💧 **Liquidity:** $${priceData.liquidity.toLocaleString()}\n`;
+                message += `📈 **24h Volume:** $${priceData.volume24h.toLocaleString()}\n\n`;
+                
+                // Add price changes
+                message += `## Price Changes\n`;
+                message += `1h: ${priceData.priceChange['1h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['1h'].toFixed(2)}%\n`;
+                message += `24h: ${priceData.priceChange['24h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['24h'].toFixed(2)}%\n`;
+                message += `7d: ${priceData.priceChange['7d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['7d'].toFixed(2)}%\n`;
+                message += `30d: ${priceData.priceChange['30d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['30d'].toFixed(2)}%\n\n`;
+                
+                // Add contract and DEX info
+                message += `## Token Info\n`;
+                message += `📝 **Contract:** \`${priceData.contractAddress}\`\n`;
+                message += `🔄 **DEX:** ${priceData.dexId.toUpperCase()}\n`;
+                message += `🔗 **Pair:** \`${priceData.pairAddress}\`\n\n`;
+                
+                // Add description if available
+                if (priceData.profile?.description) {
+                    message += `## Description\n${priceData.profile.description}\n\n`;
+                }
+                
+                // Add links if available
+                if (priceData.profile?.links && priceData.profile.links.length > 0) {
+                    message += `## Links\n`;
+                    priceData.profile.links.forEach(link => {
+                        message += `- [${link.label || link.type}](${link.url})\n`;
+                    });
+                }
+                
+                await interaction.editReply({ content: message, embeds: [embed] });
                 break;
             }
 
@@ -362,12 +491,46 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                 });
                 break;
             }
+
+            case 'debug': {
+                await interaction.deferReply({ ephemeral: true });
+                const contractAddress = interaction.options.getString('contract', true);
+                
+                const priceTrackingService = new PriceTrackingService(prisma);
+                const priceData = await priceTrackingService.getTokenPrice(contractAddress);
+                
+                let response = `## 🔍 Debug Results for ${contractAddress}\n\n`;
+                
+                if (priceData) {
+                    response += `✅ **Successfully fetched data!**\n\n`;
+                    response += `**Token Details:**\n`;
+                    response += `- Name: ${priceData.name}\n`;
+                    response += `- Symbol: ${priceData.symbol}\n`;
+                    response += `- Price: $${priceData.currentPrice.toFixed(8)}\n`;
+                    response += `- Market Cap: $${priceData.marketCap.toLocaleString()}\n`;
+                    response += `- Liquidity: $${priceData.liquidity.toLocaleString()}\n`;
+                    response += `- 24h Change: ${priceData.priceChange['24h'].toFixed(2)}%\n`;
+                    response += `- DEX: ${priceData.dexId}\n`;
+                    response += `- Pair Address: ${priceData.pairAddress}\n`;
+                } else {
+                    response += `❌ **Failed to fetch data**\n\n`;
+                    response += `Please check the console logs for detailed error information.`;
+                }
+                
+                await interaction.editReply(response);
+                break;
+            }
         }
     } catch (error) {
         console.error('Error handling hot tokens command:', error);
-        await interaction.reply({ 
-            content: '❌ An error occurred while processing your request.',
-            ephemeral: true 
-        });
+        try {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.editReply('An error occurred while processing your command.');
+            } else {
+                await interaction.reply({ content: 'An error occurred while processing your command.', ephemeral: true });
+            }
+        } catch (replyError) {
+            console.error('Error handling slash command:', replyError);
+        }
     }
 } 

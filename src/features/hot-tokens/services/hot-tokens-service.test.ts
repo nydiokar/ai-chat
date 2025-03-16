@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { PrismaClient, TokenCategory } from '@prisma/client';
 import { HotTokensService } from './hot-tokens-service.js';
-import { PriceTrackingService } from './price-tracking-service.js';
+import { PriceTrackingService } from '../services/price-tracking-service.js';
 import type { HotToken } from '../types/token.js';
 import sinon from 'sinon';
 import { EmbedBuilder } from 'discord.js';

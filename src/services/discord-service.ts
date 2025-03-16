@@ -1,17 +1,19 @@
-import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message, REST, Routes } from 'discord.js';
 import { DatabaseService } from './db-service.js';
 import { AIModel, Message as DBMessage, Role } from '../types/index.js';
 import { AIService } from '../types/ai-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
-import { TaskManager } from '../tasks/task-manager.js';
-import { CommandParserService, CommandParserError } from '../utils/command-parser-service.js';
-import { PerformanceMonitoringService } from './performance/performance-monitoring.service.js';
 import { debug, defaultConfig } from '../utils/config.js';
 import { IServerManager } from '../tools/mcp/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { mcpConfig } from '../tools/mcp/mcp_config.js';
 import { CacheService, CacheType } from './cache/cache-service.js';
-import { CommandHandler, DiscordContext, DiscordCachedMessage, DiscordCachedConversation } from '../types/discord.js';
+import { DiscordContext, DiscordCachedMessage, DiscordCachedConversation } from '../types/discord.js';
+import { hotTokensCommands, handleHotTokensCommand } from '../features/hot-tokens/commands/hot-tokens-commands.js';
+import { taskCommands, handleTaskCommand } from '../tasks/commands/task-commands.js';
+import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
+import { PrismaClient } from '@prisma/client';
+import { TaskManager } from '../tasks/task-manager.js';
 
 export class DiscordService {
     private client: Client;
@@ -21,12 +23,8 @@ export class DiscordService {
     private readonly contextRefreshInterval = 30 * 60 * 1000;
     private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
     private lastActivityTimestamps: Map<string, number> = new Map();
-    private commandHandlers: Map<string, CommandHandler> = new Map();
-    private taskManager: TaskManager;
-    private performanceMonitoring: PerformanceMonitoringService;
     private mcpContainer?: MCPContainer;
     private serverManager?: IServerManager;
-    private commandParser: CommandParserService;
     private isInitialized: boolean = false;
     private sessionCache!: CacheService;
 
@@ -42,9 +40,6 @@ export class DiscordService {
             ]
         });
         this.db = dbService;
-        this.taskManager = TaskManager.getInstance();
-        this.performanceMonitoring = PerformanceMonitoringService.getInstance();
-        this.commandParser = CommandParserService.getInstance();
     }
 
     private async initializeCache(): Promise<void> {
@@ -95,174 +90,61 @@ export class DiscordService {
         }
     }
 
-    private initializeCommandHandlers() {
-        this.commandHandlers = new Map([
-            ['create', {
-                action: 'create',
-                handler: async (message, params) => {
-                    const task = await this.taskManager.createTask({
-                        title: params.title,
-                        description: params.description,
-                        creatorId: message.author.id,
-                        tags: [],
-                    });
-                    await this.sendMessage(message.channel as TextChannel, 
-                        `✅ Task #${task.id} created: ${task.title}`, 
-                        message
-                    );
-                }
-            }],
-            ['stats', {
-                action: 'stats',
-                handler: async (message) => {
-                    const metrics = await this.performanceMonitoring.generatePerformanceDashboard();
-                    const taskMetrics = metrics.taskMetrics;
-
-                    let response = '```\nTask Performance Metrics:\n\n';
-                    
-                    // Overall stats
-                    response += `📊 Total Tasks: ${taskMetrics.totalTasks}\n`;
-                    response += `✅ Completion Rate: ${(taskMetrics.completionRate * 100).toFixed(1)}%\n`;
-                    response += `⏱️ Avg Completion Time: ${(taskMetrics.averageCompletionTime / (1000 * 60 * 60)).toFixed(1)} hours\n`;
-                    
-                    // Status breakdown
-                    response += '\nStatus Breakdown:\n';
-                    Object.entries(taskMetrics.tasksPerStatus).forEach(([status, count]) => {
-                        response += `${this.getStatusEmoji(status)} ${status}: ${count}\n`;
-                    });
-
-                    // Priority breakdown
-                    response += '\nPriority Distribution:\n';
-                    Object.entries(taskMetrics.tasksByPriority).forEach(([priority, count]) => {
-                        response += `${this.getPriorityEmoji(priority)} ${priority}: ${count}\n`;
-                    });
-
-                    // Active and overdue
-                    response += `\n📈 Active Tasks: ${taskMetrics.activeTasksCount}\n`;
-                    response += `⚠️ Overdue Tasks: ${taskMetrics.overdueTasksCount}\n`;
-                    
-                    response += '```';
-                    await this.sendMessage(message.channel as TextChannel, response, message);
-                }
-            }],
-            ['list', {
-                action: 'list',
-                handler: async (message) => {
-                    const tasks = await this.taskManager.getUserTasks(message.author.id);
-                    let response = '```\nYour Tasks:\n\n';
-                    
-                    if (tasks.created.length === 0 && tasks.assigned.length === 0) {
-                        response += '📝 No tasks found.\n';
-                    } else {
-                        if (tasks.created.length > 0) {
-                            response += '✨ Created by you:\n';
-                            tasks.created.forEach(task => {
-                                response += `\n#${task.id}. ${task.title}
-    📋 What to do: ${task.description || 'No description provided'}
-    ${this.getStatusEmoji(task.status)} Since ${this.formatDate(task.createdAt)}\n`;
-                            });
-                        }
-                        
-                        if (tasks.assigned.length > 0) {
-                            response += '\n📋 Assigned to you:\n';
-                            tasks.assigned.forEach(task => {
-                                response += `\n#${task.id}. ${task.title}
-    📋 What to do: ${task.description || 'No description provided'}
-    ${this.getStatusEmoji(task.status)} Status since ${this.formatDate(task.createdAt)}\n`;
-                            });
-                        }
-                    }
-                    response += '```';
-                    await this.sendMessage(message.channel as TextChannel, response, message);
-                }
-            }],
-            ['view', {
-                action: 'view',
-                handler: async (message, params) => {
-                    const task = await this.taskManager.getTaskDetails(params.id);
-                    const response = this.formatTaskDetails(task);
-                    await this.sendMessage(message.channel as TextChannel, response, message);
-                }
-            }],
-            ['update', {
-                action: 'update',
-                handler: async (message, params) => {
-                    await this.taskManager.updateTaskStatus(params.id, params.status, message.author.id);
-                    await this.sendMessage(message.channel as TextChannel, 
-                        `✅ Task #${params.id} status updated to ${params.status}`, 
-                        message
-                    );
-                }
-            }],
-            ['assign', {
-                action: 'assign',
-                handler: async (message, params) => {
-                    await this.taskManager.assignTask(params.id, params.assigneeId, message.author.id);
-                    await this.sendMessage(message.channel as TextChannel, 
-                        `✅ Task #${params.id} assigned to <@${params.assigneeId}>`, 
-                        message
-                    );
-                }
-            }],
-            ['delete', {
-                action: 'delete',
-                handler: async (message, params) => {
-                    await this.taskManager.deleteTask(params.id, message.author.id);
-                    await this.sendMessage(message.channel as TextChannel, 
-                        `✅ Task #${params.id} deleted`, 
-                        message
-                    );
-                }
-            }]
-        ]);
-    }
-
-    private formatDate(date: Date | string): string {
-        return new Date(date).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    }
-
-    private async handleCommand(message: DiscordMessage, command: { action: string; parameters: any }): Promise<void> {
-        const handler = this.commandHandlers.get(command.action);
-        if (handler) {
-            try {
-                await handler.handler(message, command.parameters);
-            } catch (error) {
-                await this.sendMessage(message.channel as TextChannel, 
-                    `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 
-                    message
-                );
-            }
-        } else {
-            await this.sendMessage(message.channel as TextChannel, 
-                '❌ Unknown command. Available commands: create, list, view, update, assign, delete, stats', 
-                message
-            );
-        }
-    }
-
     private async handleMessage(message: Message): Promise<void> {
         if (message.author.bot) return;
 
-        // Try to parse as a command first
-        try {
-            const parsedCommand = this.commandParser.parse(message.content);
-            await this.handleCommand(message as DiscordMessage, parsedCommand);
+        // Check if this is a direct message or if the bot is mentioned
+        const isDM = !message.guild;
+        const isBotMentioned = message.mentions.users.has(this.client.user!.id);
+        
+        // Only proceed if it's a DM or the bot is explicitly mentioned
+        if (!isDM && !isBotMentioned) {
+            debug(`Message ignored - bot not mentioned: ${message.content.substring(0, 50)}...`);
             return;
-        } catch (error) {
-            // If it's not a valid command (CommandParserError), proceed with AI processing
-            if (!(error instanceof CommandParserError)) {
-                console.error('Error parsing command:', error);
-                await message.reply('Sorry, I encountered an error processing your command.');
-                return;
-            }
+        }
+        
+        // Remove the bot mention from the message content if present
+        let cleanContent = message.content;
+        if (isBotMentioned) {
+            // Remove the bot mention (both <@!id> and <@id> formats)
+            cleanContent = cleanContent.replace(new RegExp(`<@!?${this.client.user!.id}>`, 'g'), '').trim();
+            debug(`Processing message with bot mention: ${cleanContent.substring(0, 50)}...`);
+        }
+
+        // Check if the message looks like a command attempt
+        if (cleanContent.match(/^(task|ht|help|list|create|view|update|assign|delete|stats)/i)) {
+            // Direct users to slash commands
+            await this.sendMessage(message.channel as TextChannel, 
+                "I've moved to slash commands! Try using `/task` or `/ht` commands instead. Type `/` to see all available commands.", 
+                message
+            );
+            return;
         }
 
         // Handle as a conversation with AI
         try {
+            // Ensure the user exists in the database
+            try {
+                const existingUser = await this.db.prisma.user.findUnique({
+                    where: { id: message.author.id }
+                });
+                
+                if (!existingUser) {
+                    debug(`Creating user record for Discord user ${message.author.id}`);
+                    await this.db.prisma.user.create({
+                        data: {
+                            id: message.author.id,
+                            username: message.author.username,
+                            isActive: true,
+                            createdAt: new Date(),
+                            updatedAt: new Date()
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error ensuring user exists:', error);
+            }
+
             const sessionKey = `session:${message.channelId}`;
             let conversation;
 
@@ -335,15 +217,16 @@ export class DiscordService {
                     tool_call_id: undefined
                 } as DBMessage));
 
-            const response = await service.processMessage(message.content, messages);
+            // Use the cleaned content (without the bot mention) for processing
+            const response = await service.processMessage(cleanContent, messages);
 
             // Update database
-            await this.db.addMessage(conversation.id, message.content, 'user');
+            await this.db.addMessage(conversation.id, cleanContent, 'user');
             await this.db.addMessage(conversation.id, response.content, 'assistant');
 
             // Update cache with new messages and handle errors
             const newUserMessage: DiscordCachedMessage = {
-                content: message.content,
+                content: cleanContent,
                 role: 'user',
                 createdAt: new Date(),
                 id: Date.now(),
@@ -403,6 +286,38 @@ export class DiscordService {
             this.handleMessage(message).catch(error => {
                 console.error('Error in message handler:', error);
             });
+        });
+        
+        this.client.on(Events.InteractionCreate, async interaction => {
+            if (!interaction.isChatInputCommand()) return;
+            
+            try {
+                const commandName = interaction.commandName;
+                
+                // Create a single PrismaClient instance to be used by both services
+                const prisma = new PrismaClient();
+                
+                if (commandName === 'task') {
+                    // TaskManager is obtained inside the handler
+                    await handleTaskCommand(interaction);
+                } else if (commandName === 'ht') {
+                    const hotTokensService = new HotTokensService(prisma);
+                    await handleHotTokensCommand(interaction, hotTokensService);
+                }
+                
+                // Close the Prisma client after command handling
+                await prisma.$disconnect();
+            } catch (error) {
+                console.error('Error handling slash command:', error);
+                
+                // Reply with error if interaction hasn't been replied to yet
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: 'An error occurred while processing your command.',
+                        ephemeral: true
+                    });
+                }
+            }
         });
 
         this.client.on(Events.Error, (error) => {
@@ -471,9 +386,6 @@ export class DiscordService {
             // Initialize cache first
             await this.initializeCache();
 
-            // Initialize command handlers
-            this.initializeCommandHandlers();
-
             // Set up event handlers
             this.setupEventHandlers();
 
@@ -531,10 +443,86 @@ export class DiscordService {
             await this.client.login(this.token);
             this.isInitialized = true;
             console.log('Discord bot started successfully');
+            
+            // Register slash commands after login - but don't let failures stop the bot
+            try {
+                await this.registerSlashCommands();
+            } catch (error) {
+                console.error('Failed to register slash commands, but continuing bot operation:', error);
+                // Don't rethrow - allow the bot to continue running
+            }
         } catch (error) {
             console.error('Failed to start Discord client:', error);
             await this.stop();
             throw error;
+        }
+    }
+
+    private async registerSlashCommands() {
+        try {
+            console.log('Registering slash commands...');
+            
+            // Get the client ID from the client object
+            if (!this.client.user?.id) {
+                console.log('Client ID not available yet, skipping slash command registration');
+                return;
+            }
+            
+            const clientId = this.client.user.id;
+            console.log(`Using client ID: ${clientId} for slash command registration`);
+            
+            const rest = new REST({ version: '10' }).setToken(this.token);
+            
+            const commands = [
+                taskCommands.toJSON(),
+                hotTokensCommands.toJSON()
+            ];
+            
+            // Get the guilds the bot is in
+            const guilds = this.client.guilds.cache;
+            console.log(`Bot is in ${guilds.size} guilds`);
+            
+            // First, clear all commands from all guilds to prevent duplicates
+            for (const [guildId, guild] of guilds) {
+                console.log(`Clearing commands from guild: ${guild.name} (${guildId})`);
+                try {
+                    await rest.put(
+                        Routes.applicationGuildCommands(clientId, guildId),
+                        { body: [] }
+                    );
+                    console.log(`Successfully cleared commands from guild: ${guild.name}`);
+                } catch (clearError) {
+                    console.error(`Error clearing commands from guild ${guild.name}:`, clearError);
+                }
+            }
+            
+            // Clear global commands
+            try {
+                await rest.put(
+                    Routes.applicationCommands(clientId),
+                    { body: [] }
+                );
+                console.log('Cleared global commands');
+            } catch (globalClearError) {
+                console.error('Error clearing global commands:', globalClearError);
+            }
+            
+            // Now register commands to each guild
+            for (const [guildId, guild] of guilds) {
+                console.log(`Registering commands to guild: ${guild.name} (${guildId})`);
+                try {
+                    await rest.put(
+                        Routes.applicationGuildCommands(clientId, guildId),
+                        { body: commands }
+                    );
+                    console.log(`Successfully registered commands to guild: ${guild.name}`);
+                } catch (guildError) {
+                    console.error(`Error registering commands to guild ${guild.name}:`, guildError);
+                }
+            }
+        } catch (error) {
+            console.error('Error registering slash commands:', error);
+            // Don't rethrow - this is now handled in the start method
         }
     }
 
@@ -642,72 +630,6 @@ export class DiscordService {
         }
 
         return parts;
-    }
-
-    private getStatusEmoji(status: string): string {
-        switch (status.toUpperCase()) {
-            case 'OPEN':
-                return '🟢 OPEN';
-            case 'IN_PROGRESS':
-                return '🔵 IN PROGRESS';
-            case 'BLOCKED':
-                return '🔴 BLOCKED';
-            case 'COMPLETED':
-                return '✅ COMPLETED';
-            case 'CLOSED':
-                return '⭕ CLOSED';
-            default:
-                return '❓';
-        }
-    }
-
-    private getPriorityEmoji(priority: string): string {
-        switch (priority.toUpperCase()) {
-            case 'URGENT':
-                return '🔥';
-            case 'HIGH':
-                return '⚡';
-            case 'MEDIUM':
-                return '⚪';
-            case 'LOW':
-                return '⚫';
-            default:
-                return '❓';
-        }
-    }
-
-    private formatTaskDetails(task: any): string {
-        let response = `**Task #${task.id}**\n`;
-        response += `📌 **Title:** ${task.title}\n`;
-        response += `🔄 **Status:** ${task.status}\n`;
-        response += `📝 **Description:** ${task.description}\n`;
-        response += `👤 **Created by:** <@${task.creatorId}>\n`;
-        response += `👥 **Assigned to:** ${task.assigneeId ? `<@${task.assigneeId}>` : 'Unassigned'}\n`;
-        
-        if (task.history && task.history.length > 0) {
-            response += '\n📋 **Recent History:**\n';
-            task.history.slice(-3).forEach((entry: any) => {
-                const timestamp = new Date(entry.createdAt).toLocaleString();
-                response += `• ${timestamp}: ${this.formatHistoryEntry(entry)}\n`;
-            });
-        }
-
-        return response;
-    }
-
-    private formatHistoryEntry(entry: any): string {
-        switch (entry.action) {
-            case 'CREATED':
-                return 'Task created';
-            case 'STATUS_CHANGED':
-                return `Status changed from ${entry.oldValue} to ${entry.newValue}`;
-            case 'ASSIGNED':
-                return `Assigned to <@${entry.newValue}>`;
-            case 'UNASSIGNED':
-                return 'Unassigned';
-            default:
-                return entry.action;
-        }
     }
 
     public getClient(): Client {

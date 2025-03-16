@@ -1,13 +1,11 @@
 /**
  * Base types of caching strategies
+ * Simplified to essential types based on actual usage patterns
  */
 export enum CacheType {
     MEMORY = 'MEMORY',      // In-memory only, no persistence
     PERSISTENT = 'PERSISTENT', // File-based persistence
-    SENSITIVE = 'SENSITIVE',  // For sensitive data, always in-memory
-    SENSITIVE_ALWAYS = 'SENSITIVE_ALWAYS',  // Always in-memory, never persisted
-    PERSISTENT_SHORT_LIVED = 'PERSISTENT_SHORT_LIVED',  // Can be persisted to file, short-lived memory cache
-    MEMORY_SHORT_LIVED = 'MEMORY_SHORT_LIVED'          // Short-lived memory cache
+    SENSITIVE = 'SENSITIVE'  // For sensitive data, always in-memory with sanitization
 }
 
 /**
@@ -21,19 +19,21 @@ export interface CacheMetadata {
 }
 
 /**
- * Generic cache entry structure
+ * Generic cache entry structure with additional schema-specific fields
  */
 export interface CacheEntry<T> {
     data: T;
     timestamp: number;
     ttl: number;
-    metadata?: {
+    metadata: {
         createdAt: number;
         lastAccessed: number;
         hits: number;
         size: number;
+        isSchema?: boolean;    // Identifier for tool schema entries
         toolName?: string;
         tags?: string[];
+        compressed?: boolean;  // Flag for compressed data
     };
 }
 
@@ -61,4 +61,4 @@ export interface CacheStats {
     missRate: number;
     totalHits: number;
     totalMisses: number;
-} 
+}

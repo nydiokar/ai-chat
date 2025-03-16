@@ -43,27 +43,30 @@ export class SystemPromptGenerator {
         return promptParts.join("\n\n");
     }
 
-    private async getRelevantTools(message: string): Promise<ToolDefinition[]> {
+    async getRelevantTools(message: string): Promise<ToolDefinition[]> {
         try {
-            // Try cache first
-            const cachedTools = await this.toolCache.get<ToolDefinition[]>('relevantTools', message);
-            if (cachedTools) {
-                debug('Using cached tools');
-                return cachedTools;
+            // First check the schema cache
+            let allTools: ToolDefinition[] = [];
+            const cachedSchemas = await this.toolCache.get<ToolDefinition[]>('schemas', 'all_tools', ['tools']);
+            
+            if (cachedSchemas) {
+                debug('Using cached tool schemas');
+                allTools = cachedSchemas;
+            } else {
+                // Get fresh tools and cache them
+                await this.toolProvider.refreshToolInformation();
+                allTools = await this.toolProvider.getAvailableTools();
+                await this.toolCache.set('schemas', allTools, {
+                    ttl: 24 * 60 * 60, // 24 hours for schemas
+                    tags: ['tools'],
+                    compress: true,
+                    isSchema: true
+                });
+                debug('Cached tool schemas');
             }
 
-            // Get fresh tools if not in cache
-            await this.toolProvider.refreshToolInformation();
-            const allTools = await this.toolProvider.getAvailableTools();
-            
+            // Filter tools based on message
             const relevantTools = this.filterRelevantTools(allTools, message);
-            
-            // Cache the filtered tools
-            await this.toolCache.set('relevantTools', message, relevantTools, {
-                ttl: 5 * 60,  // 5 minutes
-                tags: ['tools', 'relevance']
-            });
-            
             return relevantTools;
         } catch (error) {
             debug(`Error getting relevant tools: ${error instanceof Error ? error.message : String(error)}`);

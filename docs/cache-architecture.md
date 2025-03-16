@@ -31,6 +31,7 @@ enum CacheType {
     MEMORY = 'MEMORY',           // In-memory only
     PERSISTENT = 'PERSISTENT',   // File-based persistence
     SENSITIVE = 'SENSITIVE'      // For sensitive data (with sanitization)
+
 }
 ```
 
@@ -64,7 +65,7 @@ await toolCache.set('toolName', input, result, {
 
 ## 3. Cache Providers
 
-### MemoryProvider (`src/services/cache/providers/memory-provider.ts`)
+### MemoryProvider (`src/services/cache/providers/memory-provider.ts`) !!! THIS MIGHT BE INCORECT; CURRENTLY USING KYEV IN services/cache/cache-service.ts
 - **Purpose**: In-memory caching implementation
 - **Features**:
   - Fast access

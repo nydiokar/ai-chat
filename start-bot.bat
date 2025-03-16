@@ -4,10 +4,8 @@ call pm2 stop them-bot 2>nul
 call pm2 delete them-bot 2>nul
 taskkill /F /IM node.exe /FI "WINDOWTITLE eq them-bot*" 2>nul
 
-echo Cleaning up old files...
+echo Cleaning up log files...
 del /F /Q "logs\*.log" 2>nul
-rmdir /S /Q "dist" 2>nul
-rmdir /S /Q ".mcp" 2>nul
 
 echo Building project...
 call npm run build

@@ -96,11 +96,6 @@ interface SessionData {
 }
 ```
 
-## Files to Delete
-1. `src/tools/MCPLangChainTool.ts` - Remove LangChain integration
-2. `src/tools/cache/tool-cache.ts` - Old implementation
-3. `src/types/domain/cache.ts` - Moved to discord.ts
-4. `src/types/services/cache.ts` - Consolidated in new structure
 
 ## Additional Caching Needs to Consider
 1. **API Response Caching**:
