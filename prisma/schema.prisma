@@ -360,6 +360,7 @@ model HotToken {
   marketCapNow      Float?
   marketCapFirstEntry Float?
   category          TokenCategory
+  tags              Json?         // Store tags as a JSON array
   meta              Json?
   isCommunity       Boolean       @default(false)
   firstSeen         DateTime      @default(now())

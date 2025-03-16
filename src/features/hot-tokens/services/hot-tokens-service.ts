@@ -3,6 +3,9 @@ import { HotToken, TokenUpdate, TokenListOptions } from '../types/token.js';
 import { EmbedBuilder } from 'discord.js';
 import { PriceTrackingService } from './price-tracking-service.js';
 
+// Import TokenPrice type from price-tracking-service
+import type { TokenPrice } from './price-tracking-service.js';
+
 export class HotTokensService {
     private priceTrackingService: PriceTrackingService;
 
@@ -19,6 +22,7 @@ export class HotTokensService {
                 marketCapNow: token.marketCapNow ?? null,
                 marketCapFirstEntry: token.marketCapFirstEntry ?? null,
                 category: token.category,
+                tags: token.tags ? token.tags : Prisma.JsonNull,
                 meta: token.meta === null ? Prisma.JsonNull : token.meta,
                 isCommunity: token.isCommunity
             }
@@ -43,6 +47,7 @@ export class HotTokensService {
                 where: { contractAddress },
                 data: {
                     ...update,
+                    tags: update.tags ? update.tags : undefined,
                     meta: update.meta === null ? Prisma.JsonNull : update.meta
                 }
             });
@@ -78,7 +83,8 @@ export class HotTokensService {
     private mapToHotToken(token: Prisma.HotTokenGetPayload<{}>): HotToken {
         return {
             ...token,
-            category: token.category as TokenCategory
+            category: token.category as TokenCategory,
+            tags: token.tags ? (token.tags as string[]) : null
         };
     }
 
@@ -86,8 +92,12 @@ export class HotTokensService {
         return this.priceTrackingService.getTokenPrice(contractAddress);
     }
 
-    async getTopPerformingTokens(timeframe: '1h' | '24h' | '7d' | '30d') {
+    async getTopPerformingTokens(timeframe: '1h' | '24h' | '7d' | '30d' = '24h') {
         return this.priceTrackingService.getTopPerformingTokens(timeframe);
+    }
+
+    async getTrendingTokens(chainId: string = 'solana', timeframe: '1h' | '24h' | '7d' | '30d' = '24h') {
+        return this.priceTrackingService.getTrendingTokens(chainId, timeframe);
     }
 
     async setPriceAlert(contractAddress: string, targetPrice: number, condition: 'above' | 'below', userId: string) {
@@ -98,8 +108,26 @@ export class HotTokensService {
         return this.priceTrackingService.createPriceEmbed(price);
     }
 
-    async createTrendingEmbed(tokens: any[]) {
-        return this.priceTrackingService.createTrendingEmbed(tokens);
+    async createTrendingEmbed(tokens: TokenPrice[], isWatchlist: boolean = false, chainId?: string) {
+        const title = isWatchlist ? '🔥 Top Performing Watchlist Tokens' : '🔥 Trending Tokens';
+        const description = isWatchlist 
+            ? 'Top performing tokens from your watchlist' 
+            : `Currently trending tokens${chainId ? ` on ${this.formatChainName(chainId)}` : ''}`;
+            
+        return this.priceTrackingService.createTrendingEmbed(tokens, title, description);
+    }
+
+    private formatChainName(chainId: string): string {
+        const chainNames: Record<string, string> = {
+            'solana': 'Solana',
+            'ethereum': 'Ethereum',
+            'bsc': 'Binance Smart Chain',
+            'polygon': 'Polygon',
+            'arbitrum': 'Arbitrum',
+            'avalanche': 'Avalanche'
+        };
+        
+        return chainNames[chainId] || chainId;
     }
 
     async createListEmbed(tokens: HotToken[]): Promise<EmbedBuilder> {

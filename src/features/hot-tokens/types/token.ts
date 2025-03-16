@@ -8,6 +8,7 @@ export type HotToken = {
     marketCapNow: number | null;
     marketCapFirstEntry: number | null;
     category: TokenCategory;
+    tags?: string[] | null;
     meta: Prisma.JsonValue | null;
     isCommunity: boolean;
     firstSeen: Date;

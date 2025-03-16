@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { TaskManager } from '../task-manager.js';
 import { TaskStatus, TaskPriority } from '../../types/task.js';
+import { PrismaClient } from '@prisma/client';
 
 export const taskCommands = new SlashCommandBuilder()
     .setName('task')
@@ -139,8 +140,40 @@ Create, track, and manage tasks with the team.
 • URGENT 🔥 - Urgent priority`;
 }
 
+// Function to ensure user exists in the database
+async function ensureUserExists(userId: string, username: string): Promise<void> {
+    const prisma = new PrismaClient();
+    try {
+        // Check if user exists
+        const existingUser = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+        
+        // If not, create the user
+        if (!existingUser) {
+            console.log(`Creating user record for Discord user ${userId} (${username})`);
+            await prisma.user.create({
+                data: {
+                    id: userId,
+                    username: username,
+                    isActive: true,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error ensuring user exists:', error);
+    } finally {
+        await prisma.$disconnect();
+    }
+}
+
 export async function handleTaskCommand(interaction: ChatInputCommandInteraction) {
     try {
+        // Ensure the user exists in the database
+        await ensureUserExists(interaction.user.id, interaction.user.username);
+        
         const taskManager = TaskManager.getInstance();
         
         switch (interaction.options.getSubcommand()) {

@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { HotTokensService } from '../services/hot-tokens-service.js';
 import { TokenCategory } from '../types/token-category.js';
 import { PriceTrackingService } from '../services/price-tracking-service.js';
@@ -33,6 +33,10 @@ export const hotTokensCommands = new SlashCommandBuilder()
             .addStringOption(option =>
                 option.setName('note')
                     .setDescription('Additional notes about the token')
+                    .setRequired(false))
+            .addStringOption(option =>
+                option.setName('tags')
+                    .setDescription('Comma-separated list of tags (e.g., "trending,new,solana")')
                     .setRequired(false)))
     .addSubcommand(subcommand =>
         subcommand
@@ -66,6 +70,10 @@ export const hotTokensCommands = new SlashCommandBuilder()
             .addStringOption(option =>
                 option.setName('note')
                     .setDescription('New note')
+                    .setRequired(false))
+            .addStringOption(option =>
+                option.setName('tags')
+                    .setDescription('Comma-separated list of tags (e.g., "trending,new,solana")')
                     .setRequired(false))
             .addBooleanOption(option =>
                 option.setName('community')
@@ -111,7 +119,7 @@ export const hotTokensCommands = new SlashCommandBuilder()
     .addSubcommand(subcommand =>
         subcommand
             .setName('trending')
-            .setDescription('Show top performing tokens from the list')
+            .setDescription('Show trending tokens on DexScreener')
             .addStringOption(option =>
                 option.setName('timeframe')
                     .setDescription('Time period to check')
@@ -121,7 +129,23 @@ export const hotTokensCommands = new SlashCommandBuilder()
                         { name: '24h', value: '24h' },
                         { name: '7d', value: '7d' },
                         { name: '30d', value: '30d' }
-                    )))
+                    ))
+            .addStringOption(option =>
+                option.setName('chain')
+                    .setDescription('Blockchain to check')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: 'Solana', value: 'solana' },
+                        { name: 'Ethereum', value: 'ethereum' },
+                        { name: 'BSC', value: 'bsc' },
+                        { name: 'Polygon', value: 'polygon' },
+                        { name: 'Arbitrum', value: 'arbitrum' },
+                        { name: 'Avalanche', value: 'avalanche' }
+                    ))
+            .addBooleanOption(option =>
+                option.setName('watchlist')
+                    .setDescription('Show top performing tokens from your watchlist instead')
+                    .setRequired(false)))
     .addSubcommand(subcommand =>
         subcommand
             .setName('alert')
@@ -215,6 +239,8 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                 const providedName = interaction.options.getString('name');
                 const category = interaction.options.getString('category') as TokenCategory || 'UNKNOWN';
                 const note = interaction.options.getString('note') || '';
+                const tagsString = interaction.options.getString('tags') || '';
+                const tags = tagsString ? tagsString.split(',').map(tag => tag.trim()) : [];
                 
                 try {
                     // First fetch the token data to get name and details
@@ -235,6 +261,7 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                         name,
                         category,
                         note: note || null,
+                        tags,
                         isCommunity: false,
                         marketCapNow: priceData?.marketCap || null,
                         marketCapFirstEntry: priceData?.marketCap || null,
@@ -251,6 +278,10 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                         responseMessage += `📈 24h Change: ${priceData.priceChange['24h'].toFixed(2)}%`;
                     } else {
                         responseMessage += `\n\n⚠️ Could not fetch price data for this token.`;
+                    }
+                    
+                    if (tags.length > 0) {
+                        responseMessage += `\n🏷️ Tags: ${tags.join(', ')}`;
                     }
                     
                     await interaction.editReply(responseMessage);
@@ -285,12 +316,15 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                 const name = interaction.options.getString('name') || undefined;
                 const category = (interaction.options.getString('category') || undefined) as TokenCategory | undefined;
                 const note = interaction.options.getString('note') || undefined;
+                const tagsString = interaction.options.getString('tags') || undefined;
+                const tags = tagsString ? tagsString.split(',').map(tag => tag.trim()) : undefined;
                 const isCommunity = interaction.options.getBoolean('community') ?? undefined;
 
                 const update = {
                     ...(name && { name }),
                     ...(category && { category }),
                     ...(note && { note }),
+                    ...(tags && { tags }),
                     ...(isCommunity !== undefined && { isCommunity })
                 };
 
@@ -388,6 +422,12 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                         response += `📝 Note: ${token.note}\n`;
                     }
                     
+                    // Handle tags - they're stored as JSON in the database
+                    const tags = token.tags ? (token.tags as string[]) : null;
+                    if (tags && tags.length > 0) {
+                        response += `🏷️ Tags: ${tags.join(', ')}\n`;
+                    }
+                    
                     response += '\n';
                 });
                 
@@ -407,66 +447,126 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                     return;
                 }
 
-                // Create a rich embed with token details
-                const embed = priceTrackingService.createPriceEmbed(priceData);
+                // Create a rich embed for token price info
+                const embed = new EmbedBuilder()
+                    .setColor('#FFC000') // Green color for the sidebar
+                    .setTitle(`💰 ${priceData.name} (${priceData.symbol}) Token Info`);
                 
-                // Create a formatted message with token details
-                let message = '';
-                
-                // Add token name and symbol
-                message += `# ${priceData.name} (${priceData.symbol})\n\n`;
-                
-                // Add price and market data
-                message += `💰 **Price:** $${priceData.currentPrice.toFixed(8)}\n`;
-                message += `📊 **Market Cap:** $${priceData.marketCap.toLocaleString()}\n`;
-                message += `💧 **Liquidity:** $${priceData.liquidity.toLocaleString()}\n`;
-                message += `📈 **24h Volume:** $${priceData.volume24h.toLocaleString()}\n\n`;
-                
-                // Add price changes
-                message += `## Price Changes\n`;
-                message += `1h: ${priceData.priceChange['1h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['1h'].toFixed(2)}%\n`;
-                message += `24h: ${priceData.priceChange['24h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['24h'].toFixed(2)}%\n`;
-                message += `7d: ${priceData.priceChange['7d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['7d'].toFixed(2)}%\n`;
-                message += `30d: ${priceData.priceChange['30d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['30d'].toFixed(2)}%\n\n`;
-                
-                // Add contract and DEX info
-                message += `## Token Info\n`;
-                message += `📝 **Contract:** \`${priceData.contractAddress}\`\n`;
-                message += `🔄 **DEX:** ${priceData.dexId.toUpperCase()}\n`;
-                message += `🔗 **Pair:** \`${priceData.pairAddress}\`\n\n`;
-                
-                // Add description if available
-                if (priceData.profile?.description) {
-                    message += `## Description\n${priceData.profile.description}\n\n`;
+                // Add parent/description if available
+                if (priceData.description) {
+                    embed.setDescription(`Parent ${priceData.description}`);
                 }
                 
-                // Add links if available
-                if (priceData.profile?.links && priceData.profile.links.length > 0) {
-                    message += `## Links\n`;
-                    priceData.profile.links.forEach(link => {
-                        message += `- [${link.label || link.type}](${link.url})\n`;
+                // Add thumbnail if available
+                if (priceData.iconUrl) {
+                    embed.setThumbnail(priceData.iconUrl);
+                }
+                
+                // Price, Liquidity, Volume section - keep these inline
+                embed.addFields(
+                    { name: 'Price', value: `$${priceData.currentPrice.toFixed(8)}`, inline: true },
+                    { name: 'Liquidity', value: `$${priceData.liquidity.toLocaleString()}`, inline: true },
+                    { name: '24h Volume', value: `$${priceData.volume24h.toLocaleString()}`, inline: true }
+                );
+                
+                // Price Changes section - not inline for better readability
+                const priceChanges = 
+                    `1h: ${priceData.priceChange['1h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['1h'].toFixed(2)}%\n` +
+                    `24h: ${priceData.priceChange['24h'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['24h'].toFixed(2)}%\n` +
+                    `7d: ${priceData.priceChange['7d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['7d'].toFixed(2)}%\n` +
+                    `30d: ${priceData.priceChange['30d'] >= 0 ? '🟢' : '🔴'} ${priceData.priceChange['30d'].toFixed(2)}%`;
+                
+                embed.addFields({ name: 'Price Changes', value: priceChanges });
+                
+                // Market Cap section
+                embed.addFields({ name: 'Market Cap', value: `$${priceData.marketCap.toLocaleString()}` });
+                
+                // DEX Info section
+                const dexInfo = 
+                    `Exchange: ${priceData.dexId.toUpperCase()}\n` +
+                    `Pair: ${priceData.pairAddress}`;
+                
+                embed.addFields({ name: 'DEX Info', value: dexInfo });
+                
+                // Links section if available
+                if (priceData.links && priceData.links.length > 0) {
+                    const links: string[] = [];
+                    
+                    // Process all available links
+                    priceData.links.forEach(link => {
+                        const label = link.label || link.type;
+                        links.push(`[${label}](${link.url})`);
                     });
+                    
+                    // Add DEX link pointing to DexScreener
+                    if (priceData.chainId && priceData.pairAddress) {
+                        links.push(`[DexScreener](https://dexscreener.com/${priceData.chainId}/${priceData.pairAddress})`);
+                    } else if (priceData.url) {
+                        // Use the URL from the profile if available
+                        links.push(`[DexScreener](${priceData.url})`);
+                    }
+                    
+                    if (links.length > 0) {
+                        embed.addFields({ name: 'Links', value: links.join(' | ') });
+                    }
+                } else {
+                    // If no links in profile, at least add the DEX link
+                    if (priceData.chainId && priceData.pairAddress) {
+                        embed.addFields({ 
+                            name: 'Links', 
+                            value: `[DexScreener](https://dexscreener.com/${priceData.chainId}/${priceData.pairAddress})` 
+                        });
+                    } else if (priceData.url) {
+                        embed.addFields({ 
+                            name: 'Links', 
+                            value: `[DexScreener](${priceData.url})` 
+                        });
+                    }
                 }
                 
-                await interaction.editReply({ content: message, embeds: [embed] });
+                // Add footer with data source and timestamp
+                embed.setFooter({ 
+                    text: `Data from DexScreener • Today at ${new Date().toLocaleTimeString('en-US', { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    })}` 
+                });
+                
+                // Add image if available
+                if (priceData.bannerUrl) {
+                    embed.setImage(priceData.bannerUrl);
+                }
+                
+                await interaction.editReply({ embeds: [embed] });
                 break;
             }
 
             case 'trending': {
-                const timeframe = interaction.options.getString('timeframe') as '7d' | '1h' | '24h' | '30d';
-                const topTokens = await hotTokensService.getTopPerformingTokens(timeframe);
+                const timeframe = interaction.options.getString('timeframe') as '1h' | '24h' | '7d' | '30d' || '24h';
+                const chain = interaction.options.getString('chain') as string || 'solana';
+                const useWatchlist = interaction.options.getBoolean('watchlist') ?? false;
+                
+                await interaction.deferReply();
+                
+                let topTokens;
+                if (useWatchlist) {
+                    topTokens = await hotTokensService.getTopPerformingTokens(timeframe);
+                } else {
+                    topTokens = await hotTokensService.getTrendingTokens(chain, timeframe);
+                }
                 
                 if (!topTokens.length) {
-                    await interaction.reply({ 
-                        content: '❌ No tokens found in the specified timeframe.',
-                        ephemeral: true 
+                    await interaction.editReply({ 
+                        content: useWatchlist 
+                            ? '❌ No tokens found in your watchlist for the specified timeframe.'
+                            : `❌ No trending tokens found for ${chain} in the specified timeframe.`,
                     });
                     return;
                 }
 
-                const embed = await hotTokensService.createTrendingEmbed(topTokens);
+                const embed = await hotTokensService.createTrendingEmbed(topTokens, useWatchlist, useWatchlist ? undefined : chain);
                 
-                await interaction.reply({ embeds: [embed] });
+                await interaction.editReply({ embeds: [embed] });
                 break;
             }
 
@@ -499,7 +599,7 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                 const priceTrackingService = new PriceTrackingService(prisma);
                 const priceData = await priceTrackingService.getTokenPrice(contractAddress);
                 
-                let response = `## 🔍 Debug Results for ${contractAddress}\n\n`;
+                let response = `## 🔍 Showing latest data for ${contractAddress}\n\n`;
                 
                 if (priceData) {
                     response += `✅ **Successfully fetched data!**\n\n`;
