@@ -126,25 +126,24 @@ export class HotTokensService {
             'arbitrum': 'Arbitrum',
             'avalanche': 'Avalanche'
         };
-        
         return chainNames[chainId] || chainId;
     }
 
     async createListEmbed(tokens: HotToken[]): Promise<EmbedBuilder> {
         const embed = new EmbedBuilder()
             .setTitle('🔥 Hot Tokens List')
-            .setColor('#FF6B6B')
+            .setColor('#FC46AA')
             .setDescription(`Total tokens: ${tokens.length}`)
             .setTimestamp();
 
         if (tokens.length === 0) {
             embed.addFields({ name: 'No tokens found', value: 'Add some tokens with `/ht add`!' });
         } else {
-            const tokenList = await Promise.all(tokens.map(async (token, index) => {
+            // Process each token individually
+            for (const [index, token] of tokens.entries()) {
                 const categoryEmoji = this.getCategoryEmoji(token.category);
                 const price = await this.getTokenPrice(token.contractAddress);
                 
-                // Format market caps with proper formatting
                 const marketCapNow = token.marketCapNow 
                     ? `$${this.formatLargeNumber(token.marketCapNow)}`
                     : 'N/A';
@@ -153,35 +152,70 @@ export class HotTokensService {
                     ? `$${this.formatLargeNumber(token.marketCapFirstEntry)}`
                     : 'N/A';
                 
-                // Calculate growth percentage if both values exist
                 let growthPercentage = '';
                 if (token.marketCapNow && token.marketCapFirstEntry && token.marketCapFirstEntry > 0) {
                     const growth = ((token.marketCapNow - token.marketCapFirstEntry) / token.marketCapFirstEntry) * 100;
                     growthPercentage = ` (${growth > 0 ? '+' : ''}${growth.toFixed(2)}%)`;
                 }
                 
+                const firstSeen = this.formatTimeAgo(token.firstSeen);
+                
                 let priceInfo = '';
+                let links = '';
+                const linkArr = [];
+                
                 if (price) {
                     priceInfo = `\n   💰 **Price:** $${price.currentPrice.toFixed(7)}` +
                                `\n   📈 **24h Change:** ${price.priceChange['24h'].toFixed(2)}%` +
                                `\n   💧 **Liquidity:** $${price.liquidity.toLocaleString()}`;
                 }
 
-                return `**${index + 1}. ${categoryEmoji} ${token.name}** (${token.category})` +
-                       `\n   📝 **Contract:** \`${token.contractAddress}\`` +
-                       `${priceInfo}` +
-                       `\n   📊 **Current Market Cap:** ${marketCapNow}` +
-                       `\n   🚀 **Initial Market Cap:** ${marketCapFirstEntry}${growthPercentage}` +
-                       (token.note ? `\n   📌 **Note:** ${token.note}` : '');
-            }));
-            
-            embed.addFields({ name: 'Tokens', value: tokenList.join('\n\n') });
+                if (price?.url) {
+                    linkArr.push(`[📊](${price.url})`);
+                }
+                if (price?.links) {
+                    for (const link of (price.links as Array<{ type: string; url: string }>)) {
+                        switch(link.type.toLowerCase()) {
+                            case 'website':
+                                linkArr.push(`[🌐](${link.url})`);
+                                break;
+                            case 'twitter':
+                            case 'x':
+                                linkArr.push(`[𝕏](${link.url})`);
+                                break;
+                            case 'telegram':
+                                linkArr.push(`[💬](${link.url})`);
+                                break;
+                        }
+                    }
+                }
+                if (linkArr.length > 0) {
+                    links = `\n   🔗 **Links:** ${linkArr.join(' ')}`;
+                }
+
+                const content = `**${index + 1}. ${categoryEmoji} ${token.name} ${price?.symbol ? `($${price.symbol})` : ''}**` +
+                               `\n   ⌛ **First seen:** ${firstSeen}` +
+                               `\n   📋 **Category:** [${token.category}]` +
+                               `\n   📊 **Current MC:** ${marketCapNow}` +
+                               `\n   🚀 **Initial MC:** ${marketCapFirstEntry}${growthPercentage}` +
+                               `\n   📈 **24h Change:** ${price?.priceChange['24h'].toFixed(2)}%` +
+                               `\n   💰 **Price:** $${price?.currentPrice.toFixed(7)}` +
+                               `\n   💧 **Liquidity:** $${price?.liquidity.toLocaleString()}` +
+                               `\n   📝 **Contract:** \`${token.contractAddress}\`` +
+                               `${links}` +
+                               (token.note ? `\n   📌 **Note:** ${token.note}` : '');
+
+                embed.addFields({ 
+                    name: index === 0 ? 'Tokens' : '‎',  // Use zero-width space for empty names
+                    value: content,
+                    inline: false 
+                });
+            }
         }
 
         return embed;
     }
 
-    // Helper method to format large numbers with K, M, B suffixes
     private formatLargeNumber(num: number): string {
         if (num >= 1_000_000_000) {
             return (num / 1_000_000_000).toFixed(2) + 'B';
@@ -192,6 +226,22 @@ export class HotTokensService {
         } else {
             return num.toLocaleString();
         }
+    }
+
+    private formatTimeAgo(date: Date): string {
+        const now = new Date();
+        const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+        
+        if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+        const diffInMinutes = Math.floor(diffInSeconds / 60);
+        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) return `${diffInHours}h ago`;
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 30) return `${diffInDays}d ago`;
+        const diffInMonths = Math.floor(diffInDays / 30);
+        if (diffInMonths < 12) return `${diffInMonths}mo ago`;
+        return `${Math.floor(diffInMonths / 12)}y ago`;
     }
 
     private getCategoryEmoji(category: TokenCategory): string {
@@ -207,4 +257,4 @@ export class HotTokensService {
         };
         return emojis[category];
     }
-} 
+}

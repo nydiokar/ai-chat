@@ -368,70 +368,22 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
 
             case 'list': {
                 await interaction.deferReply({ ephemeral: true });
-                const tokens = await prisma.hotToken.findMany({
-                    orderBy: { id: 'desc' }
+                
+                const category = (interaction.options.getString('category') || undefined) as TokenCategory | undefined;
+                const communityOnly = interaction.options.getBoolean('community') ?? undefined;
+                
+                const tokens = await hotTokensService.listTokens({
+                    category,
+                    communityOnly
                 });
                 
                 if (tokens.length === 0) {
-                    await interaction.editReply('No tokens in the hot list yet.');
+                    await interaction.editReply('No tokens found in the hot list with the specified filters.');
                     return;
                 }
                 
-                const priceTrackingService = new PriceTrackingService(prisma);
-                
-                // Fetch current prices for all tokens
-                const tokenPrices = await Promise.all(
-                    tokens.map(async (token) => {
-                        const price = await priceTrackingService.getTokenPrice(token.contractAddress);
-                        return { token, price };
-                    })
-                );
-                
-                let response = `## 🔥 Hot Tokens List\n\nTotal tokens: ${tokens.length}\n\n### Tokens\n`;
-                
-                tokenPrices.forEach((item, index) => {
-                    const { token, price } = item;
-                    
-                    // Format market cap values
-                    const initialMC = token.marketCapFirstEntry !== null 
-                        ? `$${token.marketCapFirstEntry.toLocaleString()}`
-                        : 'N/A';
-                    
-                    const currentMC = token.marketCapNow !== null 
-                        ? `$${token.marketCapNow.toLocaleString()}`
-                        : 'N/A';
-                    
-                    // Calculate market cap change if both values exist
-                    let mcChangeText = '';
-                    if (token.marketCapFirstEntry !== null && token.marketCapNow !== null && token.marketCapFirstEntry > 0) {
-                        const mcChange = ((token.marketCapNow - token.marketCapFirstEntry) / token.marketCapFirstEntry) * 100;
-                        const changeEmoji = mcChange >= 0 ? '📈' : '📉';
-                        mcChangeText = ` ${changeEmoji} ${mcChange.toFixed(2)}%`;
-                    }
-                    
-                    // Current price from API
-                    const currentPrice = price ? `$${price.currentPrice.toFixed(8)}` : 'N/A';
-                    
-                    response += `**${index + 1}. ${token.name}** (${token.category})\n`;
-                    response += `📝 Contract: \`${token.contractAddress}\`\n`;
-                    response += `💰 Current Price: ${currentPrice}\n`;
-                    response += `📊 Initial Market Cap: ${initialMC}\n`;
-                    response += `📈 Current Market Cap: ${currentMC}${mcChangeText}\n`;
-                    
-                    if (token.note) {
-                        response += `📝 Note: ${token.note}\n`;
-                    }
-                    
-                    // Handle tags - they're stored as JSON in the database
-                    const tags = token.tags ? (token.tags as string[]) : null;
-                    if (tags && tags.length > 0) {
-                        response += `🏷️ Tags: ${tags.join(', ')}\n`;
-                    }
-                    
-                    response += '\n';
-                });
-                
-                await interaction.editReply(response);
+                const embed = await hotTokensService.createListEmbed(tokens);
+                await interaction.editReply({ embeds: [embed] });
                 break;
             }
 
@@ -488,40 +440,36 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
                 
                 embed.addFields({ name: 'DEX Info', value: dexInfo });
                 
-                // Links section if available
-                if (priceData.links && priceData.links.length > 0) {
-                    const links: string[] = [];
-                    
-                    // Process all available links
+                // Add Links section
+                const links: string[] = [];
+                
+                // Add DexScreener link first
+                if (priceData.url) {
+                    links.push(`[📊 Chart](${priceData.url})`);
+                } else if (priceData.chainId && priceData.pairAddress) {
+                    links.push(`[📊 Chart](https://dexscreener.com/${priceData.chainId}/${priceData.pairAddress})`);
+                }
+
+                // Add social links if available
+                if (priceData.links) {
                     priceData.links.forEach(link => {
-                        const label = link.label || link.type;
-                        links.push(`[${label}](${link.url})`);
+                        switch(link.type.toLowerCase()) {
+                            case 'website':
+                                links.push(`[🌐 Website](${link.url})`);
+                                break;
+                            case 'twitter':
+                            case 'x':
+                                links.push(`[𝕏 Twitter](${link.url})`);
+                                break;
+                            case 'telegram':
+                                links.push(`[📱 TG](${link.url})`);
+                                break;
+                        }
                     });
-                    
-                    // Add DEX link pointing to DexScreener
-                    if (priceData.chainId && priceData.pairAddress) {
-                        links.push(`[DexScreener](https://dexscreener.com/${priceData.chainId}/${priceData.pairAddress})`);
-                    } else if (priceData.url) {
-                        // Use the URL from the profile if available
-                        links.push(`[DexScreener](${priceData.url})`);
-                    }
-                    
-                    if (links.length > 0) {
-                        embed.addFields({ name: 'Links', value: links.join(' | ') });
-                    }
-                } else {
-                    // If no links in profile, at least add the DEX link
-                    if (priceData.chainId && priceData.pairAddress) {
-                        embed.addFields({ 
-                            name: 'Links', 
-                            value: `[DexScreener](https://dexscreener.com/${priceData.chainId}/${priceData.pairAddress})` 
-                        });
-                    } else if (priceData.url) {
-                        embed.addFields({ 
-                            name: 'Links', 
-                            value: `[DexScreener](${priceData.url})` 
-                        });
-                    }
+                }
+                
+                if (links.length > 0) {
+                    embed.addFields({ name: 'Links', value: links.join(' · ') });
                 }
                 
                 // Add footer with data source and timestamp
@@ -633,4 +581,4 @@ export async function handleHotTokensCommand(interaction: ChatInputCommandIntera
             console.error('Error handling slash command:', replyError);
         }
     }
-} 
+}
