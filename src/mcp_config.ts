@@ -66,6 +66,21 @@ if (process.env.BRAVE_API_KEY) {
 
 // DYNAMICALLY ADDED SERVERS - DO NOT REMOVE THIS COMMENT
 
+enabledServers["twitter"] = {
+  "id": "twitter",
+  "name": "Twitter",
+  "command": "C:\\nvm4w\\nodejs\\node.exe",
+  "args": [],
+  "env": {
+    "SHORT_DESCRIPTION": "Integrates with Twitter to enable search, timeline viewing, tweet posting, and direct messaging capabilities through the Twikit library with built-in rate limiting and markdown formatting.",
+    "SERVER_URL": "https://www.pulsemcp.com/servers/adhikasp-twikit",
+    "SOURCE_URL": "https://github.com/Zo-Valentine/mcp-twikit",
+    "PACKAGE_NAME": "",
+    "PACKAGE_REGISTRY": "",
+    "GITHUB_STARS": "0"
+  }
+};
+
 // END DYNAMIC SERVERS
 
 export const mcpConfig: MCPConfig = {

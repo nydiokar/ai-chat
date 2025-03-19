@@ -1,10 +1,11 @@
 export enum ServerState {
-    STOPPED = 'STOPPED',
     STARTING = 'STARTING',
     RUNNING = 'RUNNING',
     STOPPING = 'STOPPING',
+    STOPPED = 'STOPPED',
+    ERROR = 'ERROR',
     PAUSED = 'PAUSED',
-    ERROR = 'ERROR'
+    RETRYING = 'RETRYING'
 }
 
 export interface ServerConfig {
@@ -27,6 +28,7 @@ export interface Server {
     startTime?: Date;
     stopTime?: Date;
     metadata?: Record<string, any>;
+    retryCount?: number;
 }
 
 export interface ServerEvent {

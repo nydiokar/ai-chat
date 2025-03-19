@@ -404,39 +404,36 @@ export class DiscordService {
                 if (servers.length === 0) {
                     throw new Error('No MCP servers configured');
                 }
-                const mcpClient = this.mcpContainer.getMCPClient(servers[0].id);
-                await mcpClient.initialize();
-                console.log('MCP client initialized and connected');
 
-                // Start all configured servers
-                const configuredServers = Object.keys(mcpConfig.mcpServers);
-                for (const serverId of configuredServers) {
-                    console.log(`Starting server ${serverId}...`);
-                    const config = mcpConfig.mcpServers[serverId];
-                    await this.serverManager.startServer(serverId, config);
-                }
+                try {
+                    // Initialize MCP client
+                    const mcpClient = this.mcpContainer.getMCPClient(servers[0].id);
+                    await mcpClient.initialize();
+                    console.log('MCP client initialized and connected');
 
-                // Wait for servers to be ready
-                const maxWaitTime = 30000;
-                const startTime = Date.now();
-                
-                while (Date.now() - startTime < maxWaitTime) {
-                    const runningServers = this.serverManager.getServerIds();
-                    if (runningServers.length === configuredServers.length) {
-                        // Wait a bit for servers to fully initialize
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        
-                        // Initialize AIServiceFactory with the container
-                        await AIServiceFactory.initialize(this.mcpContainer);
-                        console.log('AIServiceFactory initialized');
-                        console.log('MCP initialization complete');
-                        break;
+                    // Start all configured servers - failures will be handled by BaseServerManager
+                    for (const [serverId, config] of Object.entries(mcpConfig.mcpServers)) {
+                        console.log(`Starting server ${serverId}...`);
+                        try {
+                            await this.serverManager.startServer(serverId, config);
+                        } catch (error) {
+                            // Log error but continue with other servers
+                            console.error(`Error starting server ${serverId}:`, error);
+                        }
                     }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
 
-                if (Date.now() - startTime >= maxWaitTime) {
-                    throw new Error('Timeout waiting for MCP servers to initialize');
+                    // Initialize AIServiceFactory with the container, but don't let failures crash the service
+                    try {
+                        await AIServiceFactory.initialize(this.mcpContainer);
+                        console.log('AIServiceFactory initialized successfully');
+                    } catch (error) {
+                        console.error('Failed to initialize AIServiceFactory, but continuing:', error);
+                    }
+
+                    console.log('MCP initialization complete');
+                } catch (mcpError) {
+                    // Log MCP initialization error but don't crash the Discord service
+                    console.error('Failed to initialize MCP, but continuing Discord service:', mcpError);
                 }
             }
 

@@ -1,5 +1,5 @@
-import { SlashCommandBuilder } from 'discord.js';
-import { ChatInputCommandInteraction, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, MessageActionRowComponentBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, MessageActionRowComponentBuilder, StringSelectMenuOptionBuilder, Message, ComponentType, MessageComponentInteraction } from 'discord.js';
 import { PulseMCPManager } from '../services/pulse-mcp-manager.js';
 import { PulseMCPServer } from '../services/pulse-api-service.js';
 import fs from 'fs/promises';
@@ -271,11 +271,77 @@ export async function handlePulseCommand(interaction: ChatInputCommandInteractio
                 await interaction.editReply(`No MCP servers found matching \`${query}\`.`);
                 return;
             }
-            
-            // Create select menu for servers
+
+            // Sort servers by stars (highest first)
+            const sortedServers = [...servers].sort((a, b) => (b.github_stars ?? 0) - (a.github_stars ?? 0));
+
+            // First, create detailed embeds for each server
+            const embeds = sortedServers.map(server => {
+                // Create a more concise embed following hot-tokens pattern
+                const embed = new EmbedBuilder()
+                    .setTitle(server.name)
+                    .setColor('#0099ff');
+
+                // Add short description if it exists
+                if (server.short_description) {
+                    embed.setDescription(server.short_description);
+                }
+
+                // Add core info in a compact way
+                const fields = [];
+                
+                // Only show stars count
+                fields.push({
+                    name: '\u200b',  // Invisible field name
+                    value: `⭐ ${(server.github_stars ?? 0).toLocaleString()}`,
+                    inline: true
+                });
+
+                // Links field - combine all links into one field
+                const links = [];
+                if (server.source_code_url) {
+                    links.push(`[GitHub](${server.source_code_url})`);
+                }
+                if (server.external_url) {
+                    links.push(`[Website](${server.external_url})`);
+                }
+                if (links.length > 0) {
+                    fields.push({
+                        name: '🔗 Links',
+                        value: links.join(' · '),
+                        inline: true
+                    });
+                }
+
+                embed.addFields(fields);
+                embed.setFooter({ text: 'Pulse MCP' });
+
+                return embed;
+            });
+
+            // Split embeds into smaller chunks (5 instead of 10)
+            const embedChunks = [];
+            for (let i = 0; i < embeds.length; i += 5) {
+                embedChunks.push(embeds.slice(i, i + 5));
+            }
+
+            // Send the detailed information first
+            await interaction.editReply({
+                content: `Found ${servers.length} MCP servers matching \`${query}\`:`,
+                embeds: embedChunks[0]
+            });
+
+            // Send additional embed chunks if any
+            for (let i = 1; i < embedChunks.length; i++) {
+                await interaction.followUp({
+                    embeds: embedChunks[i]
+                });
+            }
+
+            // Then create the selection menu for installation
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('pulse-server-select')
-                .setPlaceholder('Select servers to add')
+                .setPlaceholder('Select servers to install')
                 .setMinValues(1)
                 .setMaxValues(Math.min(servers.length, 10));
             
@@ -284,7 +350,7 @@ export async function handlePulseCommand(interaction: ChatInputCommandInteractio
                 selectMenu.addOptions(
                     new StringSelectMenuOptionBuilder()
                         .setLabel(server.name)
-                        .setDescription(server.short_description.substring(0, 100))
+                        .setDescription(`⭐ ${((server.github_stars || 0) as number).toLocaleString()} stars - ${server.short_description.substring(0, 50)}...`)
                         .setValue(index.toString())
                 );
             });
@@ -293,23 +359,21 @@ export async function handlePulseCommand(interaction: ChatInputCommandInteractio
             const row = new ActionRowBuilder<MessageActionRowComponentBuilder>()
                 .addComponents(selectMenu);
             
-            // Send the message with the select menu
-            const response = await interaction.editReply({
-                content: `Found ${servers.length} MCP servers matching \`${query}\`. Please select servers to add:`,
+            // Send the installation menu as a follow-up message
+            const menuMessage = await interaction.followUp({
+                content: 'To install any of these servers, select them from the menu below:',
                 components: [row]
-            });
+            }) as Message;
             
             try {
                 // Wait for user selection
-                const collectedInteraction = await response.awaitMessageComponent({
-                    filter: i => i.customId === 'pulse-server-select' && i.user.id === interaction.user.id,
+                const collectedInteraction = await menuMessage.awaitMessageComponent<ComponentType.StringSelect>({
+                    filter: (i: MessageComponentInteraction) => i.customId === 'pulse-server-select' && i.user.id === interaction.user.id,
                     time: 60000
                 });
                 
                 // Get selected server indices
-                const selectedIndices = collectedInteraction.isStringSelectMenu() 
-                    ? collectedInteraction.values.map(v => parseInt(v)) 
-                    : [];
+                const selectedIndices = collectedInteraction.values.map(v => parseInt(v));
                 
                 // Get selected servers
                 const selectedServers = selectedIndices.map(index => servers[index]);

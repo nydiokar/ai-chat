@@ -27,10 +27,26 @@ export class AIServiceFactory {
         
         this.toolManager = this.container.getToolManager();
         
-        // Ensure tools are loaded before proceeding
-        await this.toolManager.refreshToolInformation();
-        const tools = await this.toolManager.getAvailableTools();
-        console.log('[AIServiceFactory] Initialized with tools:', tools.map(t => t.name));
+        // Refresh tool information but handle failures gracefully
+        try {
+            await this.toolManager.refreshToolInformation();
+            // Get available tools after refresh - even if some servers failed, we should still get tools from working ones
+            const tools = await this.toolManager.getAvailableTools();
+            console.log('[AIServiceFactory] Initialized with tools:', tools.map(t => t.name));
+        } catch (error) {
+            console.warn('Some tools failed to load, but continuing with available tools:', error);
+            // Try to get any available tools even after partial failure
+            try {
+                const tools = await this.toolManager.getAvailableTools();
+                if (tools.length > 0) {
+                    console.log('[AIServiceFactory] Recovered with partial tools:', tools.map(t => t.name));
+                } else {
+                    console.warn('[AIServiceFactory] No tools available after recovery attempt');
+                }
+            } catch (toolError) {
+                console.error('[AIServiceFactory] Failed to get any tools:', toolError);
+            }
+        }
     }
 
     /**

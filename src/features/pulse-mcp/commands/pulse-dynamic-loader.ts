@@ -5,91 +5,58 @@
  * without requiring a bot restart, integrating with the package-loader utilities.
  */
 
-import { spawn } from 'child_process';
-import path from 'path';
+import { execSync } from 'child_process';
 import { MCPConfig } from '../../../tools/mcp/di/container.js';
-import { PackageLoader } from '../services/package-loader.js';
-import mcpConfig from '../../../mcp_config.js';
+import path from 'path';
+import fs from 'fs/promises';
+
+const nodePath = process.execPath;
+const projectRoot = process.cwd();
 
 /**
  * Install packages and prepare them for dynamic loading
  * 
- * @param packageNames Names of packages to install
+ * @param packages Names of packages to install
  * @returns Installation result message
  */
-export async function installAndPreparePackages(packageNames: string[]): Promise<string> {
-    if (packageNames.length === 0) {
-        return "No packages to install.";
-    }
-    
+export async function installAndPreparePackages(packages: string[]): Promise<string> {
     try {
-        // First install the packages
-        const installResult = await installServerPackages(packageNames);
-        
-        // Then clear the require cache for these packages to allow dynamic loading
-        PackageLoader.clearPackageCaches(packageNames);
-        
-        return installResult;
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('Error installing packages:', errorMessage);
-        return `❌ Installation failed: ${errorMessage}`;
-    }
-}
+        // Filter out empty package names
+        const validPackages = packages.filter(pkg => pkg && pkg.trim());
+        if (validPackages.length === 0) {
+            return "No valid packages to install.";
+        }
 
-/**
- * Install packages using npm/yarn
- * 
- * @param packageNames Names of packages to install
- * @returns Installation result message
- */
-async function installServerPackages(packageNames: string[]): Promise<string> {
-    if (packageNames.length === 0) return "No packages to install.";
-    
-    return new Promise((resolve, reject) => {
-        const isWindows = process.platform === 'win32';
-        const command = isWindows ? 'npm.cmd' : 'npm';
-        
-        const args = ['install', ...packageNames];
-        console.log(`Installing packages with command: ${command} ${args.join(' ')}`);
-        
-        const child = spawn(command, args, { 
-            stdio: 'pipe',
-            cwd: process.cwd(),
-            env: { ...process.env }
+        // Install packages with exact versions
+        console.log('Installing packages:', validPackages);
+        execSync(`npm install ${validPackages.join(' ')} --save-exact`, { 
+            stdio: 'inherit',
+            cwd: projectRoot
         });
-        
-        let stdout = '';
-        let stderr = '';
-        
-        child.stdout.on('data', (data: Buffer) => {
-            const output = data.toString();
-            stdout += output;
-            console.log(`[npm install] ${output.trim()}`);
-        });
-        
-        child.stderr.on('data', (data: Buffer) => {
-            const output = data.toString();
-            stderr += output;
-            console.error(`[npm install error] ${output.trim()}`);
-        });
-        
-        child.on('error', (error: Error) => {
-            console.error(`[npm install] Command execution error:`, error);
-            reject(`Failed to install packages: ${error.message}`);
-        });
-        
-        child.on('close', (code: number) => {
-            if (code !== 0) {
-                console.error(`[npm install] Process exited with code ${code}`);
-                reject(`Package installation failed with code ${code}. Error: ${stderr}`);
-                return;
+
+        // Build packages if needed
+        for (const pkg of validPackages) {
+            const pkgPath = path.join(projectRoot, 'node_modules', pkg);
+            try {
+                // Check if package has a build script
+                const pkgJson = JSON.parse(await fs.readFile(path.join(pkgPath, 'package.json'), 'utf8'));
+                if (pkgJson.scripts?.build) {
+                    console.log(`Building package ${pkg}...`);
+                    execSync('npm run build', { 
+                        stdio: 'inherit',
+                        cwd: pkgPath 
+                    });
+                }
+            } catch (error) {
+                console.warn(`Warning: Could not build package ${pkg}:`, error);
             }
-            
-            console.log(`[npm install] Successfully installed packages: ${packageNames.join(', ')}`);
-            resolve(`Packages installed successfully: ${packageNames.join(', ')}`);
-        });
-    });
+        }
+
+        return `Successfully installed and prepared packages: ${validPackages.join(', ')}`;
+    } catch (error) {
+        console.error('Error installing packages:', error);
+        throw new Error(`Failed to install packages: ${error.message}`);
+    }
 }
 
 /**
@@ -99,18 +66,63 @@ async function installServerPackages(packageNames: string[]): Promise<string> {
  * @returns Updated configuration
  */
 export function prepareNewServers(serverIds: string[]): MCPConfig {
-    // Update package paths in the configuration
-    const updatedConfig = PackageLoader.updatePackagePaths(mcpConfig, serverIds);
-    
-    // For each server, prepare its configuration for dynamic loading
+    const config = {
+        features: {
+            core: {
+                serverManagement: true,
+                toolOperations: true,
+                clientCommunication: true
+            },
+            enhanced: {
+                analytics: false,
+                contextManagement: false,
+                caching: false,
+                stateManagement: false,
+                healthMonitoring: false
+            }
+        },
+        mcpServers: {}
+    };
+
     for (const serverId of serverIds) {
-        if (updatedConfig.mcpServers[serverId]) {
-            const config = updatedConfig.mcpServers[serverId];
-            updatedConfig.mcpServers[serverId] = PackageLoader.prepareForDynamicLoading(config);
+        // Get package name from node_modules
+        const packageName = getPackageNamesFromServerIds([serverId])[0];
+        if (!packageName) {
+            console.warn(`No package found for server ${serverId}`);
+            continue;
+        }
+
+        try {
+            // Read package.json to get entry point
+            const pkgPath = path.join(projectRoot, 'node_modules', packageName);
+            const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf8'));
+            
+            // Get the entry point - prefer dist/index.js if it exists
+            let entryPoint = 'dist/index.js';
+            if (!fs.existsSync(path.join(pkgPath, entryPoint))) {
+                entryPoint = pkgJson.main || 'index.js';
+            }
+
+            // Create server config following the GitHub/Brave pattern
+            config.mcpServers[serverId] = {
+                id: serverId,
+                name: pkgJson.name || serverId,
+                command: nodePath,
+                args: [
+                    path.join('node_modules', packageName, entryPoint)
+                ],
+                env: {
+                    PWD: projectRoot,
+                    // Add any additional environment variables needed by the server
+                    NODE_ENV: process.env.NODE_ENV || 'production'
+                }
+            };
+        } catch (error) {
+            console.error(`Error preparing server ${serverId}:`, error);
         }
     }
-    
-    return updatedConfig;
+
+    return config;
 }
 
 /**
@@ -120,7 +132,11 @@ export function prepareNewServers(serverIds: string[]): MCPConfig {
  * @returns Array of package names
  */
 export function getPackageNamesFromServerIds(serverIds: string[]): string[] {
-    return serverIds
-        .map(id => mcpConfig.mcpServers[id]?.env?.PACKAGE_NAME)
-        .filter((name): name is string => !!name);
+    // Map server IDs to package names based on a convention
+    // This should match how the packages are published in npm
+    return serverIds.map(id => {
+        // Convert server ID to package name format
+        // e.g., "twitter" -> "@modelcontextprotocol/server-twitter"
+        return `@modelcontextprotocol/server-${id}`;
+    });
 } 
