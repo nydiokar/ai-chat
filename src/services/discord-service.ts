@@ -6,14 +6,14 @@ import { AIServiceFactory } from './ai-service-factory.js';
 import { debug, defaultConfig } from '../utils/config.js';
 import { IServerManager } from '../tools/mcp/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
-import { mcpConfig } from '../tools/mcp/mcp_config.js';
+import { mcpConfig } from '../mcp_config.js';
 import { CacheService, CacheType } from './cache/cache-service.js';
 import { DiscordContext, DiscordCachedMessage, DiscordCachedConversation } from '../types/discord.js';
 import { hotTokensCommands, handleHotTokensCommand } from '../features/hot-tokens/commands/hot-tokens-commands.js';
 import { taskCommands, handleTaskCommand } from '../tasks/commands/task-commands.js';
+import { pulseCommand, handlePulseCommand } from '../features/pulse-mcp/commands/pulse-discord-command.js';
 import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
 import { PrismaClient } from '@prisma/client';
-import { TaskManager } from '../tasks/task-manager.js';
 
 export class DiscordService {
     private client: Client;
@@ -303,6 +303,8 @@ export class DiscordService {
                 } else if (commandName === 'ht') {
                     const hotTokensService = new HotTokensService(prisma);
                     await handleHotTokensCommand(interaction, hotTokensService);
+                } else if (commandName === 'pulse') {
+                    await handlePulseCommand(interaction);
                 }
                 
                 // Close the Prisma client after command handling
@@ -475,7 +477,8 @@ export class DiscordService {
             
             const commands = [
                 taskCommands.toJSON(),
-                hotTokensCommands.toJSON()
+                hotTokensCommands.toJSON(),
+                pulseCommand.toJSON()
             ];
             
             // Get the guilds the bot is in
@@ -652,5 +655,13 @@ export class DiscordService {
             await DiscordService.instance.start();
         }
         return DiscordService.instance;
+    }
+
+    /**
+     * Get the MCP container for external use
+     * @returns The MCP container instance
+     */
+    getMCPContainer(): MCPContainer | undefined {
+        return this.mcpContainer;
     }
 }

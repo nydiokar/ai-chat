@@ -15,3 +15,5 @@ cline_docs/
 tools-cache.json.metrics
 tools-cache.json.metrics.json
 tools-cache.json
+docs/
+cline_docs/

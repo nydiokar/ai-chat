@@ -1,5 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
-import { Server, ServerConfig } from '../types/server.js';
+import { Server, ServerConfig, ServerState } from '../types/server.js';
 import { EventEmitter } from 'events';
 
 export interface IMCPClient {

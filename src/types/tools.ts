@@ -95,7 +95,34 @@ export interface ToolInformationProvider {
 }
 
 // Constants
-export const MCP_SERVER_IDS = [
+// Base servers that are always available (environment permitting)
+const BASE_MCP_SERVER_IDS = [
     'brave-search',
     'github'
 ] as const;
+
+// Dynamic servers that can be added at runtime
+let DYNAMIC_SERVER_IDS: string[] = [];
+
+// Function to register a new server ID
+export function registerMCPServerId(id: string): void {
+    if (!DYNAMIC_SERVER_IDS.includes(id)) {
+        DYNAMIC_SERVER_IDS.push(id);
+        
+        // Also update the MCP_SERVER_IDS array for backward compatibility
+        if (!MCP_SERVER_IDS.includes(id)) {
+            MCP_SERVER_IDS.push(id);
+        }
+        
+        console.log(`Registered new MCP server ID: ${id}`);
+    }
+}
+
+// Export a function that returns all server IDs
+export function getAllMCPServerIds(): string[] {
+    return [...BASE_MCP_SERVER_IDS, ...DYNAMIC_SERVER_IDS];
+}
+
+// For backward compatibility, still export MCP_SERVER_IDS
+// This allows existing code to work but will be updated with dynamic servers
+export const MCP_SERVER_IDS = [...BASE_MCP_SERVER_IDS] as string[];

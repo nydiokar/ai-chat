@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { describe, it, before, after } from 'mocha';
 import { IMCPClient, IServerManager } from '../tools/mcp/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
-import { mcpConfig } from '../tools/mcp/mcp_config.js';
+import { mcpConfig } from '../mcp_config.js';
 import { ToolDefinition, ToolResponse } from '../tools/mcp/types/tools.js';
 
 describe('OpenAI MCP Integration', () => {

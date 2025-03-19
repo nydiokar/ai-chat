@@ -6,26 +6,36 @@
 - **Purpose**: Core caching functionality
 - **Dependencies**: Keyv, KeyvFile
 - **Key Features**:
-  - Persistent storage
-  - Memory caching
+  - Multi-level caching (memory, file)
+  - Cache invalidation patterns
+  - TTL management
   - Metrics tracking
   - Data sanitization
+  - Cache-aside pattern implementation
 
 ### Database Service (`src/services/db-service.ts`)
 - **Purpose**: Database operations
-- **Used By**: CacheService, DiscordService
+- **Used By**: All core services
 - **Features**:
+  - Repository pattern implementation
   - Cache metrics persistence
-  - Session storage
-  - Data management
+  - Session management
+  - Event sourcing for conversations
+  - Transaction management
+  - Schema migrations
+  - Performance optimization
 
 ### Discord Service (`src/services/discord-service.ts`)
 - **Purpose**: Discord interaction handling
-- **Dependencies**: SessionCache, CacheService
+- **Dependencies**: SessionCache, CacheService, AIServiceFactory
 - **Features**:
   - Message handling
   - Session management
   - Conversation tracking
+  - Rate limiting
+  - Error recovery
+  - Context management
+  - Event emission
 
 ## Specialized Services
 
@@ -37,14 +47,21 @@
   - Smart cleanup
   - Multiple cache strategies
   - Performance tracking
+  - Cache invalidation
+  - Tool result caching
+  - Pattern-based cleanup
 
 ### System Prompt Generator (`src/system-prompt-generator.ts`)
 - **Purpose**: Generate system prompts
-- **Dependencies**: ToolCache
+- **Dependencies**: ToolCache, AIServiceFactory
 - **Features**:
   - Tool relevance filtering
   - Cached tool lookups
   - Dynamic prompt generation
+  - Context management
+  - Model-specific optimization
+  - Token optimization
+  - Capability aware generation
 
 ## Service Relationships
 
@@ -54,8 +71,15 @@ graph TD
     TC[ToolCache] --> CS
     DS[DiscordService] --> CS
     DS --> SC[SessionCache]
+    DS --> AF[AIServiceFactory]
     SPG[SystemPromptGenerator] --> TC
+    SPG --> AF
     SC --> CS
+    PM[PerformanceMonitor] --> CS
+    PM --> DB
+    TM[TaskManager] --> DB
+    TM --> EE[EventEmitter]
+    DS --> EE
 ```
 
 ## Configuration
@@ -67,6 +91,15 @@ interface CacheConfig {
     namespace?: string;
     ttl?: number;
     filename?: string;
+    strategy: CacheStrategy;
+    maxSize?: number;
+    cleanupInterval?: number;
+}
+
+enum CacheStrategy {
+    MEMORY = 'memory',
+    FILE = 'file',
+    HYBRID = 'hybrid'
 }
 ```
 
@@ -151,4 +184,4 @@ Each service implements its own error handling:
 3. **Monitoring**:
    - Centralized logging
    - Performance dashboards
-   - Alert system 
+   - Alert system

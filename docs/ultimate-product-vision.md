@@ -21,7 +21,7 @@
 
 ## Ultimate Vision
 
-The ultimate goal is to create a comprehensive service hub that seamlessly integrates with both Discord and Windows, providing a powerful, extensible, and user-friendly interface for AI-powered services. This hub will integrate with MAX for orchestration and intent classification.
+The ultimate goal is to create a comprehensive service hub that seamlessly integrates with both Discord and Windows, providing a powerful, extensible, and user-friendly interface for AI-powered services. This hub might integrate with MAX for orchestration and intent classification.
 
 ### Core Features
 

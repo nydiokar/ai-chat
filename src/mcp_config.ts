@@ -1,7 +1,6 @@
-import { MCPConfig } from "./di/container.js";
+import { MCPConfig } from "./tools/mcp/di/container.js";
 import dotenv from 'dotenv';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+
 
 // Load environment variables
 dotenv.config();
@@ -64,6 +63,10 @@ if (process.env.BRAVE_API_KEY) {
     }
   };
 }
+
+// DYNAMICALLY ADDED SERVERS - DO NOT REMOVE THIS COMMENT
+
+// END DYNAMIC SERVERS
 
 export const mcpConfig: MCPConfig = {
   features: {

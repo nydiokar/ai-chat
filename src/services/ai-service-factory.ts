@@ -3,7 +3,7 @@ import { OpenAIService } from './ai/openai.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { defaultConfig } from '../utils/config.js';
 import { MCPContainer, MCPConfig } from '../tools/mcp/di/container.js';
-import { mcpConfig } from '../tools/mcp/mcp_config.js';
+import { mcpConfig } from '../mcp_config.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 
 export class AIServiceFactory {

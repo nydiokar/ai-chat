@@ -24,22 +24,60 @@ export class BaseServerManager extends EventEmitter implements IServerManager {
     }
 
     public async startServer(id: string, config: ServerConfig): Promise<void> {
+        // If the server already exists, don't recreate it
         if (this.hasServer(id)) {
-            throw MCPError.serverStartFailed(new Error(`Server with ID ${id} already exists`));
+            const server = this.getServer(id);
+            if (server && server.state === ServerState.RUNNING) {
+                return; // Already running
+            }
+            
+            // If it exists but is not running, update its state and continue
+            if (server) {
+                server.state = ServerState.STARTING;
+                server.config = config; // Update config in case it changed
+            }
+        } else {
+            // Create a new server instance
+            const server: Server = {
+                id: id,
+                name: config.name || `Server ${id}`,
+                version: '1.0.0',
+                state: ServerState.STARTING,
+                config,
+                startTime: new Date()
+            };
+            
+            this.servers.set(id, server);
+        }
+        
+        // Get the server (either existing or newly created)
+        const server = this.getServer(id);
+        if (!server) {
+            throw MCPError.serverNotFound();
         }
 
-        const server: Server = {
-            id: id,
-            name: `Server ${id}`,
-            version: '1.0.0',
-            state: ServerState.STARTING,
-            config,
-            startTime: new Date()
-        };
-
-        this.servers.set(id, server);
-
         try {
+            // Add to clientsMap if not already there
+            if (!this.clientsMap.has(id)) {
+                // Create unique identifier for this client
+                const clientId = `IMCPClient_${id}`;
+                
+                // Register client ID mapping
+                this.clientsMap.set(id, clientId);
+                
+                try {
+                    // Create the client instance dynamically
+                    const { BaseMCPClient } = await import('../base/base-mcp-client.js');
+                    const clientInstance = new BaseMCPClient(config, id);
+                    
+                    // Bind the client with its unique ID
+                    this.container.bind<IMCPClient>(clientId).toConstantValue(clientInstance);
+                } catch (error) {
+                    console.error(`Failed to dynamically create client for ${id}:`, error);
+                    throw new Error(`Failed to initialize server ${id}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+            
             // Get the client for this server
             const clientId = this.clientsMap.get(id);
             if (!clientId) {
@@ -106,5 +144,62 @@ export class BaseServerManager extends EventEmitter implements IServerManager {
         await this.stopServer(id);
         this.servers.delete(id);
         this.emit('serverUnregistered', id);
+    }
+
+    /**
+     * Get the current status of a server
+     */
+    public async getServerStatus(id: string): Promise<ServerState> {
+        const server = this.getServer(id);
+        if (!server) {
+            throw MCPError.serverNotFound();
+        }
+        return server.state;
+    }
+    
+    /**
+     * Register a new server and start it
+     */
+    public async registerServer(id: string, config: ServerConfig): Promise<void> {
+        // Add to clientsMap if not already there
+        if (!this.clientsMap.has(id)) {
+            // Create unique identifier for this client
+            const clientId = `IMCPClient_${id}`;
+            
+            // Register client ID mapping
+            this.clientsMap.set(id, clientId);
+            
+            // Get the static container instance to bind the client
+            try {
+                // Create the client instance dynamically
+                const { BaseMCPClient } = await import('../base/base-mcp-client.js');
+                const clientInstance = new BaseMCPClient(config, id);
+                
+                // Bind the client with its unique ID
+                this.container.bind<IMCPClient>(clientId).toConstantValue(clientInstance);
+            } catch (error) {
+                console.error(`Failed to dynamically create client for ${id}:`, error);
+                throw new Error(`Failed to initialize server ${id}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+        
+        // Now start the server with the configuration
+        await this.startServer(id, config);
+    }
+    
+    /**
+     * Restart a server that was previously started
+     */
+    public async restartServer(id: string): Promise<void> {
+        const server = this.getServer(id);
+        if (!server) {
+            throw MCPError.serverNotFound();
+        }
+        
+        // Only restart if it's not already running
+        if (server.state !== ServerState.RUNNING) {
+            await this.stopServer(id);
+            await this.startServer(id, server.config);
+        }
     }
 } 

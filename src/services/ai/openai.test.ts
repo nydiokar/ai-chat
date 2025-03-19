@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { OpenAIService } from './openai.js';
 import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError } from '../../types/errors.js';
-import { mcpConfig } from '../../tools/mcp/mcp_config.js';
+import { mcpConfig } from '../../mcp_config.js';
 import { AIMessage } from '../../types/ai-service.js';
 import sinon from 'sinon';
 import { IMCPClient, IToolManager, IServerManager } from '../../tools/mcp/interfaces/core.js';

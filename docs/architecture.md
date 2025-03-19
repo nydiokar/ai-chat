@@ -30,8 +30,16 @@ Orchestrates business logic and coordinates between components.
 ```typescript
 interface AIServiceFactory {
   initialize(config: MCPConfig): void;
-  create(model: string): AIService;
+  create(model: AIModelType): AIService;
+  getAvailableModels(): AIModelType[];
   cleanup(): void;
+}
+
+enum AIModelType {
+  GPT4 = 'gpt-4',
+  GPT35 = 'gpt-3.5-turbo',
+  CLAUDE = 'claude-2',
+  DEEPSEEK = 'deepseek-chat'
 }
 ```
 Responsibilities:
@@ -46,6 +54,9 @@ interface MCPServerManager {
   stopServer(id: string): Promise<void>;
   getToolManager(): ToolManager;
   getServerState(id: string): ServerState;
+  refreshServers(): Promise<void>;
+  getServerMetrics(id: string): Promise<ServerMetrics>;
+  registerEventHandler(event: ServerEvent, handler: EventHandler): void;
 }
 ```
 Responsibilities:
@@ -61,6 +72,9 @@ interface ServiceRegistry {
   getMCPManager(): MCPServerManager;
   getDatabase(): DatabaseService;
   getCache(): CacheService;
+  getEventEmitter(): EventEmitter;
+  getPerformanceMonitor(): PerformanceMonitoringService;
+  getToolChainExecutor(): ToolChainExecutor;
 }
 ```
 Responsibilities:
@@ -78,9 +92,16 @@ Contains core business logic and AI service implementations.
 abstract class BaseAIService {
   protected toolManager: ToolManager;
   protected promptGenerator: SystemPromptGenerator;
+  protected rateLimiter: RateLimiter;
+  protected contextManager: ContextManager;
   
   abstract generateResponse(message: string, history?: AIMessage[]): Promise<AIResponse>;
-  abstract getModel(): string;
+  abstract getModel(): AIModelType;
+  abstract getCapabilities(): AICapabilities;
+  abstract getMetrics(): AIMetrics;
+  
+  protected async validateContext(history: AIMessage[]): Promise<void>;
+  protected async handleRateLimit(): Promise<void>;
 }
 ```
 
@@ -448,4 +469,4 @@ describe('Tool Manager', () => {
 - Code documentation
 - API documentation
 - Architecture documentation
-- Troubleshooting guide 
+- Troubleshooting guide
