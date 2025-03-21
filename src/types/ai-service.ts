@@ -1,4 +1,4 @@
-import { MCPToolResponse } from "./tools.js";
+import { ToolResponse } from "../tools/mcp/types/tools.js";
 
 export type MessageRole = "function" | "user" | "assistant" | "system" | "tool" | "developer";
 
@@ -12,7 +12,7 @@ export interface AIMessage {
 export interface AIResponse {
     content: string;
     tokenCount: number | null;
-    toolResults: MCPToolResponse[];
+    toolResults: ToolResponse[];
 }
 
 export interface AIService {

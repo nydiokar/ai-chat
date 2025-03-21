@@ -1,6 +1,6 @@
 import ollama, { ChatRequest } from 'ollama';
 import { MCPClientService } from "../../../../tools/mcp/mcp-client-service.js";
-import { MCPTool } from "../../../../types/index.js";
+import { MCPTool } from "../../../../tools/mcp/types/tools.js";
 import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../../types/ollama.js";
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";

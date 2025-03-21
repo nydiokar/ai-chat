@@ -385,19 +385,26 @@ export class DiscordService {
         }
 
         try {
+            console.log('\n=== Discord Bot Initialization ===');
+            
             // Initialize cache first
+            console.log('\n1. Initializing cache...');
             await this.initializeCache();
+            console.log('  ✓ Cache initialized');
 
             // Set up event handlers
+            console.log('\n2. Setting up event handlers...');
             this.setupEventHandlers();
+            console.log('  ✓ Event handlers configured');
 
             // Initialize MCP if enabled
             if (defaultConfig.discord.mcp.enabled) {
-                console.log('Initializing MCP...');
+                console.log('\n3. Initializing MCP...');
                 
                 // Create and configure MCP container
                 this.mcpContainer = new MCPContainer(mcpConfig);
                 this.serverManager = this.mcpContainer.getServerManager();
+                console.log('  ✓ MCP container created');
 
                 // Get and initialize the MCP client using the first available server
                 const servers = Object.values(mcpConfig.mcpServers);
@@ -409,49 +416,57 @@ export class DiscordService {
                     // Initialize MCP client
                     const mcpClient = this.mcpContainer.getMCPClient(servers[0].id);
                     await mcpClient.initialize();
-                    console.log('MCP client initialized and connected');
+                    console.log('  ✓ MCP client connected');
 
-                    // Start all configured servers - failures will be handled by BaseServerManager
+                    // Start all configured servers
+                    console.log('\n4. Starting MCP servers...');
+                    let successCount = 0;
+                    const totalServers = Object.keys(mcpConfig.mcpServers).length;
+                    
                     for (const [serverId, config] of Object.entries(mcpConfig.mcpServers)) {
-                        console.log(`Starting server ${serverId}...`);
                         try {
                             await this.serverManager.startServer(serverId, config);
+                            console.log(`  ✓ Started ${serverId}`);
+                            successCount++;
                         } catch (error) {
-                            // Log error but continue with other servers
-                            console.error(`Error starting server ${serverId}:`, error);
+                            console.error(`  ✗ Failed to start ${serverId}:`, error);
                         }
                     }
+                    console.log(`\nServers started: ${successCount}/${totalServers}`);
 
-                    // Initialize AIServiceFactory with the container, but don't let failures crash the service
+                    // Initialize AIServiceFactory
+                    console.log('\n5. Initializing AI Service...');
                     try {
                         await AIServiceFactory.initialize(this.mcpContainer);
-                        console.log('AIServiceFactory initialized successfully');
+                        console.log('  ✓ AI Service initialized');
                     } catch (error) {
-                        console.error('Failed to initialize AIServiceFactory, but continuing:', error);
+                        console.error('  ✗ Failed to initialize AI Service:', error);
                     }
 
-                    console.log('MCP initialization complete');
                 } catch (mcpError) {
-                    // Log MCP initialization error but don't crash the Discord service
-                    console.error('Failed to initialize MCP, but continuing Discord service:', mcpError);
+                    console.error('  ✗ Failed to initialize MCP:', mcpError);
                 }
             }
 
             // Login to Discord
-            console.log('Logging in to Discord...');
+            console.log('\n6. Logging in to Discord...');
             await this.client.login(this.token);
             this.isInitialized = true;
-            console.log('Discord bot started successfully');
+            console.log('  ✓ Successfully logged in');
             
-            // Register slash commands after login - but don't let failures stop the bot
+            // Register slash commands
+            console.log('\n7. Setting up slash commands...');
             try {
                 await this.registerSlashCommands();
+                console.log('  ✓ Slash commands setup complete');
             } catch (error) {
-                console.error('Failed to register slash commands, but continuing bot operation:', error);
-                // Don't rethrow - allow the bot to continue running
+                console.error('  ✗ Failed to setup slash commands:', error);
             }
+            
+            console.log('\n=== Initialization Complete ===\n');
+            
         } catch (error) {
-            console.error('Failed to start Discord client:', error);
+            console.error('\n❌ Failed to start Discord client:', error);
             await this.stop();
             throw error;
         }
@@ -459,17 +474,15 @@ export class DiscordService {
 
     private async registerSlashCommands() {
         try {
-            console.log('Registering slash commands...');
+            console.log('\n=== Discord Command Registration ===');
             
             // Get the client ID from the client object
             if (!this.client.user?.id) {
-                console.log('Client ID not available yet, skipping slash command registration');
+                console.log('❌ Client ID not available yet, skipping registration');
                 return;
             }
             
             const clientId = this.client.user.id;
-            console.log(`Using client ID: ${clientId} for slash command registration`);
-            
             const rest = new REST({ version: '10' }).setToken(this.token);
             
             const commands = [
@@ -480,49 +493,55 @@ export class DiscordService {
             
             // Get the guilds the bot is in
             const guilds = this.client.guilds.cache;
-            console.log(`Bot is in ${guilds.size} guilds`);
+            console.log(`\nRegistering ${commands.length} commands in ${guilds.size} guilds...`);
             
-            // First, clear all commands from all guilds to prevent duplicates
-            for (const [guildId, guild] of guilds) {
-                console.log(`Clearing commands from guild: ${guild.name} (${guildId})`);
-                try {
-                    await rest.put(
-                        Routes.applicationGuildCommands(clientId, guildId),
-                        { body: [] }
-                    );
-                    console.log(`Successfully cleared commands from guild: ${guild.name}`);
-                } catch (clearError) {
-                    console.error(`Error clearing commands from guild ${guild.name}:`, clearError);
-                }
-            }
+            // First, clear all commands
+            console.log('\n1. Clearing existing commands...');
             
             // Clear global commands
             try {
-                await rest.put(
-                    Routes.applicationCommands(clientId),
-                    { body: [] }
-                );
-                console.log('Cleared global commands');
-            } catch (globalClearError) {
-                console.error('Error clearing global commands:', globalClearError);
+                await rest.put(Routes.applicationCommands(clientId), { body: [] });
+                console.log('  ✓ Cleared global commands');
+            } catch (error) {
+                console.error('  ✗ Error clearing global commands:', error);
             }
             
-            // Now register commands to each guild
+            // Clear guild commands
             for (const [guildId, guild] of guilds) {
-                console.log(`Registering commands to guild: ${guild.name} (${guildId})`);
+                try {
+                    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+                    console.log(`  ✓ Cleared commands from ${guild.name}`);
+                } catch (error) {
+                    console.error(`  ✗ Error clearing commands from ${guild.name}:`, error);
+                }
+            }
+            
+            // Register new commands
+            console.log('\n2. Registering new commands...');
+            let successCount = 0;
+            
+            for (const [guildId, guild] of guilds) {
                 try {
                     await rest.put(
                         Routes.applicationGuildCommands(clientId, guildId),
                         { body: commands }
                     );
-                    console.log(`Successfully registered commands to guild: ${guild.name}`);
-                } catch (guildError) {
-                    console.error(`Error registering commands to guild ${guild.name}:`, guildError);
+                    console.log(`  ✓ Registered in ${guild.name}`);
+                    successCount++;
+                } catch (error) {
+                    console.error(`  ✗ Failed to register in ${guild.name}:`, error);
                 }
             }
+            
+            // Print summary
+            console.log('\n=== Command Registration Summary ===');
+            console.log(`Commands registered successfully in ${successCount}/${guilds.size} guilds`);
+            console.log('Registered commands:');
+            commands.forEach(cmd => console.log(`  - /${cmd.name}`));
+            console.log('\n=== End Command Registration ===\n');
+            
         } catch (error) {
-            console.error('Error registering slash commands:', error);
-            // Don't rethrow - this is now handled in the start method
+            console.error('\n❌ Error registering slash commands:', error);
         }
     }
 

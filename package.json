@@ -28,6 +28,7 @@
     "test:ci": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --forbid-only \"src/**/*.test.ts\"",
     "test:mcp-openai": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --reporter min src/tests/mcp_openai_integration.test.ts",
     "test:mcp-github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --reporter min src/tests/mcp_openai_integration.test.ts",
+    "test:github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node -r tsconfig-paths/register src/features/pulse-mcp/tests/test-github-installation.ts",
     "lint": "eslint src/**/*.{js,ts,jsx,tsx}",
     "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix"
   },
@@ -74,7 +75,6 @@
     "reflect-metadata": "^0.2.2",
     "rimraf": "^6.0.1",
     "sinon": "^19.0.2",
-    "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
     "uuid": "^11.0.5",
     "winston": "^3.17.0",
@@ -98,7 +98,9 @@
     "postcss": "^8.5.3",
     "prisma": "^6.5.0",
     "tailwindcss": "^4.0.11",
-    "ts-node-dev": "^2.0.0"
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "tsconfig-paths": "^4.2.0"
   },
   "type": "module"
 }

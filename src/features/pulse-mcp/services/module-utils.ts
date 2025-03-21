@@ -2,8 +2,8 @@
  * Module utilities for dynamic loading support in ESM environment
  * 
  * This file contains utilities to help with dynamic module loading,
- * especially for handling module caching when installing packages
- * while the application is running.
+ * especially for handling module caching when dynamically loading
+ * MCP servers from GitHub repositories.
  */
 
 import { createRequire } from 'module';
@@ -105,19 +105,8 @@ async function clearESMCache(modulePath: string): Promise<void> {
     try {
         console.log(`Attempting ESM cache clearing for ${modulePath}`);
         
-        // Special handling for node_modules paths
-        let importPath = modulePath;
-        
-        // Handle common formats for node_modules
-        if (modulePath.includes('node_modules')) {
-            // For a package name only (not a full path), we need to adjust
-            if (!modulePath.startsWith('/') && !modulePath.includes(':\\')) {
-                // This is likely a package name, keep it as is for import()
-                importPath = modulePath;
-            }
-        }
-        
         // Make sure we have a URL-compatible path
+        let importPath = modulePath;
         if (importPath.startsWith('/') || /^[a-zA-Z]:\\/.test(importPath)) {
             // Convert absolute path to URL format
             importPath = `file://${importPath.replace(/\\/g, '/')}`;

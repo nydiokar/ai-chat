@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { AIModel, ConversationStats, MessageRole, Role, MessageContext, MCPToolResponse } from '../types/index.js';
+import { AIModel, ConversationStats, MessageRole, Role, MessageContext } from '../types/index.js';
+import { ToolResponse } from '../tools/mcp/types/tools.js';
 import { MCPError } from '../types/errors.js';
 import { debug } from '../utils/config.js';
 import { DiscordContext } from '../types/discord.js';
@@ -147,7 +148,7 @@ export class DatabaseService {
 
   async addMessage(
     conversationId: number,
-    content: string | MCPToolResponse,
+    content: string | ToolResponse,
     role: MessageRole,
     tokenCount?: number,
     context?: MessageContext
@@ -155,7 +156,7 @@ export class DatabaseService {
     try {
       const messageContent = typeof content === 'string' 
         ? content 
-        : content.content.map(c => c.text).filter(Boolean).join('\n');
+        : content.data?.content?.map((c: { text: string }) => c.text).filter(Boolean).join('\n') || JSON.stringify(content.data);
 
       await this.executePrismaOperation(async (prisma) => {
         await prisma.message.create({

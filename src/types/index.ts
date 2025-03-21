@@ -88,10 +88,12 @@ export interface ConversationStats {
 
 
 // Re-export from other modules
-export * from './tools.js';
 export * from './ai-service.js';
 export * from './errors.js';
 export * from './task.js';
 export * from './prompts.js';
-
+export * from './ollama.js';
+export * from './discord.js';
+export * from './cleanable.js';
+export * from "./memory.js"
 

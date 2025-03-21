@@ -46,7 +46,7 @@ export const defaultConfig: BaseConfig = {
     return model as AIModel;
   })(),
   messageHandling: {
-    maxContextMessages: 7,  // Unified limit between OpenAI and Discord
+    maxContextMessages: 5,  // Unified limit between OpenAI and Discord
     maxTokens: 4096,
     tokenBuffer: 1000,
     maxMessageLength: 8000

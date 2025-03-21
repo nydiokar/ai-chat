@@ -1,141 +1,113 @@
 import { ToolDefinition } from "./tools/mcp/types/tools.js";
 import { IToolManager } from "./tools/mcp/interfaces/core.js";
-import { ToolCache } from "./services/cache/specialized/tool-cache.js";
-import { debug } from "./utils/config.js";
 
 export class SystemPromptGenerator {
-    private readonly defaultIdentity = "You are Brony, an intelligent AI assistant.";
-    private readonly toolUsageInstructions = `When using tools:
-1. Explain your intention clearly and concisely
-2. For search and information tools:
-   - Summarize key points and remove duplicates
-3. For action tools (GitHub, file operations, etc.):
-   - Confirm completed actions
-   - Handle errors gracefully
-4. For code tools:
-   - Explain significant changes
-5. For tool errors:
-   - Try alternative approaches if available`;
+    private readonly defaultIdentity = `You are an intelligent AI assistant. You have access to various tools to help users. When using tools:
+1. Always use tools when they would help complete the user's request
+2. You can use multiple tools in sequence if needed
+3. Always respond to the user after using tools
+4. If a tool fails, try an alternative approach or explain the issue to the user`;
 
-    private toolCache: ToolCache;
+    // Tool categories for lazy loading
+    private readonly toolCategories = {
+        github: [
+            'create_repository', 'push_files', 'create_pull_request', 'create_issue',
+            'search_repositories', 'search_code', 'search_issues', 'get_file_contents',
+            'fork_repository', 'create_branch', 'list_commits', 'list_issues',
+            'update_issue', 'add_issue_comment', 'get_issue', 'search_users'
+        ],
+        search: [
+            'brave_web_search', 'brave_local_search', 'deep_research',
+            'parallel_search', 'visit_page'
+        ],
+        file: [
+            'create_or_update_file'
+        ]
+    };
 
-    constructor(
-        private toolProvider: IToolManager
-    ) {
-        this.toolCache = ToolCache.getInstance();
-    }
+    constructor(private toolProvider: IToolManager) {}
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
-        const relevantTools = await this.getRelevantTools(message);
+        const tools = await this.getRelevantTools(message);
         
         const promptParts = [
-            systemPrompt || this.defaultIdentity,
-            this.getMinimalInstructions(relevantTools)
+            systemPrompt || this.defaultIdentity
         ];
 
-        if (relevantTools.length > 0) {
+        if (tools.length > 0) {
             promptParts.push(
-                "\nRelevant Tools:",
-                ...relevantTools.map(tool => this.formatMinimalToolInfo(tool))
+                "\nAvailable Tools:",
+                ...tools.map(tool => this.formatToolInfo(tool))
             );
         }
 
         return promptParts.join("\n\n");
     }
 
-    async getRelevantTools(message: string): Promise<ToolDefinition[]> {
-        try {
-            // First check the schema cache
-            let allTools: ToolDefinition[] = [];
-            const cachedSchemas = await this.toolCache.get<ToolDefinition[]>('schemas', 'all_tools', ['tools']);
-            
-            if (cachedSchemas) {
-                debug('Using cached tool schemas');
-                allTools = cachedSchemas;
-            } else {
-                // Get fresh tools and cache them
-                await this.toolProvider.refreshToolInformation();
-                allTools = await this.toolProvider.getAvailableTools();
-                await this.toolCache.set('schemas', allTools, {
-                    ttl: 24 * 60 * 60, // 24 hours for schemas
-                    tags: ['tools'],
-                    compress: true,
-                    isSchema: true
-                });
-                debug('Cached tool schemas');
-            }
+    private formatToolInfo(tool: ToolDefinition): string {
+        const parts = [
+            `Tool: ${tool.name}`,
+            `Purpose: ${tool.description}`,
+            `When to use: Use this tool when the user's request involves ${tool.name.split('_').join(' ')}`
+        ];
 
-            // Filter tools based on message
-            const relevantTools = this.filterRelevantTools(allTools, message);
-            return relevantTools;
-        } catch (error) {
-            debug(`Error getting relevant tools: ${error instanceof Error ? error.message : String(error)}`);
-            // Fallback to getting tools directly without caching
-            await this.toolProvider.refreshToolInformation();
-            const allTools = await this.toolProvider.getAvailableTools();
-            return this.filterRelevantTools(allTools, message);
-        }
-    }
-
-    private filterRelevantTools(tools: ToolDefinition[], message: string): ToolDefinition[] {
-        if (!message) return tools;
-        
-        const keywords = this.extractKeywords(message);
-        return tools
-            .filter(tool => this.isToolRelevant(tool, keywords))
-            .slice(0, 5); // Limit to 5 most relevant tools
-    }
-
-    private extractKeywords(message: string): Set<string> {
-        const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with']);
-        return new Set(
-            message.toLowerCase()
-                .split(/\s+/)
-                .filter(word => word.length > 2 && !stopWords.has(word))
-        );
-    }
-
-    private isToolRelevant(tool: ToolDefinition, keywords: Set<string>): boolean {
-        const toolText = `${tool.name} ${tool.description || ''}`.toLowerCase();
-        return Array.from(keywords).some(keyword => toolText.includes(keyword));
-    }
-
-    private getMinimalInstructions(tools: ToolDefinition[]): string {
-        if (tools.length === 0) return this.toolUsageInstructions;
-        
-        // Only include relevant sections based on tool types
-        const sections: string[] = [];
-        const hasSearchTools = tools.some(t => t.name.includes('search'));
-        const hasActionTools = tools.some(t => t.name.includes('create') || t.name.includes('update'));
-        const hasCodeTools = tools.some(t => t.name.includes('code') || t.name.includes('file'));
-
-        sections.push("When using tools:");
-        if (hasSearchTools) sections.push("- Summarize search results concisely");
-        if (hasActionTools) sections.push("- Confirm completed actions");
-        if (hasCodeTools) sections.push("- Explain code changes briefly");
-        sections.push("- Handle errors gracefully");
-
-        return sections.join('\n');
-    }
-
-    private formatMinimalToolInfo(tool: ToolDefinition): string {
-        const parts = [`Tool: ${tool.name}`];
-        
-        if (tool.description) {
-            parts.push(`Description: ${tool.description}`);
-        }
-
-        // Only include minimal schema information
-        if (tool.parameters?.length > 0) {
-            const requiredParams = tool.parameters
-                .filter(p => p.required)
-                .map(p => p.name)
-                .join(', ');
-            if (requiredParams) {
-                parts.push(`Required: ${requiredParams}`);
-            }
+        if (tool.parameters && tool.parameters.length > 0) {
+            parts.push('Parameters:');
+            tool.parameters.forEach(param => {
+                const required = param.required ? ' (required)' : '';
+                parts.push(`- ${param.name}${required}: ${param.description || 'No description'}`);
+            });
         }
 
         return parts.join('\n');
+    }
+
+    public async getRelevantTools(message: string): Promise<ToolDefinition[]> {
+        // Get all available tools
+        const allTools = await this.toolProvider.getAvailableTools();
+        
+        // If no message, return all tools (changed from returning none)
+        if (!message.trim()) {
+            return allTools;
+        }
+
+        // Convert message to lowercase for easier matching
+        const msg = message.toLowerCase();
+
+        // Determine which categories of tools to include
+        const neededCategories = new Set<keyof typeof this.toolCategories>();
+
+        // GitHub-related keywords
+        if (msg.includes('github') || msg.includes('repo') || msg.includes('pull request') || 
+            msg.includes('issue') || msg.includes('commit') || msg.includes('branch')) {
+            neededCategories.add('github');
+        }
+
+        // Search-related keywords
+        if (msg.includes('search') || msg.includes('find') || msg.includes('look up') || 
+            msg.includes('research') || msg.includes('explore') || msg.includes('what') || 
+            msg.includes('how') || msg.includes('why') || msg.includes('when') || 
+            msg.includes('where') || msg.includes('who')) {
+            neededCategories.add('search');
+        }
+
+        // File-related keywords
+        if (msg.includes('file') || msg.includes('create') || msg.includes('update') || 
+            msg.includes('write') || msg.includes('read') || msg.includes('edit')) {
+            neededCategories.add('file');
+        }
+
+        // If no categories matched, return all tools (changed from returning none)
+        if (neededCategories.size === 0) {
+            return allTools;
+        }
+
+        // Get the tool names we want
+        const neededToolNames = new Set(
+            Array.from(neededCategories).flatMap(cat => this.toolCategories[cat])
+        );
+
+        // Filter the available tools to only include the ones we need
+        return allTools.filter(tool => neededToolNames.has(tool.name));
     }
 }

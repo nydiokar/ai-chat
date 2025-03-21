@@ -1,4 +1,4 @@
-import { MCPTool } from '../../../../types/tools.js';
+import { MCPTool } from '../../../../tools/mcp/types/tools.js';
 import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama.js';
 import { z } from 'zod';
 

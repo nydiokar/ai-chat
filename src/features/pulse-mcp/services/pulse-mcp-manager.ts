@@ -2,6 +2,7 @@ import { PulseAPIService, PulseMCPServer } from './pulse-api-service.js';
 import { MCPConfig } from '../../../tools/mcp/di/container.js';
 import { ServerConfig } from '../../../tools/mcp/types/server.js';
 import path from 'path';
+import { GitRepoLoader } from './git-repo-loader.js';
 
 export class PulseMCPManager {
   private pulseApi: PulseAPIService;
@@ -22,60 +23,28 @@ export class PulseMCPManager {
   }
 
   /**
-   * Convert a Pulse MCP server to our ServerConfig format
-   * @param pulseServer The server from Pulse API
-   * @returns ServerConfig compatible with our MCP container
+   * Prepare a server from GitHub source
+   * 
+   * @param pulseServer Server from Pulse API
+   * @returns Promise resolving to the server config or null if preparation fails
    */
-  convertToServerConfig(pulseServer: PulseMCPServer): ServerConfig {
-    // Extract package name and registry info
-    const packageInfo = pulseServer.package_name ? 
-      { 
-        name: pulseServer.package_name,
-        registry: pulseServer.package_registry || 'npm'
-      } : null;
-
-    // Create a safe server ID from the name
-    const serverId = pulseServer.name.toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-    
-    // Get Node.js executable path
-    const nodePath = process.execPath;
-    
-    // Default path for node modules
-    const nodeModulesPath = path.join(process.cwd(), 'node_modules');
-    
-    // Try to determine the package path based on naming convention
-    const packagePath = packageInfo?.name ? 
-      path.join(nodeModulesPath, packageInfo.name, 'dist', 'index.js') : 
-      null;
-
-    return {
-      id: serverId,
-      name: pulseServer.name,
-      command: nodePath,
-      args: packagePath ? [packagePath] : [],
-      env: {
-        SHORT_DESCRIPTION: pulseServer.short_description,
-        SERVER_URL: pulseServer.url || '',
-        SOURCE_URL: pulseServer.source_code_url || '',
-        PACKAGE_NAME: pulseServer.package_name || '',
-        PACKAGE_REGISTRY: pulseServer.package_registry || '',
-        GITHUB_STARS: String(pulseServer.github_stars || 0)
-      }
-    };
+  async prepareGitHubServer(pulseServer: PulseMCPServer): Promise<ServerConfig | null> {
+    return await GitRepoLoader.prepareFromGitHub(pulseServer);
   }
 
   /**
-   * Add a Pulse server to the MCP configuration
+   * Add a Pulse server to the MCP configuration using GitHub installation
+   * 
    * @param config Existing MCP configuration
    * @param pulseServer Server from Pulse API to add
    * @returns Updated MCP configuration with the new server
    */
-  addServerToConfig(config: MCPConfig, pulseServer: PulseMCPServer): MCPConfig {
-    const serverConfig = this.convertToServerConfig(pulseServer);
-    const serverId = serverConfig.id;
+  async addServerToConfig(config: MCPConfig, pulseServer: PulseMCPServer): Promise<MCPConfig> {
+    // Check if a server with a matching ID already exists
+    const serverId = pulseServer.name.toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
     
     // Check if a server with this ID already exists in the configuration
     if (config.mcpServers && config.mcpServers[serverId]) {
@@ -83,16 +52,35 @@ export class PulseMCPManager {
       return config; // Return unchanged config
     }
     
-    console.log(`Adding server ${serverId} (${pulseServer.name}) to configuration`);
+    // Check if the server has a source code URL
+    if (!pulseServer.source_code_url) {
+      console.error(`Server ${serverId} does not have a source code URL. Cannot install.`);
+      return config; // Return unchanged config
+    }
     
-    // Create a new config object to avoid mutating the original
-    return {
-      ...config,
-      mcpServers: {
-        ...config.mcpServers,
-        [serverId]: serverConfig
+    console.log(`Adding server ${serverId} (${pulseServer.name}) to configuration from GitHub`);
+    
+    try {
+      // Prepare the server from GitHub
+      const serverConfig = await this.prepareGitHubServer(pulseServer);
+      
+      if (!serverConfig) {
+        console.error(`Could not create config for server ${serverId}. Skipping.`);
+        return config;
       }
-    };
+      
+      // Create a new config object to avoid mutating the original
+      return {
+        ...config,
+        mcpServers: {
+          ...config.mcpServers,
+          [serverId]: serverConfig
+        }
+      };
+    } catch (error) {
+      console.error(`Failed to prepare server ${serverId} from GitHub:`, error);
+      return config; // Return unchanged config if installation fails
+    }
   }
 
   /**
@@ -105,7 +93,7 @@ export class PulseMCPManager {
   async findAndAddServers(
     config: MCPConfig, 
     query: string, 
-    limit: number = 5
+    limit: number = 10
   ): Promise<{
     updatedConfig: MCPConfig;
     addedServers: PulseMCPServer[];
@@ -120,14 +108,21 @@ export class PulseMCPManager {
     }
     
     let updatedConfig = { ...config };
+    const addedServers: PulseMCPServer[] = [];
     
     for (const server of servers) {
-      updatedConfig = this.addServerToConfig(updatedConfig, server);
+      const currentConfig = { ...updatedConfig };
+      updatedConfig = await this.addServerToConfig(updatedConfig, server);
+      
+      // Check if the server was actually added by comparing configs
+      if (Object.keys(updatedConfig.mcpServers).length > Object.keys(currentConfig.mcpServers).length) {
+        addedServers.push(server);
+      }
     }
     
     return {
       updatedConfig,
-      addedServers: servers
+      addedServers
     };
   }
 } 

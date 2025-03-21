@@ -2,47 +2,61 @@ import { AIService, AIMessage, AIResponse } from '../../types/ai-service.js';
 import { IToolManager } from '../../tools/mcp/interfaces/core.js';
 import { SystemPromptGenerator } from '../../system-prompt-generator.js';
 import { MCPContainer } from '../../tools/mcp/di/container.js';
-import { Cleanable } from '../../types/cleanable.js';
-import { MCPError, ErrorType } from '../../types/errors.js';
+import { MCPError, ErrorType } from '../../tools/mcp/types/errors.js';
 
-export abstract class BaseAIService implements AIService, Cleanable {
+/**
+ * Abstract base class for AI services
+ * Provides common functionality and interface that specific implementations must follow
+ */
+export abstract class BaseAIService implements AIService {
+    protected readonly toolManager: IToolManager;
+    protected readonly promptGenerator: SystemPromptGenerator;
     protected systemPrompt: string = '';
-    protected toolManager!: IToolManager;
-    protected promptGenerator!: SystemPromptGenerator;
 
     constructor(protected readonly container: MCPContainer) {
-        this.initializeService();
+        // Container is already validated by AIServiceFactory
+        this.toolManager = container.getToolManager();
+        this.promptGenerator = new SystemPromptGenerator(this.toolManager);
     }
 
-    private initializeService(): void {
-        try {
-            // Get tool manager from container
-            this.toolManager = this.container.getToolManager();
-            
-            // Create system prompt generator with tool manager
-            this.promptGenerator = new SystemPromptGenerator(this.toolManager);
-        } catch (error) {
-            throw new MCPError(
-                'Failed to initialize AI service',
-                ErrorType.INITIALIZATION_ERROR,
-                { cause: error instanceof Error ? error : new Error(String(error)) }
-            );
-        }
-    }
-
+    /**
+     * Generate a response for a given message
+     * This is the main method that implementations must provide
+     */
     abstract generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse>;
+
+    /**
+     * Get the model identifier
+     * Implementations should return their specific model identifier
+     */
     abstract getModel(): string;
 
+    /**
+     * Process a message (delegates to generateResponse by default)
+     * Implementations can override this if they need different processing logic
+     */
+    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
+        return this.generateResponse(message, conversationHistory);
+    }
+
+    /**
+     * Set the system prompt
+     */
     setSystemPrompt(prompt: string): void {
         this.validateState();
         this.systemPrompt = prompt;
     }
 
+    /**
+     * Cleanup resources
+     */
     async cleanup(): Promise<void> {
         this.systemPrompt = '';
-        // Container cleanup is handled by the factory
     }
 
+    /**
+     * Get the system prompt
+     */
     protected async getSystemPrompt(): Promise<string> {
         this.validateState();
         if (!this.systemPrompt) {
@@ -51,17 +65,14 @@ export abstract class BaseAIService implements AIService, Cleanable {
         return this.systemPrompt;
     }
 
-    async processMessage(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
-        this.validateState();
-        return this.generateResponse(message, conversationHistory);
-    }
-
+    /**
+     * Validate service state
+     */
     protected validateState(): void {
-        if (!this.toolManager) {
-            throw new MCPError('Tool manager not initialized', ErrorType.INITIALIZATION_ERROR);
-        }
-        if (!this.promptGenerator) {
-            throw new MCPError('Prompt generator not initialized', ErrorType.INITIALIZATION_ERROR);
+        if (!this.toolManager || !this.promptGenerator) {
+            throw MCPError.initializationFailed(
+                new Error('AI service not properly initialized')
+            );
         }
     }
 }

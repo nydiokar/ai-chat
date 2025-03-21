@@ -68,7 +68,6 @@
 ```mermaid
 graph TD
     CS[CacheService] --> DB[DatabaseService]
-    TC[ToolCache] --> CS
     DS[DiscordService] --> CS
     DS --> SC[SessionCache]
     DS --> AF[AIServiceFactory]

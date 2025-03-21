@@ -1,104 +1,89 @@
 import { MCPConfig } from "./tools/mcp/di/container.js";
 import dotenv from 'dotenv';
-
+import path from 'path';
 
 // Load environment variables
 dotenv.config();
 
-const nodePath = process.execPath; // Gets the full path to the node executable
+const nodePath = process.execPath;
+const projectRoot = process.cwd();
 
-// Get the project root directory
-const projectRoot = process.cwd(); // This will give us the current working directory (project root)
-
-// Validate environment variables
-function validateMCPEnvironment() {
-  const warnings: string[] = [];
-  
-  if (!process.env.GITHUB_TOKEN) {
-    warnings.push('GITHUB_TOKEN not found in environment variables. GitHub tools will be disabled.');
-  }
-  if (!process.env.BRAVE_API_KEY) {
-    warnings.push('BRAVE_API_KEY not found in environment variables. Brave Search tools will be disabled.');
-  }
-  
-  if (warnings.length > 0) {
-    console.warn('[MCP Config] Environment warnings:');
-    warnings.forEach(warning => console.warn('- ' + warning));
-  }
-}
-
-// Validate environment before creating config
-validateMCPEnvironment();
-
-// Only enable servers if their required environment variables are present
-const enabledServers: Record<string, any> = {};
-
-// Add GitHub server if token is present
-if (process.env.GITHUB_TOKEN) {
-  enabledServers["github"] = {
-    id: "github",
-    name: "GitHub Tools",
-    command: nodePath,
-    args: [
-      "node_modules/@modelcontextprotocol/server-github/dist/index.js"
-    ],
-    env: {
-      GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN,
-      PWD: projectRoot
+// Server configurations
+const servers: Record<string, any> = {
+    // Core MCP Servers
+    "github": {
+        id: "github",
+        name: "GitHub Tools",
+        command: nodePath,
+        args: [
+            "node_modules/@modelcontextprotocol/server-github/dist/index.js"
+        ],
+        env: {
+            GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN,
+            PWD: projectRoot
+        }
+    },
+    "brave-search": {
+        id: "brave-search",
+        name: "Brave Search",
+        command: nodePath,
+        args: [
+            "node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"
+        ],
+        env: {
+            BRAVE_API_KEY: process.env.BRAVE_API_KEY
+        }
+    },
+    // Custom MCP Servers
+    "deep-web-research": {
+        id: "deep-web-research",
+        name: "Deep Web Research",
+        command: nodePath,
+        args: [
+            path.join("mcp-repos", "mcp-DEEPwebresearch", "dist", "index.js")
+        ],
+        env: {
+            PWD: projectRoot,
+            MAX_PARALLEL_SEARCHES: "5",
+            SEARCH_DELAY_MS: "200",
+            MAX_RETRIES: "3",
+            TIMEOUT_MS: "55000",
+            LOG_LEVEL: "info"
+        }
     }
-  };
-}
-
-// Add Brave Search server if API key is present
-if (process.env.BRAVE_API_KEY) {
-  enabledServers["brave-search"] = {
-    id: "brave-search",
-    name: "Brave Search",
-    command: nodePath,
-    args: [
-      "node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"
-    ],
-    env: {
-      BRAVE_API_KEY: process.env.BRAVE_API_KEY
-    }
-  };
-}
-
-// DYNAMICALLY ADDED SERVERS - DO NOT REMOVE THIS COMMENT
-
-enabledServers["twitter"] = {
-  "id": "twitter",
-  "name": "Twitter",
-  "command": "C:\\nvm4w\\nodejs\\node.exe",
-  "args": [],
-  "env": {
-    "SHORT_DESCRIPTION": "Integrates with Twitter to enable search, timeline viewing, tweet posting, and direct messaging capabilities through the Twikit library with built-in rate limiting and markdown formatting.",
-    "SERVER_URL": "https://www.pulsemcp.com/servers/adhikasp-twikit",
-    "SOURCE_URL": "https://github.com/Zo-Valentine/mcp-twikit",
-    "PACKAGE_NAME": "",
-    "PACKAGE_REGISTRY": "",
-    "GITHUB_STARS": "0"
-  }
 };
 
-// END DYNAMIC SERVERS
+// Filter enabled servers based on environment requirements
+const enabledServers = Object.entries(servers).reduce((acc, [key, config]) => {
+    // Check if server has required environment variables
+    const hasRequiredEnv = Object.entries(config.env || {}).every(([envKey, envValue]) => {
+        return !envKey.endsWith('_TOKEN') && !envKey.endsWith('_KEY') || envValue;
+    });
+
+    if (hasRequiredEnv) {
+        acc[key] = config;
+    } else {
+        console.warn(`[MCP Config] Server '${key}' disabled due to missing environment variables`);
+    }
+    return acc;
+}, {} as Record<string, any>);
 
 export const mcpConfig: MCPConfig = {
-  features: {
-    core: {
-      serverManagement: true,
-      toolOperations: true,
-      clientCommunication: true
+    features: {
+        core: {
+            serverManagement: true,
+            toolOperations: true,
+            clientCommunication: true
+        },
+        enhanced: {
+            analytics: false,
+            contextManagement: false,
+            caching: false,
+            stateManagement: false,
+            healthMonitoring: false
+        }
     },
-    enhanced: {
-      analytics: false,
-      contextManagement: false,
-      caching: false,
-      stateManagement: false,
-      healthMonitoring: false
-    }
-  },
-  mcpServers: enabledServers
+    mcpServers: enabledServers
 };
 
 export default mcpConfig;

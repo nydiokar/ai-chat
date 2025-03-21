@@ -1,6 +1,6 @@
 import { BaseServerManager } from '../base/base-server-manager.js';
-import { Server, ServerState, ServerEvent, ServerConfig } from '../types/server.js';
-import { MCPError, ErrorType } from '../types/errors.js';
+import { ServerState, ServerEvent, ServerConfig } from '../types/server.js';
+import { MCPError } from '../types/errors.js';
 import { injectable, inject } from 'inversify';
 import { Container } from 'inversify';
 

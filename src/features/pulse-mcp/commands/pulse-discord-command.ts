@@ -8,9 +8,8 @@ import { fileURLToPath } from 'url';
 import { MCPConfig } from '../../../tools/mcp/di/container.js';
 import mcpConfig from '../../../mcp_config.js';
 import { ServerState } from '../../../tools/mcp/types/server.js';
-import { installAndPreparePackages, prepareNewServers, getPackageNamesFromServerIds } from './pulse-dynamic-loader.js';
+import { installFromGitHub } from './pulse-dynamic-loader.js';
 import { isEnhancedServerManager } from '../types/server-extensions.js';
-import { registerMCPServerId } from '../../../types/tools.js';
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -236,19 +235,77 @@ async function startServer(serverId: string, serverManager: any): Promise<boolea
             }
         }
         
-        // If server doesn't exist or is in another state, prepare it for dynamic loading
+        // If server doesn't exist or is in another state, start it directly
         console.log(`Starting server ${serverId} for the first time`);
         
-        // Prepare the server configuration for dynamic loading
-        const updatedConfig = prepareNewServers([serverId]);
-        
-        // Start the server with the prepared configuration
-        await serverManager.startServer(serverId, updatedConfig.mcpServers[serverId]);
+        // Start the server with the configuration from mcpConfig
+        await serverManager.startServer(serverId, mcpConfig.mcpServers[serverId]);
         return true;
     } catch (error) {
         console.error(`Error starting server ${serverId}:`, error);
         return false;
     }
+}
+
+/**
+ * Creates a formatted embed for a server with an install button
+ */
+function createServerEmbed(server: PulseMCPServer, index: number): { 
+    embed: EmbedBuilder, 
+    button: ButtonBuilder 
+} {
+    // Create embed
+    const embed = new EmbedBuilder()
+        .setTitle(server.name)
+        .setColor('#0099ff');
+
+    // Add description
+    if (server.short_description) {
+        embed.setDescription(server.short_description);
+    }
+
+    // Add fields
+    const fields = [];
+    
+    // Stars count
+    fields.push({
+        name: '⭐ GitHub Stars',
+        value: `${(server.github_stars ?? 0).toLocaleString()}`,
+        inline: true
+    });
+
+    // Links
+    const links = [];
+    if (server.source_code_url) {
+        links.push(`[GitHub](${server.source_code_url})`);
+    }
+    if (server.external_url) {
+        links.push(`[Website](${server.external_url})`);
+    }
+    
+    if (links.length > 0) {
+        fields.push({
+            name: '🔗 Links',
+            value: links.join(' · '),
+            inline: true
+        });
+    }
+
+    embed.addFields(fields);
+    
+    // Add footer
+    embed.setFooter({ 
+        text: `Server #${index + 1} · Pulse MCP` 
+    });
+
+    // Create install button
+    const button = new ButtonBuilder()
+        .setCustomId(`install-server-${index}`)
+        .setLabel('Install Server')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📥');
+        
+    return { embed, button };
 }
 
 /**
@@ -275,295 +332,177 @@ export async function handlePulseCommand(interaction: ChatInputCommandInteractio
             // Sort servers by stars (highest first)
             const sortedServers = [...servers].sort((a, b) => (b.github_stars ?? 0) - (a.github_stars ?? 0));
 
-            // First, create detailed embeds for each server
-            const embeds = sortedServers.map(server => {
-                // Create a more concise embed following hot-tokens pattern
-                const embed = new EmbedBuilder()
-                    .setTitle(server.name)
-                    .setColor('#0099ff');
+            // Create embeds with buttons for each server
+            const serverComponents = sortedServers.map((server, index) => 
+                createServerEmbed(server, index)
+            );
 
-                // Add short description if it exists
-                if (server.short_description) {
-                    embed.setDescription(server.short_description);
-                }
-
-                // Add core info in a compact way
-                const fields = [];
-                
-                // Only show stars count
-                fields.push({
-                    name: '\u200b',  // Invisible field name
-                    value: `⭐ ${(server.github_stars ?? 0).toLocaleString()}`,
-                    inline: true
-                });
-
-                // Links field - combine all links into one field
-                const links = [];
-                if (server.source_code_url) {
-                    links.push(`[GitHub](${server.source_code_url})`);
-                }
-                if (server.external_url) {
-                    links.push(`[Website](${server.external_url})`);
-                }
-                if (links.length > 0) {
-                    fields.push({
-                        name: '🔗 Links',
-                        value: links.join(' · '),
-                        inline: true
-                    });
-                }
-
-                embed.addFields(fields);
-                embed.setFooter({ text: 'Pulse MCP' });
-
-                return embed;
-            });
-
-            // Split embeds into smaller chunks (5 instead of 10)
-            const embedChunks = [];
-            for (let i = 0; i < embeds.length; i += 5) {
-                embedChunks.push(embeds.slice(i, i + 5));
+            // Split into chunks of 5 servers per message
+            const chunkedResults = [];
+            for (let i = 0; i < serverComponents.length; i += 5) {
+                chunkedResults.push(serverComponents.slice(i, i + 5));
             }
-
-            // Send the detailed information first
-            await interaction.editReply({
-                content: `Found ${servers.length} MCP servers matching \`${query}\`:`,
-                embeds: embedChunks[0]
+            
+            // Send the first message with servers
+            const firstChunk = chunkedResults[0];
+            const embeds = firstChunk.map(item => item.embed);
+            
+            // Create button rows for the first chunk
+            const actionRows = firstChunk.map((item, i) => {
+                return new ActionRowBuilder<MessageActionRowComponentBuilder>()
+                    .addComponents(item.button);
             });
-
-            // Send additional embed chunks if any
-            for (let i = 1; i < embedChunks.length; i++) {
-                await interaction.followUp({
-                    embeds: embedChunks[i]
+            
+            const initialMessage = await interaction.editReply({
+                content: `Found ${servers.length} MCP servers matching \`${query}\`. Click the install button to install a server:`,
+                embeds: embeds,
+                components: actionRows
+            });
+            
+            // Send additional chunks if any
+            const followupMessages = [];
+            for (let i = 1; i < chunkedResults.length; i++) {
+                const chunk = chunkedResults[i];
+                const chunkEmbeds = chunk.map(item => item.embed);
+                const chunkActionRows = chunk.map((item, j) => {
+                    return new ActionRowBuilder<MessageActionRowComponentBuilder>()
+                        .addComponents(item.button);
                 });
+                
+                const message = await interaction.followUp({
+                    embeds: chunkEmbeds,
+                    components: chunkActionRows
+                });
+                
+                followupMessages.push(message);
             }
-
-            // Then create the selection menu for installation
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('pulse-server-select')
-                .setPlaceholder('Select servers to install')
-                .setMinValues(1)
-                .setMaxValues(Math.min(servers.length, 10));
             
-            // Add options to the select menu
-            servers.forEach((server, index) => {
-                selectMenu.addOptions(
-                    new StringSelectMenuOptionBuilder()
-                        .setLabel(server.name)
-                        .setDescription(`⭐ ${((server.github_stars || 0) as number).toLocaleString()} stars - ${server.short_description.substring(0, 50)}...`)
-                        .setValue(index.toString())
-                );
+            // Set up collector for button interactions
+            const collector = interaction.channel?.createMessageComponentCollector({
+                filter: i => i.customId.startsWith('install-server-') && i.user.id === interaction.user.id,
+                time: 300000 // 5 minutes
             });
             
-            // Create action row with the select menu
-            const row = new ActionRowBuilder<MessageActionRowComponentBuilder>()
-                .addComponents(selectMenu);
-            
-            // Send the installation menu as a follow-up message
-            const menuMessage = await interaction.followUp({
-                content: 'To install any of these servers, select them from the menu below:',
-                components: [row]
-            }) as Message;
-            
-            try {
-                // Wait for user selection
-                const collectedInteraction = await menuMessage.awaitMessageComponent<ComponentType.StringSelect>({
-                    filter: (i: MessageComponentInteraction) => i.customId === 'pulse-server-select' && i.user.id === interaction.user.id,
-                    time: 60000
-                });
+            collector?.on('collect', async (buttonInteraction) => {
+                // Extract the server index from the button customId
+                const serverIndex = parseInt(buttonInteraction.customId.replace('install-server-', ''));
+                const serverToInstall = sortedServers[serverIndex];
                 
-                // Get selected server indices
-                const selectedIndices = collectedInteraction.values.map(v => parseInt(v));
-                
-                // Get selected servers
-                const selectedServers = selectedIndices.map(index => servers[index]);
-                
-                // Indicate processing
-                await collectedInteraction.update({
-                    content: `Adding ${selectedServers.length} servers to configuration...`,
-                    components: []
-                });
-                
-                // Check for existing servers before adding to config
-                const existingServers: string[] = [];
-                const newServers: PulseMCPServer[] = [];
-                const newServerIds: string[] = [];
-                
-                // Create a local copy of the config to update
-                let updatedConfig = { 
-                    ...mcpConfig, 
-                    mcpServers: { ...mcpConfig.mcpServers } 
-                };
-                
-                for (const server of selectedServers) {
-                    const serverId = server.name.toLowerCase()
-                        .replace(/[^a-z0-9-]/g, '-')
-                        .replace(/-+/g, '-')
-                        .replace(/^-|-$/g, '');
-                        
-                    if (mcpConfig.mcpServers[serverId]) {
-                        existingServers.push(server.name);
-                    } else {
-                        newServers.push(server);
-                        newServerIds.push(serverId);
-                        
-                        // Register the new server ID dynamically
-                        registerMCPServerId(serverId);
-                        console.log(`Dynamically registered new server ID: ${serverId}`);
-                    }
-                }
-                
-                // Add servers to config
-                for (const server of selectedServers) {
-                    // Get the updated config with the new server
-                    const configWithServer = manager.addServerToConfig(updatedConfig, server);
-                    
-                    // Update our local copy
-                    updatedConfig = configWithServer;
-                    
-                    // Also update the global mcpConfig object to ensure it reflects the changes
-                    // This is important because other code might reference mcpConfig directly
-                    const serverId = server.name.toLowerCase()
-                        .replace(/[^a-z0-9-]/g, '-')
-                        .replace(/-+/g, '-')
-                        .replace(/^-|-$/g, '');
-                        
-                    if (configWithServer.mcpServers[serverId] && !mcpConfig.mcpServers[serverId]) {
-                        // Add to the in-memory config too
-                        mcpConfig.mcpServers[serverId] = configWithServer.mcpServers[serverId];
-                        console.log(`Added server ${serverId} to in-memory config`);
-                    }
-                }
-                
-                // Now that both configs are updated, save to disk
-                await saveConfig(updatedConfig);
-                
-                // Prepare message about existing servers
-                let existingServersMessage = '';
-                if (existingServers.length > 0) {
-                    existingServersMessage = `\n\nNote: The following servers were already in your configuration: ${existingServers.join(', ')}`;
-                }
-                
-                // Get packages to install (only for new servers)
-                const packagesToInstall = newServers
-                    .filter((server: PulseMCPServer) => server.package_name)
-                    .map((server: PulseMCPServer) => server.package_name as string);
-                
-                let installationResult = "No packages needed to be installed.";
-                
-                if (packagesToInstall.length > 0) {
-                    // Create buttons for installation choice
-                    const installButton = new ButtonBuilder()
-                        .setCustomId('install-packages')
-                        .setLabel(`Install ${packagesToInstall.length} package(s)`)
-                        .setStyle(ButtonStyle.Primary);
-                    
-                    const skipButton = new ButtonBuilder()
-                        .setCustomId('skip-install')
-                        .setLabel('Skip installation')
-                        .setStyle(ButtonStyle.Secondary);
-                    
-                    const buttonRow = new ActionRowBuilder<MessageActionRowComponentBuilder>()
-                        .addComponents(installButton, skipButton);
-                    
-                    // Ask if user wants to install packages
-                    const installPrompt = await interaction.followUp({
-                        content: `Would you like to install the required packages? (${packagesToInstall.join(', ')})`,
-                        components: [buttonRow]
+                if (!serverToInstall) {
+                    await buttonInteraction.reply({
+                        content: '❌ Error: Could not find the selected server.',
+                        ephemeral: true
                     });
-                    
-                    // Wait for user decision
-                    try {
-                        const buttonInteraction = await installPrompt.awaitMessageComponent({
-                            filter: i => 
-                                (i.customId === 'install-packages' || i.customId === 'skip-install') && 
-                                i.user.id === interaction.user.id,
-                            time: 60000
-                        });
-                        
-                        if (buttonInteraction.customId === 'install-packages') {
-                            await buttonInteraction.update({
-                                content: 'Installing packages... This might take a moment.',
-                                components: []
-                            });
-                            
-                            try {
-                                // Use the enhanced installation function that handles dynamic loading
-                                installationResult = await installAndPreparePackages(packagesToInstall);
-                            } catch (installError) {
-                                if (installError instanceof Error) {
-                                    installationResult = `❌ Installation failed: ${installError.message}`;
-                                } else {
-                                    installationResult = `❌ Installation failed: ${String(installError)}`;
-                                }
-                            }
-                        } else {
-                            await buttonInteraction.update({
-                                content: 'Package installation skipped.',
-                                components: []
-                            });
-                            installationResult = "Packages were not installed. You'll need to install them manually.";
-                        }
-                    } catch (timeoutError) {
-                        await installPrompt.edit({
-                            content: 'Package installation selection timed out.',
-                            components: []
-                        });
-                        installationResult = "Packages were not installed due to timeout. You'll need to install them manually.";
-                    }
+                    return;
                 }
                 
-                // Try to start the servers immediately
-                let startResults: string[] = [];
+                // Acknowledge the interaction
+                await buttonInteraction.deferUpdate();
+                
+                // First check if the server already exists
+                const serverId = serverToInstall.name.toLowerCase()
+                    .replace(/[^a-z0-9-]/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '');
+                
+                if (mcpConfig.mcpServers[serverId]) {
+                    // Server already exists
+                    await buttonInteraction.followUp({
+                        content: `⚠️ Server \`${serverToInstall.name}\` is already installed. Use \`/pulse start ${serverId}\` to start it.`,
+                        ephemeral: true
+                    });
+                    return;
+                }
+                
+                // Show installation progress
+                const progressMessage = await buttonInteraction.followUp({
+                    content: `⏳ Installing server \`${serverToInstall.name}\` from GitHub repository...`,
+                });
                 
                 try {
-                    const serverManager = await getServerManager();
+                    // Install the server
+                    const result = await installFromGitHub([serverToInstall]);
                     
-                    // Prepare the servers for dynamic loading if they were newly added
-                    if (newServerIds.length > 0) {
-                        // This updates the configuration with dynamic loading support
-                        const updatedConfig = prepareNewServers(newServerIds);
-                        await saveConfig(updatedConfig);
+                    if (result.installedServers.length === 0) {
+                        await progressMessage.edit({
+                            content: `❌ Failed to install server \`${serverToInstall.name}\`. Check logs for details.`
+                        });
+                        return;
                     }
                     
-                    // For each selected server, try to start it
-                    for (const server of selectedServers) {
-                        const serverId = server.name.toLowerCase()
-                            .replace(/[^a-z0-9-]/g, '-')
-                            .replace(/-+/g, '-')
-                            .replace(/^-|-$/g, '');
-                        
-                        // Use the enhanced startServer function with dynamic loading support
-                        const started = await startServer(serverId, serverManager);
-                        
-                        if (started) {
-                            startResults.push(`✅ Started **${server.name}** server successfully`);
-                        } else {
-                            startResults.push(`⚠️ Could not start **${server.name}** server. Server may not exist or there was an error.`);
+                    // Save the configuration
+                    const updatedConfig = {
+                        ...mcpConfig,
+                        mcpServers: {
+                            ...mcpConfig.mcpServers,
+                            ...result.config.mcpServers
                         }
-                    }
+                    };
+                    
+                    // Update global mcpConfig
+                    Object.entries(result.config.mcpServers).forEach(([id, config]) => {
+                        mcpConfig.mcpServers[id] = config;
+                    });
+                    
+                    await saveConfig(updatedConfig);
+                    
+                    // Create start button
+                    const startButton = new ButtonBuilder()
+                        .setCustomId(`start-server-${serverId}`)
+                        .setLabel('Start Server')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('▶️');
+                    
+                    const startRow = new ActionRowBuilder<MessageActionRowComponentBuilder>()
+                        .addComponents(startButton);
+                    
+                    await progressMessage.edit({
+                        content: `✅ Successfully installed server \`${serverToInstall.name}\`.`,
+                        components: [startRow]
+                    });
+                    
+                    // Set up collector for the start button
+                    const startCollector = interaction.channel?.createMessageComponentCollector({
+                        filter: i => i.customId === `start-server-${serverId}` && i.user.id === interaction.user.id,
+                        time: 60000 // 1 minute
+                    });
+                    
+                    startCollector?.on('collect', async (startInteraction) => {
+                        await startInteraction.deferUpdate();
+                        
+                        const startProgressMessage = await startInteraction.followUp({
+                            content: `⏳ Starting server \`${serverToInstall.name}\`...`,
+                        });
+                        
+                        try {
+                            const serverManager = await getServerManager();
+                            
+                            const started = await startServer(serverId, serverManager);
+                            if (started) {
+                                await startProgressMessage.edit({
+                                    content: `✅ Server \`${serverToInstall.name}\` started successfully!`
+                                });
+                            } else {
+                                await startProgressMessage.edit({
+                                    content: `❌ Failed to start server \`${serverToInstall.name}\`. Check logs for details.`
+                                });
+                            }
+                        } catch (error) {
+                            console.error('Error starting server:', error);
+                            await startProgressMessage.edit({
+                                content: `❌ Error starting server: ${error instanceof Error ? error.message : String(error)}`
+                            });
+                        }
+                    });
+                    
                 } catch (error) {
-                    console.error('Error starting servers:', error);
-                    startResults.push('❌ Error starting servers. Please check the bot logs for more details.');
+                    console.error('Error installing server:', error);
+                    await progressMessage.edit({
+                        content: `❌ Error installing server: ${error instanceof Error ? error.message : String(error)}`
+                    });
                 }
-                
-                // Send the result message
-                await interaction.followUp({
-                    content: `Installation result: ${installationResult}${existingServersMessage}`,
-                    embeds: [
-                        {
-                            description: startResults.join('\n'),
-                            color: 0x00FF00
-                        }
-                    ]
-                });
-            } catch (error) {
-                console.error('Error handling pulse command:', error);
-                await interaction.followUp({
-                    content: '❌ Error handling pulse command. Please check the bot logs for more details.',
-                    ephemeral: true
-                });
-            }
+            });
+            
         } catch (error) {
             console.error('Error handling pulse command:', error);
             await interaction.followUp({
@@ -617,19 +556,148 @@ export async function handlePulseCommand(interaction: ChatInputCommandInteractio
                 return;
             }
             
-            // Generate server list with status
-            const serverList = servers.map(server => {
+            // Create server embeds
+            const embeds = servers.map((server, index) => {
                 const config = server?.config;
-                const description = config?.env?.SHORT_DESCRIPTION || 'No description';
-                const statusEmoji = server?.state === ServerState.RUNNING ? '🟢' : 
-                                   server?.state === ServerState.PAUSED ? '🟠' : '⚫';
+                const statusEmoji = 
+                    server?.state === ServerState.RUNNING ? '🟢' : 
+                    server?.state === ServerState.PAUSED ? '🟠' : 
+                    server?.state === ServerState.ERROR ? '🔴' : '⚫';
                 
-                return `${statusEmoji} **${server?.name}** (\`${server?.id}\`)\n   Status: \`${server?.state}\`\n   Description: ${description}`;
-            }).join('\n\n');
-            
-            await interaction.editReply({
-                content: `**Available MCP Servers:**\n\n${serverList}\n\nTo start a server, use \`/pulse start\` with the server ID.`
+                const embed = new EmbedBuilder()
+                    .setTitle(`${statusEmoji} ${server?.name}`)
+                    .setDescription(`Status: \`${server?.state}\``)
+                    .setColor(
+                        server?.state === ServerState.RUNNING ? '#00FF00' : 
+                        server?.state === ServerState.PAUSED ? '#FFA500' : 
+                        server?.state === ServerState.ERROR ? '#FF0000' : '#808080'
+                    );
+                
+                // Add fields
+                const fields = [];
+                
+                fields.push({
+                    name: 'ID',
+                    value: `\`${server?.id}\``,
+                    inline: true
+                });
+                
+                // Show source URL if available
+                if (config?.env?.SOURCE_URL) {
+                    fields.push({
+                        name: 'Source',
+                        value: `[GitHub](${config.env.SOURCE_URL})`,
+                        inline: true
+                    });
+                }
+                
+                embed.addFields(fields);
+                
+                return embed;
             });
+            
+            // Create start buttons for each server
+            const actionRows = servers.map(server => {
+                const startButton = new ButtonBuilder()
+                    .setCustomId(`list-start-${server?.id}`)
+                    .setLabel(server?.state === ServerState.RUNNING ? 'Restart' : 'Start')
+                    .setStyle(
+                        server?.state === ServerState.RUNNING ? ButtonStyle.Secondary : ButtonStyle.Success
+                    )
+                    .setEmoji(
+                        server?.state === ServerState.RUNNING ? '🔄' : '▶️'
+                    );
+                
+                // Add stop button if server is running
+                if (server?.state === ServerState.RUNNING) {
+                    const stopButton = new ButtonBuilder()
+                        .setCustomId(`list-stop-${server?.id}`)
+                        .setLabel('Stop')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('⏹️');
+                    
+                    return new ActionRowBuilder<MessageActionRowComponentBuilder>()
+                        .addComponents(startButton, stopButton);
+                }
+                
+                return new ActionRowBuilder<MessageActionRowComponentBuilder>()
+                    .addComponents(startButton);
+            });
+            
+            // Split into chunks of 5 servers per message
+            const chunkedEmbeds = [];
+            const chunkedRows = [];
+            for (let i = 0; i < embeds.length; i += 5) {
+                chunkedEmbeds.push(embeds.slice(i, i + 5));
+                chunkedRows.push(actionRows.slice(i, i + 5));
+            }
+            
+            // Send the first message
+            await interaction.editReply({
+                content: '**Available MCP Servers:**',
+                embeds: chunkedEmbeds[0],
+                components: chunkedRows[0]
+            });
+            
+            // Send additional chunks if any
+            for (let i = 1; i < chunkedEmbeds.length; i++) {
+                await interaction.followUp({
+                    embeds: chunkedEmbeds[i],
+                    components: chunkedRows[i]
+                });
+            }
+            
+            // Set up collector for button interactions
+            const collector = interaction.channel?.createMessageComponentCollector({
+                filter: i => 
+                    (i.customId.startsWith('list-start-') || i.customId.startsWith('list-stop-')) && 
+                    i.user.id === interaction.user.id,
+                time: 300000 // 5 minutes
+            });
+            
+            collector?.on('collect', async (buttonInteraction) => {
+                await buttonInteraction.deferUpdate();
+                
+                // Extract the server ID from the button customId
+                const isStart = buttonInteraction.customId.startsWith('list-start-');
+                const serverId = isStart ? 
+                    buttonInteraction.customId.replace('list-start-', '') : 
+                    buttonInteraction.customId.replace('list-stop-', '');
+                
+                const progressMessage = await buttonInteraction.followUp({
+                    content: `⏳ ${isStart ? 'Starting' : 'Stopping'} server \`${serverId}\`...`,
+                });
+                
+                try {
+                    const serverManager = await getServerManager();
+                    
+                    if (isStart) {
+                        // Start the server
+                        const started = await startServer(serverId, serverManager);
+                        if (started) {
+                            await progressMessage.edit({
+                                content: `✅ Server \`${serverId}\` started successfully!`
+                            });
+                        } else {
+                            await progressMessage.edit({
+                                content: `❌ Failed to start server \`${serverId}\`. Check logs for details.`
+                            });
+                        }
+                    } else {
+                        // Stop the server
+                        await serverManager.stopServer(serverId);
+                        await progressMessage.edit({
+                            content: `✅ Server \`${serverId}\` stopped successfully!`
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Error ${isStart ? 'starting' : 'stopping'} server:`, error);
+                    await progressMessage.edit({
+                        content: `❌ Error ${isStart ? 'starting' : 'stopping'} server: ${error instanceof Error ? error.message : String(error)}`
+                    });
+                }
+            });
+            
         } catch (error) {
             console.error('Error listing servers:', error);
             await interaction.editReply('❌ Error listing servers. Please check the bot logs for more details.');

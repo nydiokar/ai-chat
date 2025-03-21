@@ -5,11 +5,8 @@ export interface PulseMCPServer {
   url: string;
   external_url?: string;
   short_description: string;
-  source_code_url?: string;
+  source_code_url: string;
   github_stars?: number;
-  package_registry?: string;
-  package_name?: string;
-  package_download_count?: number;
   EXPERIMENTAL_ai_generated_description?: string;
 }
 
@@ -52,7 +49,13 @@ export class PulseAPIService {
         }
       });
 
-      return response.data;
+      // Filter out servers without a source_code_url
+      const filteredData = {
+        ...response.data,
+        servers: response.data.servers.filter((server: PulseMCPServer) => !!server.source_code_url)
+      };
+
+      return filteredData;
     } catch (error) {
       if (axios.isAxiosError(error)) {
         console.error(`[PulseAPIService] API error: ${error.response?.data?.error?.message || error.message}`);

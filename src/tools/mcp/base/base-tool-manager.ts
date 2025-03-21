@@ -1,45 +1,9 @@
 import { IMCPClient, IToolManager } from '../interfaces/core.js';
 import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
 import { inject, injectable } from 'inversify';
-import { TYPES } from '../di/types.js';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
-
-// Utility function to redact sensitive information
-function redactSensitiveInfo(obj: any): any {
-    if (!obj) return obj;
-    
-    const sensitiveKeys = [
-        'token', 'key', 'password', 'secret', 'auth', 'credential',
-        'GITHUB_PERSONAL_ACCESS_TOKEN', 'OPENAI_API_KEY'
-    ];
-    
-    if (typeof obj === 'string') {
-        // Check if the string looks like a token/key (long string with special chars)
-        if (obj.length > 20 && /[A-Za-z0-9_\-\.]+/.test(obj)) {
-            return '[REDACTED]';
-        }
-        return obj;
-    }
-    
-    if (Array.isArray(obj)) {
-        return obj.map(item => redactSensitiveInfo(item));
-    }
-    
-    if (typeof obj === 'object') {
-        const redacted = { ...obj };
-        for (const [key, value] of Object.entries(redacted)) {
-            if (sensitiveKeys.some(k => key.toLowerCase().includes(k.toLowerCase()))) {
-                redacted[key] = '[REDACTED]';
-            } else if (typeof value === 'object') {
-                redacted[key] = redactSensitiveInfo(value);
-            }
-        }
-        return redacted;
-    }
-    
-    return obj;
-}
+import { debug } from '../../../utils/config.js';
 
 @injectable()
 export class BaseToolManager implements IToolManager {
@@ -47,6 +11,8 @@ export class BaseToolManager implements IToolManager {
     protected toolsCache: Map<string, ToolDefinition>;
     protected handlers: Map<string, ToolHandler>;
     protected serverConfigs: Map<string, ServerConfig>;
+    protected readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private lastCacheRefresh: number = 0;
 
     constructor(
         @inject('ClientsMap') clientsMap: Map<string, string>, 
@@ -67,17 +33,28 @@ export class BaseToolManager implements IToolManager {
     }
 
     public async getAvailableTools(): Promise<ToolDefinition[]> {
-        if (this.toolsCache.size === 0) {
+        if (this.shouldRefreshCache()) {
             await this.refreshToolInformation();
         }
         return Array.from(this.toolsCache.values());
     }
 
     public async getToolByName(name: string): Promise<ToolDefinition | undefined> {
-        if (this.toolsCache.size === 0) {
+        if (this.shouldRefreshCache()) {
             await this.refreshToolInformation();
         }
         return this.toolsCache.get(name);
+    }
+
+    public clearCache(): void {
+        debug('Manually clearing tool cache');
+        this.toolsCache.clear();
+        this.lastCacheRefresh = 0;
+    }
+
+    private shouldRefreshCache(): boolean {
+        return this.toolsCache.size === 0 || 
+               Date.now() - this.lastCacheRefresh > this.CACHE_TTL;
     }
 
     public async executeTool(name: string, args: any): Promise<ToolResponse> {
@@ -103,35 +80,72 @@ export class BaseToolManager implements IToolManager {
     }
 
     public async refreshToolInformation(): Promise<void> {
-        console.log('[BaseToolManager] Refreshing tool information...');
+        debug('\n=== Tool Information Refresh ===');
         this.toolsCache.clear();
         
+        let totalTools = 0;
+        const serverSummary: Record<string, { available: number; unavailable: number; tools: string[] }> = {};
+        
         for (const [serverId, client] of this.clientsMap.entries()) {
-            console.log(`[BaseToolManager] Loading tools from server ${serverId}...`);
-            const tools = await client.listTools();
-            
-            // Get server config
-            const serverConfig = this.serverConfigs.get(serverId);
-            if (!serverConfig) {
-                console.warn(`[BaseToolManager] No server config found for ${serverId}, skipping tools`);
-                continue;
-            }
-            
-            // Only log the count and names of tools, not their full schemas
-            const toolNames = tools.map((t: ToolDefinition) => t.name);
-            console.log(`[BaseToolManager] Loaded ${tools.length} tools from server ${serverId}: ${toolNames.join(', ')}`);
-            
-            // Attach server information to each tool before caching
-            tools.forEach((tool: ToolDefinition) => {
-                const toolWithServer = {
-                    ...tool,
-                    server: serverConfig,
-                    enabled: true // Default to enabled
+            debug(`\nChecking server: ${serverId}`);
+            try {
+                const tools = await client.listTools();
+                
+                // Get server config
+                const serverConfig = this.serverConfigs.get(serverId);
+                if (!serverConfig) {
+                    debug(`  ✗ No config found for ${serverId}, skipping`);
+                    serverSummary[serverId] = { available: 0, unavailable: 0, tools: [] };
+                    continue;
+                }
+                
+                // Update totals
+                totalTools += tools.length;
+                serverSummary[serverId] = {
+                    available: tools.length,
+                    unavailable: 0,
+                    tools: tools.map(t => t.name)
                 };
-                this.toolsCache.set(tool.name, toolWithServer);
-            });
+                debug(`  ✓ Server available with ${tools.length} tools`);
+                
+                // Attach server information to each tool before caching
+                tools.forEach((tool: ToolDefinition) => {
+                    const toolWithServer = {
+                        ...tool,
+                        server: serverConfig,
+                        enabled: true
+                    };
+                    this.toolsCache.set(tool.name, toolWithServer);
+                });
+            } catch (error) {
+                debug(`  ✗ Server ${serverId} unavailable: ${error instanceof Error ? error.message : String(error)}`);
+                serverSummary[serverId] = { available: 0, unavailable: 1, tools: [] };
+                
+                // Remove any cached tools from this server since it's unavailable
+                for (const [toolName, tool] of this.toolsCache.entries()) {
+                    if (tool.server?.id === serverId) {
+                        this.toolsCache.delete(toolName);
+                    }
+                }
+            }
         }
 
-        console.log(`[BaseToolManager] Tool cache updated with ${this.toolsCache.size} total tools`);
+        this.lastCacheRefresh = Date.now();
+
+        // Print summary
+        debug('\n=== Tool Availability Summary ===');
+        debug(`Total available tools: ${totalTools}`);
+        debug('\nServer status:');
+        Object.entries(serverSummary).forEach(([serverId, status]) => {
+            const statusSymbol = status.available > 0 ? '✓' : '✗';
+            debug(`\n${statusSymbol} ${serverId}:`);
+            if (status.available > 0) {
+                debug(`  Available tools (${status.available}):`);
+                status.tools.forEach(tool => debug(`    - ${tool}`));
+            } else {
+                debug('  No tools available');
+            }
+        });
+        debug('\n=== End Tool Information ===\n');
     }
 } 

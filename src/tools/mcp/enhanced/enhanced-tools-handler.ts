@@ -1,39 +1,15 @@
 import { BaseToolManager } from '../base/base-tool-manager.js';
-import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
+import { ToolDefinition, ToolResponse, ToolHandler, ToolUsage, ToolContext, ToolAnalytics } from '../types/tools.js';
 import { EventEmitter } from 'events';
 import { inject, injectable } from 'inversify';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 
-export interface ToolUsage {
-    toolName: string;
-    timestamp: number;
-    success: boolean;
-    executionTime: number;
-    args?: Record<string, any>;
-    result?: ToolResponse;
-}
-
-export interface ToolContext {
-    lastUsed?: number;
-    usageCount: number;
-    successRate: number;
-    averageExecutionTime: number;
-    recentErrors?: string[];
-}
-
-export interface ToolAnalytics {
-    history: ToolUsage[];
-    context: ToolContext;
-    recommendations?: string[];
-}
-
 @injectable()
 export class EnhancedToolsHandler extends BaseToolManager {
     private cache: Map<string, { value: any; timestamp: number }>;
     private analytics: EventEmitter;
-    private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     private usageHistory: Map<string, ToolUsage[]>;
     private toolContexts: Map<string, ToolContext>;
     private readonly MAX_HISTORY_SIZE = 100;
