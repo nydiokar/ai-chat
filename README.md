@@ -1,4 +1,4 @@
-# Them - AI Chat CLI & Discord Bot
+# Them - AI Chat CLI (temporary removed) & Discord Bot
 
 A versatile tool for chatting with GPT and Claude AI models through both CLI and Discord, with local conversation storage.
 
@@ -13,13 +13,12 @@ A versatile tool for chatting with GPT and Claude AI models through both CLI and
   - Automatic retry on API rate limits
 - Conversation Management:
   - Local storage using SQLite
-  - List, show, continue, and delete conversations
 - User Experience:
   - Input validation and error handling
   - Debug mode for troubleshooting
   - Configurable settings 
   
-# **Configure MCP servers in src\tools\mcp\mcp_config.ts**
+# **Configure MCP servers in src\mcp_config.ts**
 
 ## Prerequisites
 
