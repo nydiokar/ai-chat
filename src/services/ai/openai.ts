@@ -44,14 +44,13 @@ export class OpenAIService extends BaseAIService {
             const systemPrompt = await this.getSystemPrompt();
             
             // Get the tools that were used in the system prompt
-            const relevantTools = await this.promptGenerator.getRelevantTools(message);
+            const relevantTools = await this.promptGenerator.getTools(message);
             debug(`Using ${relevantTools.length} relevant tools for message`);
 
             // Prepare messages
             const messages = this.prepareMessages(systemPrompt, message, conversationHistory);
             let currentMessages = [...messages];
             let totalTokens = 0;
-            let allToolResults: ToolResponse[] = [];
 
             // Create initial completion
             const completion = await this.createCompletion(currentMessages, relevantTools);
@@ -75,6 +74,11 @@ export class OpenAIService extends BaseAIService {
                 choice.message.tool_calls.map(async toolCall => {
                     try {
                         const args = JSON.parse(toolCall.function.arguments || '{}');
+                        // Add detailed logging of the tool call arguments
+                        console.log(`Tool call from model: ${toolCall.function.name}`);
+                        console.log(`Raw arguments string: "${toolCall.function.arguments}"`);
+                        console.log(`Parsed arguments:`, JSON.stringify(args, null, 2));
+                        
                         debug(`Executing tool ${toolCall.function.name} with args: ${JSON.stringify(args)}`);
                         const result = await this.toolManager.executeTool(
                             toolCall.function.name,
@@ -138,7 +142,10 @@ export class OpenAIService extends BaseAIService {
 
         if (history) {
             // Take last N messages that fit within token limit
-            const recentHistory = history.slice(-defaultConfig.messageHandling.maxContextMessages);
+            const historyLimit = defaultConfig.messageHandling.maxContextMessages;
+            const recentHistory = history.slice(-historyLimit);
+            console.log(`Using ${recentHistory.length} messages from history (limit: ${historyLimit})`);
+            
             messages.push(...recentHistory.map(msg => {
                 if (msg.role === 'tool' && msg.tool_call_id) {
                     return {
@@ -155,45 +162,55 @@ export class OpenAIService extends BaseAIService {
         }
 
         messages.push({ role: 'user', content: message });
+        
+        // Log estimated token usage
+        const totalChars = messages.reduce((sum, msg) => sum + (msg.content?.length || 0), 0);
+        console.log(`Estimated message size: ~${totalChars} chars (~${Math.floor(totalChars/4)} tokens)`);
+        
         return messages;
-    }
-
-    private convertToolToOpenAIFormat(tool: ToolDefinition): ChatCompletionTool {
-        return {
-            type: 'function',
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: {
-                    type: 'object',
-                    properties: tool.parameters.reduce<Record<string, any>>((acc, param) => {
-                        acc[param.name] = {
-                            type: param.type,
-                            description: param.description,
-                            ...(param.enum && { enum: param.enum })
-                        };
-                        return acc;
-                    }, {}),
-                    required: tool.parameters.filter(p => p.required).map(p => p.name)
-                }
-            }
-        };
     }
 
     private async createCompletion(
         messages: ChatCompletionMessageParam[],
         tools: ToolDefinition[]
     ): Promise<ChatCompletion> {
-        const formattedTools = tools.map(tool => this.convertToolToOpenAIFormat(tool));
-        debug(`Creating completion with ${formattedTools.length} tools`);
+        // Log the number of tools being processed
+        console.log(`Processing ${tools.length} tools for completion`);
         
-        return this.openai.chat.completions.create({
+        // Format tools for OpenAI function calling
+        const formattedTools = tools.map(tool => {
+            // Convert to OpenAI function definition format
+            const functionDef: ChatCompletionTool = {
+                type: 'function',
+                function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema as any
+                }
+            };
+
+            return functionDef;
+        });
+        
+        // Log approximate token usage from tools
+        const toolsJson = JSON.stringify(formattedTools);
+        console.log(`Tool schemas size: ~${toolsJson.length} bytes (~${Math.floor(toolsJson.length/4)} tokens)`);
+        
+        // Create the completion with formatted tools
+        const completion = await this.openai.chat.completions.create({
             model: this.model,
             messages,
-            tools: tools.length > 0 ? formattedTools : undefined,
-            tool_choice: tools.length > 0 ? 'auto' : undefined,
+            tools: formattedTools.length > 0 ? formattedTools : undefined,
+            tool_choice: formattedTools.length > 0 ? 'auto' : undefined,
             temperature: this.temperature
         });
+        
+        // Log token usage
+        if (completion.usage) {
+            console.log(`Token usage - Prompt: ${completion.usage.prompt_tokens}, Completion: ${completion.usage.completion_tokens}, Total: ${completion.usage.total_tokens}`);
+        }
+        
+        return completion;
     }
 
     getModel(): string {

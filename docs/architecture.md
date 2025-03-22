@@ -195,8 +195,6 @@ sequenceDiagram
     participant DB
 
     AIService->>ToolManager: Execute Tool
-    ToolManager->>Cache: Check Tool Cache
-    Cache-->>ToolManager: Return Cache Hit/Miss
     ToolManager->>MCPServer: Execute Tool
     MCPServer-->>ToolManager: Return Result
     ToolManager->>DB: Record Usage

@@ -2,36 +2,35 @@ import { ToolDefinition } from "./tools/mcp/types/tools.js";
 import { IToolManager } from "./tools/mcp/interfaces/core.js";
 
 export class SystemPromptGenerator {
-    private readonly defaultIdentity = `You are an intelligent AI assistant. You have access to various tools to help users. When using tools:
+    private readonly defaultIdentity = `You are an intelligent AI assistant with access to external tools to help users. Always respond directly unless a tool would clearly help solve the user's request.
+
+When using tools:
 1. Always use tools when they would help complete the user's request
 2. You can use multiple tools in sequence if needed
-3. Always respond to the user after using tools
+3. Always respond to the user with the results of the tool after using it
 4. If a tool fails, try an alternative approach or explain the issue to the user`;
-
-    // Tool categories for lazy loading
-    private readonly toolCategories = {
-        github: [
-            'create_repository', 'push_files', 'create_pull_request', 'create_issue',
-            'search_repositories', 'search_code', 'search_issues', 'get_file_contents',
-            'fork_repository', 'create_branch', 'list_commits', 'list_issues',
-            'update_issue', 'add_issue_comment', 'get_issue', 'search_users'
-        ],
-        search: [
-            'brave_web_search', 'brave_local_search', 'deep_research',
-            'parallel_search', 'visit_page'
-        ],
-        file: [
-            'create_or_update_file'
-        ]
-    };
 
     constructor(private toolProvider: IToolManager) {}
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
-        const tools = await this.getRelevantTools(message);
+        const tools = await this.getTools(message);
+        
+        // Get current date and time information
+        const now = new Date();
+        const currentDate = now.toDateString();
+        const currentTime = now.toTimeString().split(' ')[0];
+        const currentYear = now.getFullYear();
+        const currentMonth = now.toLocaleString('default', { month: 'long' });
+        const currentDay = now.getDate();
         
         const promptParts = [
-            systemPrompt || this.defaultIdentity
+            systemPrompt || this.defaultIdentity,
+            // Add current date/time information
+            `Current date: ${currentDate}`,
+            `Current time: ${currentTime}`,
+            `Current year: ${currentYear}`,
+            `Current month: ${currentMonth}`,
+            `Current day: ${currentDay}`
         ];
 
         if (tools.length > 0) {
@@ -41,20 +40,25 @@ export class SystemPromptGenerator {
             );
         }
 
-        return promptParts.join("\n\n");
+        const finalPrompt = promptParts.join("\n\n");
+        
+        // Log approximate token count for debugging
+        console.log(`System prompt with tools size: ${finalPrompt.length} characters (rough estimate: ${Math.floor(finalPrompt.length/4)} tokens)`);
+        console.log(`Number of tools included in prompt: ${tools.length}`);
+        
+        return finalPrompt;
     }
 
     private formatToolInfo(tool: ToolDefinition): string {
         const parts = [
             `Tool: ${tool.name}`,
-            `Purpose: ${tool.description}`,
-            `When to use: Use this tool when the user's request involves ${tool.name.split('_').join(' ')}`
+            `Purpose: ${tool.description}`
         ];
 
         if (tool.parameters && tool.parameters.length > 0) {
             parts.push('Parameters:');
             tool.parameters.forEach(param => {
-                const required = param.required ? ' (required)' : '';
+                const required = param.required ? ' (REQUIRED)' : ' (optional)';
                 parts.push(`- ${param.name}${required}: ${param.description || 'No description'}`);
             });
         }
@@ -62,52 +66,59 @@ export class SystemPromptGenerator {
         return parts.join('\n');
     }
 
-    public async getRelevantTools(message: string): Promise<ToolDefinition[]> {
+    public async getTools(message: string): Promise<ToolDefinition[]> {
         // Get all available tools
         const allTools = await this.toolProvider.getAvailableTools();
         
-        // If no message, return all tools (changed from returning none)
+        // Skip tools for empty messages
         if (!message.trim()) {
-            return allTools;
+            console.log("Empty message, returning no tools");
+            return [];
+        }
+        
+        // Skip tools for very simple messages (just basic greetings)
+        if (this.isBasicGreeting(message)) {
+            console.log("Simple greeting detected, returning no tools");
+            return [];
         }
 
-        // Convert message to lowercase for easier matching
-        const msg = message.toLowerCase();
+        // Prioritize search tools by placing them first
+        const prioritizedTools = this.prioritizeTools(allTools, message);
+        
+        console.log(`Using all ${prioritizedTools.length} available tools`);
+        return prioritizedTools;
+    }
 
-        // Determine which categories of tools to include
-        const neededCategories = new Set<keyof typeof this.toolCategories>();
-
-        // GitHub-related keywords
-        if (msg.includes('github') || msg.includes('repo') || msg.includes('pull request') || 
-            msg.includes('issue') || msg.includes('commit') || msg.includes('branch')) {
-            neededCategories.add('github');
+    private prioritizeTools(tools: ToolDefinition[], message: string): ToolDefinition[] {
+        // Check if message contains search-related terms
+        const isSearchQuery = /search|find|look up|news|information|web|brave/i.test(message);
+        
+        if (isSearchQuery) {
+            // Put brave search and web search tools first
+            const searchTools: ToolDefinition[] = [];
+            const otherTools: ToolDefinition[] = [];
+            
+            tools.forEach(tool => {
+                // Prioritize Brave and other search tools
+                if (tool.name.includes('brave') || 
+                    tool.name.includes('search') || 
+                    tool.name.includes('research') ||
+                    tool.name.includes('visit_page')) {
+                    searchTools.push(tool);
+                } else {
+                    otherTools.push(tool);
+                }
+            });
+            
+            return [...searchTools, ...otherTools];
         }
+        
+        return tools;
+    }
 
-        // Search-related keywords
-        if (msg.includes('search') || msg.includes('find') || msg.includes('look up') || 
-            msg.includes('research') || msg.includes('explore') || msg.includes('what') || 
-            msg.includes('how') || msg.includes('why') || msg.includes('when') || 
-            msg.includes('where') || msg.includes('who')) {
-            neededCategories.add('search');
-        }
-
-        // File-related keywords
-        if (msg.includes('file') || msg.includes('create') || msg.includes('update') || 
-            msg.includes('write') || msg.includes('read') || msg.includes('edit')) {
-            neededCategories.add('file');
-        }
-
-        // If no categories matched, return all tools (changed from returning none)
-        if (neededCategories.size === 0) {
-            return allTools;
-        }
-
-        // Get the tool names we want
-        const neededToolNames = new Set(
-            Array.from(neededCategories).flatMap(cat => this.toolCategories[cat])
-        );
-
-        // Filter the available tools to only include the ones we need
-        return allTools.filter(tool => neededToolNames.has(tool.name));
+    // Simple helper to detect basic greetings that don't need tools
+    private isBasicGreeting(message: string): boolean {
+        const lowerMessage = message.trim().toLowerCase();
+        return /^(hi|hello|hey|thanks|thank you)$/i.test(lowerMessage);
     }
 }

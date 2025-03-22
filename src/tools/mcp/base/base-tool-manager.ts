@@ -58,25 +58,59 @@ export class BaseToolManager implements IToolManager {
     }
 
     public async executeTool(name: string, args: any): Promise<ToolResponse> {
+        console.log(`Executing tool: ${name}`);
+        
         const tool = await this.getToolByName(name);
         if (!tool) {
-            throw new Error(`Tool ${name} not found`);
+            const error = `Tool ${name} not found`;
+            console.error(error);
+            return {
+                success: false,
+                data: null,
+                error
+            };
         }
 
-        // First try local handler
+        // First try local handler if registered
         const handler = this.handlers.get(name);
         if (handler) {
-            return handler(args);
+            try {
+                return handler(args);
+            } catch (error) {
+                const errorMsg = `Error executing local handler for ${name}: ${error instanceof Error ? error.message : String(error)}`;
+                console.error(errorMsg);
+                return {
+                    success: false,
+                    data: null,
+                    error: errorMsg
+                };
+            }
         }
         
-        // Get the correct client for this tool
+        // Get the appropriate client for this tool
         const client = this.clientsMap.get(tool.server?.id || '');
         if (!client) {
-            throw new Error(`No client found for server ${tool.server?.id}`);
+            const error = `No client found for server ${tool.server?.id}`;
+            console.error(error);
+            return {
+                success: false,
+                data: null,
+                error
+            };
         }
         
-        // Execute with the correct client
-        return client.callTool(name, args);
+        // Execute with the client
+        try {
+            return client.callTool(name, args);
+        } catch (error) {
+            const errorMsg = `Error calling remote tool ${name}: ${error instanceof Error ? error.message : String(error)}`;
+            console.error(errorMsg);
+            return {
+                success: false,
+                data: null,
+                error: errorMsg
+            };
+        }
     }
 
     public async refreshToolInformation(): Promise<void> {
@@ -108,8 +142,9 @@ export class BaseToolManager implements IToolManager {
                 };
                 debug(`  ✓ Server available with ${tools.length} tools`);
                 
-                // Attach server information to each tool before caching
+                // Cache tools with server information
                 tools.forEach((tool: ToolDefinition) => {
+                    // Store tool in cache with server info
                     const toolWithServer = {
                         ...tool,
                         server: serverConfig,
