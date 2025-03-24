@@ -44,7 +44,7 @@ describe('OpenAI MCP Integration', () => {
                     originalLog(`[TEST] Server ${id} env status:`, envStatus);
                 }
                 try {
-                    await serverManager.startServer(id, config);
+                    await serverManager.startServer(id);
                     originalLog(`[TEST] Server ${id} started successfully`);
                     
                     // Get and initialize client for this server

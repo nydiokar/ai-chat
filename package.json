@@ -1,6 +1,6 @@
 {
   "name": "them",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -21,19 +21,19 @@
     "test:watch": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --watch",
     "test:coverage": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" c8 mocha",
     "test:unit": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/**/*.test.ts\"",
-    "test:cache": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/services/cache/specialized/tool-cache.test.ts\"",
     "test:tokens": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/features/hot-tokens/services/hot-tokens-service.test.ts\"",
     "test:mcp": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/tools/mcp/**/*.test.ts\"",
-    "test:mcp:watch": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --watch \"src/tools/mcp/**/*.test.ts\"",
-    "test:ci": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --forbid-only \"src/**/*.test.ts\"",
-    "test:mcp-openai": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --reporter min src/tests/mcp_openai_integration.test.ts",
-    "test:mcp-github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --reporter min src/tests/mcp_openai_integration.test.ts",
-    "test:github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node -r tsconfig-paths/register src/features/pulse-mcp/tests/test-github-installation.ts",
+    "test:ci": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --forbid-only \"src/**/*.test.ts\"",    "test:github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node -r tsconfig-paths/register src/features/pulse-mcp/tests/test-github-installation.ts",
     "lint": "eslint src/**/*.{js,ts,jsx,tsx}",
-    "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix"
+    "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix",
+    "mcp:status": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node src/tools/mcp/dashboard-cli.ts",
+    "mcp:dashboard": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node src/tools/mcp/start-dashboard.ts",
+    "mcp:dashboard:dev": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node-dev --respawn src/tools/mcp/start-dashboard.ts"
   },
   "bin": {
-    "them": "./dist/index.js"
+    "them": "./dist/index.js",
+    "mcp-status": "./dist/tools/mcp/dashboard-cli.js",
+    "mcp-dashboard": "./dist/tools/mcp/start-dashboard.js"
   },
   "keywords": [],
   "author": "",

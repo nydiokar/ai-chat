@@ -42,9 +42,10 @@ When using tools:
 
         const finalPrompt = promptParts.join("\n\n");
         
-        // Log approximate token count for debugging
-        console.log(`System prompt with tools size: ${finalPrompt.length} characters (rough estimate: ${Math.floor(finalPrompt.length/4)} tokens)`);
-        console.log(`Number of tools included in prompt: ${tools.length}`);
+        // Keep single log with minimal info about prompt size
+        if (tools.length > 0) {
+            console.log(`System prompt: ~${Math.floor(finalPrompt.length/4)} tokens with ${tools.length} tools`);
+        }
         
         return finalPrompt;
     }
@@ -67,53 +68,45 @@ When using tools:
     }
 
     public async getTools(message: string): Promise<ToolDefinition[]> {
+        // Skip expensive operations for empty or basic messages
+        if (!message.trim() || this.isBasicGreeting(message)) {
+            return [];
+        }
+        
         // Get all available tools
         const allTools = await this.toolProvider.getAvailableTools();
         
-        // Skip tools for empty messages
-        if (!message.trim()) {
-            console.log("Empty message, returning no tools");
-            return [];
-        }
-        
-        // Skip tools for very simple messages (just basic greetings)
-        if (this.isBasicGreeting(message)) {
-            console.log("Simple greeting detected, returning no tools");
-            return [];
-        }
-
-        // Prioritize search tools by placing them first
-        const prioritizedTools = this.prioritizeTools(allTools, message);
-        
-        console.log(`Using all ${prioritizedTools.length} available tools`);
-        return prioritizedTools;
-    }
-
-    private prioritizeTools(tools: ToolDefinition[], message: string): ToolDefinition[] {
         // Check if message contains search-related terms
         const isSearchQuery = /search|find|look up|news|information|web|brave/i.test(message);
         
+        // For search queries, prioritize search tools
         if (isSearchQuery) {
-            // Put brave search and web search tools first
-            const searchTools: ToolDefinition[] = [];
-            const otherTools: ToolDefinition[] = [];
-            
-            tools.forEach(tool => {
-                // Prioritize Brave and other search tools
-                if (tool.name.includes('brave') || 
-                    tool.name.includes('search') || 
-                    tool.name.includes('research') ||
-                    tool.name.includes('visit_page')) {
-                    searchTools.push(tool);
-                } else {
-                    otherTools.push(tool);
-                }
-            });
-            
-            return [...searchTools, ...otherTools];
+            return this.prioritizeSearchTools(allTools);
         }
         
-        return tools;
+        // For non-search queries, return all tools
+        return allTools;
+    }
+
+    private prioritizeSearchTools(tools: ToolDefinition[]): ToolDefinition[] {
+        // Separate search tools from other tools
+        const searchTools: ToolDefinition[] = [];
+        const otherTools: ToolDefinition[] = [];
+        
+        tools.forEach(tool => {
+            // Prioritize Brave and other search tools
+            if (tool.name.includes('brave') || 
+                tool.name.includes('search') || 
+                tool.name.includes('research') ||
+                tool.name.includes('visit_page')) {
+                searchTools.push(tool);
+            } else {
+                otherTools.push(tool);
+            }
+        });
+        
+        // Return search tools first, then other tools
+        return [...searchTools, ...otherTools];
     }
 
     // Simple helper to detect basic greetings that don't need tools

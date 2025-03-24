@@ -258,7 +258,7 @@ async function testStartingServer(): Promise<boolean> {
     
     // Start the server
     console.log(`Starting server ${serverId}...`);
-    await serverManager.startServer(serverId, serverConfig);
+    await serverManager.startServer(serverId);
     
     // Check server state
     const server = serverManager.getServer(serverId);

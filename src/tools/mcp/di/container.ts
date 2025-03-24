@@ -70,6 +70,9 @@ export class MCPContainer {
                 ? new EnhancedMCPClient(serverConfig, serverId)
                 : new BaseMCPClient(serverConfig, serverId);
 
+            // Log which type of client was created
+            console.log(`MCPContainer: Created ${this.hasEnhancedFeatures() ? 'enhanced' : 'base'} client for server ${serverId}`);
+
             // Bind the client with its unique ID
             this.container.bind<IMCPClient>(clientId).toConstantValue(clientInstance);
 
@@ -137,5 +140,13 @@ export class MCPContainer {
 
     public getServerManager(): IServerManager {
         return this.container.get<IServerManager>(TYPES.IServerManager);
+    }
+
+    /**
+     * Loads additional container modules
+     * @param module The module to load into the container
+     */
+    public load(module: any): void {
+        this.container.load(module);
     }
 } 

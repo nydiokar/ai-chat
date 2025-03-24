@@ -5,6 +5,8 @@ import { inject, injectable } from 'inversify';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
+import { EnhancedMCPClient } from './enhanced-mcp-client.js';
+import { BaseServerManager } from '../base/base-server-manager.js';
 
 @injectable()
 export class EnhancedToolsHandler extends BaseToolManager {
@@ -25,6 +27,70 @@ export class EnhancedToolsHandler extends BaseToolManager {
         this.analytics = new EventEmitter();
         this.usageHistory = new Map();
         this.toolContexts = new Map();
+        
+        // Set up listeners for client events
+        this.setupClientEventListeners();
+    }
+    
+    /**
+     * Set up event listeners for client notifications
+     * This ensures tool data is refreshed when servers report changes
+     */
+    private setupClientEventListeners(): void {
+        try {
+            // Get all server IDs from serverConfigs
+            const serverIds = Array.from(this.serverConfigs.keys());
+            
+            // Loop through each server
+            for (const serverId of serverIds) {
+                // Get the client for this server
+                const client = this.clientsMap.get(serverId);
+                if (!client) continue;
+                
+                // Check if the client is an EnhancedMCPClient
+                if (client instanceof EnhancedMCPClient) {
+                    // Listen for the tools.changed event from the client
+                    client.on('tools.changed', async () => {
+                        console.log(`Received tools.changed event from server ${serverId}`);
+                        
+                        // Clear the cached tools
+                        this.cache.delete('available-tools');
+                        
+                        // Refresh the tool information
+                        await this.refreshToolInformation()
+                            .catch(error => console.error(`Failed to refresh tools after change event from ${serverId}:`, error));
+                            
+                        // Emit an event that downstream consumers can listen for
+                        this.analytics.emit('tools.refreshed', { serverId });
+                    });
+                    
+                    console.log(`Set up event listener for tools.changed events from ${serverId}`);
+                }
+            }
+            
+            // Find the EnhancedMCPClient instances to listen to their events
+            // A better approach than trying to access the server manager directly
+            const enhancedClients = Array.from(this.clientsMap.values())
+                .filter(client => client instanceof EnhancedMCPClient) as EnhancedMCPClient[];
+                
+            console.log(`Found ${enhancedClients.length} enhanced clients for events`);
+            
+            // Set up a periodic refresh every 5 minutes as a fallback
+            setInterval(() => {
+                console.log('Performing periodic tool refresh');
+                this.refreshToolInformation()
+                    .catch(error => console.error('Failed to refresh tools:', error));
+            }, 5 * 60 * 1000); // 5 minutes
+            
+            // We'll rely on explicit refreshes when tools are needed
+            this.analytics.on('cache.miss', () => {
+                console.log('Cache miss detected, refreshing tool information');
+                this.refreshToolInformation()
+                    .catch(error => console.error('Failed to refresh tools after cache miss:', error));
+            });
+        } catch (error) {
+            console.error('Error setting up client event listeners:', error);
+        }
     }
 
     public override async getAvailableTools(): Promise<ToolDefinition[]> {

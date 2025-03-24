@@ -1,3 +1,58 @@
+import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * Structured error record for MCP-related errors
+ */
+export interface MCPErrorRecord {
+    /** Unique identifier for the error instance */
+    id: string;
+    /** When the error occurred */
+    timestamp: Date;
+    /** Human-readable error message */
+    message: string;
+    /** Component/module that generated the error */
+    source: string;
+    /** Associated server ID if applicable */
+    serverId?: string;
+    /** Additional error details or context */
+    details?: any;
+    /** Error stack trace if available */
+    stack?: string;
+}
+
+/**
+ * Statistics about a particular error type
+ */
+export interface ErrorStats {
+    /** How many times this error has occurred */
+    count: number;
+    /** When this error was first seen */
+    firstSeen: Date;
+    /** When this error was most recently seen */
+    lastSeen: Date;
+    /** Set of sources that have reported this error */
+    sources: Set<string>;
+}
+
+/**
+ * Create a new structured MCP error record
+ */
+export function createMCPErrorRecord(
+    message: string,
+    serverId?: string,
+    error?: Error | unknown
+): MCPErrorRecord {
+    return {
+        id: uuidv4(),
+        timestamp: new Date(),
+        message,
+        source: error instanceof Error ? error.name : 'Unknown',
+        serverId,
+        details: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+    };
+}
+
 export enum ErrorType {
     SERVER_NOT_FOUND = 'SERVER_NOT_FOUND',
     SERVER_START_FAILED = 'SERVER_START_FAILED',

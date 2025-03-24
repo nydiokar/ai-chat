@@ -106,7 +106,7 @@ describe('MCP Base Functionality Tests', () => {
         it('should start and stop servers', async () => {
             const serverId = 'test-server';
             
-            await serverManager.startServer(serverId, mcpConfig.mcpServers[serverId]);
+            await serverManager.startServer(serverId);
             expect(serverManager.hasServer(serverId)).to.be.true;
             
             const server = serverManager.getServer(serverId);

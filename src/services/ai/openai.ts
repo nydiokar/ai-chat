@@ -45,8 +45,7 @@ export class OpenAIService extends BaseAIService {
             
             // Get the tools that were used in the system prompt
             const relevantTools = await this.promptGenerator.getTools(message);
-            debug(`Using ${relevantTools.length} relevant tools for message`);
-
+            
             // Prepare messages
             const messages = this.prepareMessages(systemPrompt, message, conversationHistory);
             let currentMessages = [...messages];
@@ -74,12 +73,6 @@ export class OpenAIService extends BaseAIService {
                 choice.message.tool_calls.map(async toolCall => {
                     try {
                         const args = JSON.parse(toolCall.function.arguments || '{}');
-                        // Add detailed logging of the tool call arguments
-                        console.log(`Tool call from model: ${toolCall.function.name}`);
-                        console.log(`Raw arguments string: "${toolCall.function.arguments}"`);
-                        console.log(`Parsed arguments:`, JSON.stringify(args, null, 2));
-                        
-                        debug(`Executing tool ${toolCall.function.name} with args: ${JSON.stringify(args)}`);
                         const result = await this.toolManager.executeTool(
                             toolCall.function.name,
                             args
@@ -144,7 +137,6 @@ export class OpenAIService extends BaseAIService {
             // Take last N messages that fit within token limit
             const historyLimit = defaultConfig.messageHandling.maxContextMessages;
             const recentHistory = history.slice(-historyLimit);
-            console.log(`Using ${recentHistory.length} messages from history (limit: ${historyLimit})`);
             
             messages.push(...recentHistory.map(msg => {
                 if (msg.role === 'tool' && msg.tool_call_id) {
@@ -162,11 +154,6 @@ export class OpenAIService extends BaseAIService {
         }
 
         messages.push({ role: 'user', content: message });
-        
-        // Log estimated token usage
-        const totalChars = messages.reduce((sum, msg) => sum + (msg.content?.length || 0), 0);
-        console.log(`Estimated message size: ~${totalChars} chars (~${Math.floor(totalChars/4)} tokens)`);
-        
         return messages;
     }
 
@@ -174,9 +161,6 @@ export class OpenAIService extends BaseAIService {
         messages: ChatCompletionMessageParam[],
         tools: ToolDefinition[]
     ): Promise<ChatCompletion> {
-        // Log the number of tools being processed
-        console.log(`Processing ${tools.length} tools for completion`);
-        
         // Format tools for OpenAI function calling
         const formattedTools = tools.map(tool => {
             // Convert to OpenAI function definition format
@@ -192,10 +176,6 @@ export class OpenAIService extends BaseAIService {
             return functionDef;
         });
         
-        // Log approximate token usage from tools
-        const toolsJson = JSON.stringify(formattedTools);
-        console.log(`Tool schemas size: ~${toolsJson.length} bytes (~${Math.floor(toolsJson.length/4)} tokens)`);
-        
         // Create the completion with formatted tools
         const completion = await this.openai.chat.completions.create({
             model: this.model,
@@ -205,9 +185,9 @@ export class OpenAIService extends BaseAIService {
             temperature: this.temperature
         });
         
-        // Log token usage
+        // Log token usage (keep this since it's important for cost tracking)
         if (completion.usage) {
-            console.log(`Token usage - Prompt: ${completion.usage.prompt_tokens}, Completion: ${completion.usage.completion_tokens}, Total: ${completion.usage.total_tokens}`);
+            console.log(`Token usage - Total: ${completion.usage.total_tokens} (Prompt: ${completion.usage.prompt_tokens}, Completion: ${completion.usage.completion_tokens})`);
         }
         
         return completion;

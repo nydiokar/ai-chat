@@ -14,6 +14,7 @@ import { taskCommands, handleTaskCommand } from '../tasks/commands/task-commands
 import { pulseCommand, handlePulseCommand } from '../features/pulse-mcp/commands/pulse-discord-command.js';
 import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
 import { PrismaClient } from '@prisma/client';
+import { startDashboard } from '../tools/dashboard/dashboard.js';
 
 export class DiscordService {
     private client: Client;
@@ -378,7 +379,10 @@ export class DiscordService {
         this.contextSummaryTasks.set(contextKey, task);
     }
 
-    async start() {
+    /**
+     * Start the Discord bot
+     */
+    public async start(): Promise<void> {
         if (this.isInitialized) {
             console.warn('DiscordService is already initialized');
             return;
@@ -406,6 +410,23 @@ export class DiscordService {
                 this.serverManager = this.mcpContainer.getServerManager();
                 console.log('  ✓ MCP container created');
 
+                // Set up server manager event listeners for better monitoring
+                this.serverManager.on('toolsChanged', (event) => {
+                    console.log(`[DiscordService] Tools changed for server ${event.id}`);
+                });
+                
+                this.serverManager.on('serverStarted', (event) => {
+                    console.log(`[DiscordService] Server started: ${event.id}`);
+                });
+                
+                this.serverManager.on('serverStopped', (event) => {
+                    console.log(`[DiscordService] Server stopped: ${event.id}`);
+                });
+                
+                this.serverManager.on('server.error', (error) => {
+                    console.error(`[DiscordService] Server error: ${error.source}`, error.error);
+                });
+
                 // Get and initialize the MCP client using the first available server
                 const servers = Object.values(mcpConfig.mcpServers);
                 if (servers.length === 0) {
@@ -425,7 +446,7 @@ export class DiscordService {
                     
                     for (const [serverId, config] of Object.entries(mcpConfig.mcpServers)) {
                         try {
-                            await this.serverManager.startServer(serverId, config);
+                            await this.initServer(serverId, config);
                             console.log(`  ✓ Started ${serverId}`);
                             successCount++;
                         } catch (error) {
@@ -445,6 +466,20 @@ export class DiscordService {
 
                 } catch (mcpError) {
                     console.error('  ✗ Failed to initialize MCP:', mcpError);
+                }
+
+                // Initialize the MCP dashboard if enabled
+                if (process.env.MCP_DASHBOARD_ENABLED === 'true') {
+                    const dashboardPort = parseInt(process.env.MCP_DASHBOARD_PORT || '8080', 10);
+                    console.log(`\nStarting MCP Dashboard on port ${dashboardPort}...`);
+                    
+                    try {
+                        // Start the dashboard with the server manager
+                        const dashboard = startDashboard(this.serverManager, dashboardPort);
+                        console.log(`MCP Dashboard available at http://localhost:${dashboardPort}/`);
+                    } catch (error) {
+                        console.error('Error starting MCP Dashboard:', error);
+                    }
                 }
             }
 
@@ -679,5 +714,32 @@ export class DiscordService {
      */
     getMCPContainer(): MCPContainer | undefined {
         return this.mcpContainer;
+    }
+
+    private async initServer(serverId: string, config: any): Promise<void> {
+        try {
+            console.log(`[DiscordService] Initializing server ${serverId}...`);
+            
+            // First register the server with its config
+            await this.serverManager?.registerServer(serverId, config);
+            
+            // Check if server is properly registered and in the correct state
+            const server = this.serverManager?.getServer(serverId);
+            if (!server) {
+                throw new Error(`Server ${serverId} was not properly registered`);
+            }
+            
+            console.log(`[DiscordService] Server registered: ${serverId}, state: ${server.state}`);
+            
+            // Server is already started by registerServer, but we can validate its state
+            if (server.state !== 'RUNNING') {
+                console.warn(`[DiscordService] Server ${serverId} is not running (state: ${server.state})`);
+            } else {
+                console.log(`[DiscordService] Server started: ${serverId}`);
+            }
+        } catch (error) {
+            console.error(`[DiscordService] Failed to initialize server ${serverId}:`, error);
+            throw error;
+        }
     }
 }

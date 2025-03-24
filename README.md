@@ -244,3 +244,86 @@ Enable debug mode by setting `DEBUG=true` in your `.env` file. This will log:
 ## License
 
 ISC
+
+## Future Enhancements from MCP SDK
+
+### MCP Resources
+
+Resources are a powerful feature of the Model Context Protocol that we should implement in the future:
+
+- **What are Resources?** Passive data stores that provide context without code execution
+- **Use Cases:**
+  - Static documentation or knowledge bases
+  - Cached web content
+  - Configuration data
+  - File system access
+  
+- **Benefits:**
+  - No execution overhead for frequently accessed information
+  - Security through read-only access
+  - Structured data in predictable formats
+  - Persistent context without repeated API calls
+
+### Implementation Priorities
+
+1. **Direct SDK Schema Usage** (Highest Value) ✅
+   - Replace custom response transformations with SDK's schemas
+   - Use `CallToolResultSchema` directly for validation
+   - Benefit: Better compatibility with MCP protocol
+
+2. **Server Change Detection**
+   - Implement file watching to auto-restart servers during development
+   - Benefit: Faster development cycles
+
+3. **Better Error Aggregation**
+   - Append errors instead of replacing them
+   - Provide better debugging context
+   - Benefit: Easier troubleshooting
+
+4. **Notification Handling**
+   - Implement handlers for resource and tool change notifications
+   - Fetch fresh data when receiving notifications
+   - Benefit: Always up-to-date tool and resource lists
+
+## Resource Implementation Example
+
+```typescript
+// Future implementation for fetching resources
+async fetchResourcesList(serverId: string): Promise<Resource[]> {
+  const client = this.getServerClient(serverId);
+  if (!client) {
+    throw MCPError.serverNotFound();
+  }
+  
+  try {
+    const response = await client.request(
+      { method: "resources/list" }, 
+      ListResourcesResultSchema
+    );
+    return response?.resources || [];
+  } catch (error) {
+    throw MCPError.resourceListFailed(error);
+  }
+}
+
+// Future implementation for reading a resource
+async readResource(serverId: string, uri: string): Promise<ResourceContents[]> {
+  const client = this.getServerClient(serverId);
+  if (!client) {
+    throw MCPError.serverNotFound();
+  }
+  
+  try {
+    const response = await client.request(
+      { 
+        method: "resources/read",
+        params: { uri }
+      }, 
+      ReadResourceResultSchema
+    );
+    return response?.contents || [];
+  } catch (error) {
+    throw MCPError.resourceReadFailed(error);
+  }
+}
+```

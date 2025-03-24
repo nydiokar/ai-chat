@@ -18,3 +18,4 @@ tools-cache.json
 docs/
 cline_docs/
 mcp-repos/
+*.json

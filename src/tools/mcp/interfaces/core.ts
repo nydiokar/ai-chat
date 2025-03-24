@@ -1,6 +1,8 @@
 import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
 import { Server, ServerConfig, ServerState } from '../types/server.js';
 import { EventEmitter } from 'events';
+import { Resource, ResourceQuery, ResourceCreateParams, ResourceUpdateParams } from '../types/resources.js';
+import { MCPErrorRecord, ErrorStats } from '../types/errors.js';
 
 export interface IMCPClient {
     initialize(): Promise<void>;
@@ -8,6 +10,13 @@ export interface IMCPClient {
     disconnect(): Promise<void>;
     listTools(): Promise<ToolDefinition[]>;
     callTool(name: string, args: any): Promise<ToolResponse>;
+    
+    // Resource methods
+    listResources(query?: ResourceQuery): Promise<Resource[]>;
+    getResource(id: string): Promise<Resource>;
+    createResource(params: ResourceCreateParams): Promise<Resource>;
+    updateResource(id: string, params: ResourceUpdateParams): Promise<Resource>;
+    deleteResource(id: string): Promise<void>;
 }
 
 export interface IToolManager {
@@ -37,34 +46,25 @@ export interface IToolManager {
     refreshToolInformation(): Promise<void>;
 }
 
+/**
+ * Interface for server management
+ */
 export interface IServerManager extends EventEmitter {
-    /**
-     * Start a server with the given configuration
-     */
-    startServer(id: string, config: ServerConfig): Promise<void>;
-    
-    /**
-     * Stop a running server
-     */
-    stopServer(id: string): Promise<void>;
-    
-    /**
-     * Check if a server exists
-     */
     hasServer(id: string): boolean;
-    
-    /**
-     * Get all server IDs
-     */
     getServerIds(): string[];
+    getServer(id: string): Server | undefined;
+    startServer(id: string): Promise<Server>;
+    stopServer(id: string): Promise<void>;
+    restartServer(id: string): Promise<void>;
+    registerServer(id: string, config: ServerConfig): Promise<void>;
+    unregisterServer(id: string): Promise<void>;
+    getServerStatus(id: string): Promise<ServerState>;
+    getServerErrors(serverId: string): MCPErrorRecord[];
+    getErrorStats(): Map<string, ErrorStats>;
+    clearServerErrors(serverId: string): void;
     
     /**
-     * Get a server by its ID
+     * Get all servers as a map - primarily for dashboard use
      */
-    getServer(id: string): Server | undefined;
-
-    /**
-     * Unregister and cleanup a server
-     */
-    unregisterServer(id: string): Promise<void>;
+    getAllServers(): Map<string, Server>;
 } 

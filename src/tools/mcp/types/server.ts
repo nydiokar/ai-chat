@@ -5,7 +5,8 @@ export enum ServerState {
     STOPPED = 'STOPPED',
     ERROR = 'ERROR',
     PAUSED = 'PAUSED',
-    RETRYING = 'RETRYING'
+    RETRYING = 'RETRYING',
+    RESTARTING = 'RESTARTING'
 }
 
 export interface ServerConfig {
@@ -24,11 +25,12 @@ export interface Server {
     version: string;
     state: ServerState;
     config: ServerConfig;
-    lastError?: Error;
     startTime?: Date;
     stopTime?: Date;
-    metadata?: Record<string, any>;
-    retryCount?: number;
+    lastError?: Error;
+    restartCount?: number;
+    client?: any; // Reference to the connected client
+    error?: Error; // The last error that occurred
 }
 
 export interface ServerEvent {

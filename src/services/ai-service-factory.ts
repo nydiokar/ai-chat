@@ -29,12 +29,24 @@ export class AIServiceFactory {
         
         // Refresh tool information but handle failures gracefully
         try {
+            // Initial refresh to load tools
             await this.toolManager.refreshToolInformation();
-            // Get available tools after refresh - even if some servers failed, we should still get tools from working ones
+            
+            // Get available tools after refresh - even if some servers failed, 
+            // we should still get tools from working ones
             const tools = await this.toolManager.getAvailableTools();
             console.log('[AIServiceFactory] Initialized with tools:', tools.map(t => t.name));
+            
+            // Listen for tool refresh events from the ToolManager directly
+            // This avoids redundant refresh since the ToolManager already listens to the server manager
+            // and will emit events when tools change
+            if ('on' in this.toolManager) {
+                (this.toolManager as any).on('tools.refreshed', (event: any) => {
+                    console.log('[AIServiceFactory] Tools refreshed by tool manager');
+                });
+            }
         } catch (error) {
-            console.warn('Some tools failed to load, but continuing with available tools:', error);
+            console.warn('[AIServiceFactory] Some tools failed to load, but continuing with available tools:', error);
             // Try to get any available tools even after partial failure
             try {
                 const tools = await this.toolManager.getAvailableTools();
@@ -104,3 +116,4 @@ export class AIServiceFactory {
         return this.toolManager;
     }
 }
+
