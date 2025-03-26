@@ -72,16 +72,28 @@ export class OpenAIService extends BaseAIService {
             const toolResults = await Promise.all(
                 choice.message.tool_calls.map(async toolCall => {
                     try {
+                        debug(`Executing tool ${toolCall.function.name} with args: ${toolCall.function.arguments}`);
                         const args = JSON.parse(toolCall.function.arguments || '{}');
                         const result = await this.toolManager.executeTool(
                             toolCall.function.name,
                             args
                         );
+                        debug(`Tool ${toolCall.function.name} execution successful: ${JSON.stringify(result.data)}`);
+
+                        // Format the result based on its type
+                        let formattedResult: string;
+                        if (typeof result.data === 'string') {
+                            formattedResult = result.data;
+                        } else if (Array.isArray(result.data) && result.data.every(item => typeof item.text === 'string')) {
+                            formattedResult = result.data.map(item => item.text).join(' ');
+                        } else {
+                            formattedResult = JSON.stringify(result.data);
+                        }
 
                         // Add tool response message
                         currentMessages.push({
                             role: 'tool',
-                            content: JSON.stringify(result.data),
+                            content: formattedResult,
                             tool_call_id: toolCall.id
                         } as ChatCompletionToolMessageParam);
 
@@ -94,10 +106,10 @@ export class OpenAIService extends BaseAIService {
                             error: error instanceof Error ? error.message : String(error)
                         };
 
-                        // Add error response message
+                        // Add error response message with better formatting
                         currentMessages.push({
                             role: 'tool',
-                            content: JSON.stringify(errorResult),
+                            content: `Error executing ${toolCall.function.name}: ${errorResult.error}`,
                             tool_call_id: toolCall.id
                         } as ChatCompletionToolMessageParam);
 
@@ -157,23 +169,30 @@ export class OpenAIService extends BaseAIService {
         return messages;
     }
 
+    private sanitizeToolName(name: string): string {
+        return name.replace(/[-\s]/g, '_').toLowerCase();
+    }
+
     private async createCompletion(
         messages: ChatCompletionMessageParam[],
         tools: ToolDefinition[]
     ): Promise<ChatCompletion> {
+        debug(`Creating completion with ${tools.length} tools`);
         // Format tools for OpenAI function calling
-        const formattedTools = tools.map(tool => {
-            // Convert to OpenAI function definition format
-            const functionDef: ChatCompletionTool = {
+        const formattedTools: ChatCompletionTool[] = tools.map(tool => {
+            debug(`Formatting tool: ${tool.name}`);
+            return {
                 type: 'function',
                 function: {
-                    name: tool.name,
+                    name: this.sanitizeToolName(tool.name),
                     description: tool.description,
-                    parameters: tool.inputSchema as any
+                    parameters: {
+                        type: 'object',
+                        properties: tool.inputSchema.properties,
+                        required: tool.inputSchema.required
+                    }
                 }
             };
-
-            return functionDef;
         });
         
         // Create the completion with formatted tools

@@ -1,54 +1,33 @@
-import { MCPTool } from '../../../../tools/mcp/types/tools.js';
+import { ToolDefinition } from '../../../../tools/mcp/types/tools.js';
 import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama.js';
 import { z } from 'zod';
 
 export class OllamaToolAdapter {
-    static convertMCPToolToOllama(mcpTool: MCPTool): OllamaToolDefinition {
+    static convertMCPToolToOllama(tool: ToolDefinition): OllamaToolDefinition {
         if (process.env.DEBUG) {
-            console.log(`[OllamaToolAdapter] Converting ${mcpTool.name} for Ollama format`);
-        }
-
-        // Get schema properties using Zod's internal API
-        const schema = mcpTool.inputSchema;
-        const schemaDefinition = (schema as any)._def;
-        const properties: Record<string, any> = {};
-        const required: string[] = [];
-
-        if (schemaDefinition.typeName === 'ZodObject') {
-            const shape = schemaDefinition.shape();
-            Object.entries(shape).forEach(([key, value]) => {
-                const zodType = value as z.ZodType;
-                const fieldDef = (zodType as any)._def;
-                properties[key] = {
-                    type: fieldDef.typeName.replace('Zod', '').toLowerCase(),
-                    description: zodType.description || ''
-                };
-                if (!('isOptional' in fieldDef)) {
-                    required.push(key);
-                }
-            });
+            console.log(`[OllamaToolAdapter] Converting ${tool.name} for Ollama format`);
         }
 
         return {
             type: "function",
             function: {
-                name: mcpTool.name,
-                description: mcpTool.description || `Execute ${mcpTool.name} tool`,
+                name: tool.name,
+                description: tool.description || `Execute ${tool.name} tool`,
                 parameters: {
                     type: 'object',
-                    properties,
-                    required
+                    properties: tool.inputSchema.properties,
+                    required: tool.inputSchema.required
                 }
             }
         };
     }
 
-    static convertMCPToolsToOllama(mcpTools: MCPTool[]): OllamaToolDefinition[] {
-        return mcpTools.map(tool => this.convertMCPToolToOllama(tool));
+    static convertMCPToolsToOllama(tools: ToolDefinition[]): OllamaToolDefinition[] {
+        return tools.map(tool => this.convertMCPToolToOllama(tool));
     }
 
-    static validateToolCall(toolCall: OllamaToolCall, mcpTools: MCPTool[]): boolean {
-        const tool = mcpTools.find(t => t.name === toolCall.function.name);
+    static validateToolCall(toolCall: OllamaToolCall, tools: ToolDefinition[]): boolean {
+        const tool = tools.find(t => t.name === toolCall.function.name);
         if (!tool) {
             console.error(`[OllamaToolAdapter] Tool not found: ${toolCall.function.name}`);
             return false;
@@ -60,22 +39,8 @@ export class OllamaToolAdapter {
                 ? JSON.parse(toolCall.function.arguments) 
                 : toolCall.function.arguments;
 
-            // Parse schema definition
-            const schemaDefinition = (tool.inputSchema as any)._def;
-            const required: string[] = [];
-
-            if (schemaDefinition.typeName === 'ZodObject') {
-                const shape = schemaDefinition.shape();
-                Object.entries(shape).forEach(([key, value]) => {
-                    const zodType = value as z.ZodType;
-                    const fieldDef = (zodType as any)._def;
-                    if (!('isOptional' in fieldDef)) {
-                        required.push(key);
-                    }
-                });
-            }
-
-            // Validate required fields
+            // Use inputSchema directly for validation
+            const required = tool.inputSchema.required;
             const missingFields = required.filter(field => !(field in args));
             
             if (missingFields.length > 0) {

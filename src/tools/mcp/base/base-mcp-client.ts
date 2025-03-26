@@ -60,50 +60,33 @@ export class BaseMCPClient implements IMCPClient {
     }
 
     public async listTools(): Promise<ToolDefinition[]> {
-        const ToolSchema = z.object({
-            name: z.string(),
-            description: z.string(),
-            inputSchema: z.any(),
-            version: z.string().optional(),
-            parameters: z.array(z.object({
-                name: z.string(),
-                type: z.string(),
-                description: z.string(),
-                required: z.boolean().optional()
-            })).optional()
-        });
-
-        const ResponseSchema = z.union([
-            z.array(ToolSchema),
-            z.object({
-                tools: z.array(ToolSchema)
-            }),
-            z.any()
-        ]);
-
         try {
-            // Get raw response without logging
+            // Get raw response
             const response = await this.client.request({
                 method: 'tools/list',
                 params: {}
-            }, ResponseSchema);
+            }, ListToolsResultSchema);  // Using SDK's schema for validation
 
-            let tools;
+            let tools: any[] = [];
             if (Array.isArray(response)) {
                 tools = response;
             } else if (response && typeof response === 'object' && 'tools' in response) {
                 tools = response.tools;
             } else {
                 console.error('[DEBUG] Unexpected response format');
-                tools = [];
             }
             
-            return tools.map((tool: z.infer<typeof ToolSchema>) => ({
+            // Convert to ToolDefinition format
+            return tools.map((tool: any) => ({
                 name: tool.name,
                 description: tool.description || '',
                 version: tool.version || '1.0.0',
-                parameters: tool.parameters || [],
-                inputSchema: tool.inputSchema // Include the inputSchema!
+                inputSchema: {
+                    type: 'object',
+                    properties: tool.inputSchema?.properties || {},
+                    required: tool.inputSchema?.required || []
+                },
+                metadata: tool.metadata || {}
             }));
         } catch (error) {
             console.error('[DEBUG] Error in listTools:', error);

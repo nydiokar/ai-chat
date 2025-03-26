@@ -76,11 +76,11 @@ export const mcpConfig: MCPConfig = {
             clientCommunication: true
         },
         enhanced: {
-            analytics: false,
-            contextManagement: false,
-            caching: false,
-            stateManagement: false,
-            healthMonitoring: false
+            analytics: true,
+            contextManagement: true,
+            caching: true,
+            stateManagement: true,
+            healthMonitoring: true
         }
     },
     mcpServers: enabledServers

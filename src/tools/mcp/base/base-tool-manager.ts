@@ -145,10 +145,11 @@ export class BaseToolManager implements IToolManager {
                 // Cache tools with server information
                 tools.forEach((tool: ToolDefinition) => {
                     // Store tool in cache with server info
-                    const toolWithServer = {
+                    const toolWithServer: ToolDefinition = {
                         ...tool,
                         server: serverConfig,
-                        enabled: true
+                        enabled: true,
+                        metadata: tool.metadata || {}
                     };
                     this.toolsCache.set(tool.name, toolWithServer);
                 });

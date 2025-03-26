@@ -13,8 +13,6 @@ When using tools:
     constructor(private toolProvider: IToolManager) {}
 
     async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
-        const tools = await this.getTools(message);
-        
         // Get current date and time information
         const now = new Date();
         const currentDate = now.toDateString();
@@ -33,38 +31,7 @@ When using tools:
             `Current day: ${currentDay}`
         ];
 
-        if (tools.length > 0) {
-            promptParts.push(
-                "\nAvailable Tools:",
-                ...tools.map(tool => this.formatToolInfo(tool))
-            );
-        }
-
-        const finalPrompt = promptParts.join("\n\n");
-        
-        // Keep single log with minimal info about prompt size
-        if (tools.length > 0) {
-            console.log(`System prompt: ~${Math.floor(finalPrompt.length/4)} tokens with ${tools.length} tools`);
-        }
-        
-        return finalPrompt;
-    }
-
-    private formatToolInfo(tool: ToolDefinition): string {
-        const parts = [
-            `Tool: ${tool.name}`,
-            `Purpose: ${tool.description}`
-        ];
-
-        if (tool.parameters && tool.parameters.length > 0) {
-            parts.push('Parameters:');
-            tool.parameters.forEach(param => {
-                const required = param.required ? ' (REQUIRED)' : ' (optional)';
-                parts.push(`- ${param.name}${required}: ${param.description || 'No description'}`);
-            });
-        }
-
-        return parts.join('\n');
+        return promptParts.join("\n\n");
     }
 
     public async getTools(message: string): Promise<ToolDefinition[]> {

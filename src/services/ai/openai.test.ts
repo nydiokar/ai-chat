@@ -74,8 +74,17 @@ describe('OpenAIService Integration Tests', () => {
             // Setup mock tools for each test
             (toolManagerMock.getAvailableTools as sinon.SinonStub).resolves([{
                 name: 'list_dir',
-                description: 'List directory contents',
-                parameters: [],
+                description: 'Lists directory contents',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        relative_workspace_path: {
+                            type: 'string',
+                            description: 'Path to list contents of, relative to the workspace root'
+                        }
+                    },
+                    required: ['relative_workspace_path']
+                },
                 version: '1.0.0'
             } as ToolDefinition]);
 

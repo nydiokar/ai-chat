@@ -15,6 +15,7 @@ import { Server } from '../../tools/mcp/types/server.js';
 import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 import { redactSensitiveInfo } from '../../utils/security.js';
+import { IMCPClient } from '../../tools/mcp/interfaces/core.js';
 
 export class OllamaService extends BaseAIService {
     private bridge!: OllamaBridge;
@@ -83,70 +84,29 @@ export class OllamaService extends BaseAIService {
         }
     }
 
-    private async initializeClients(): Promise<Map<string, MCPClientService>> {
-        const clients = new Map<string, MCPClientService>();
+    private async initializeClients(): Promise<Map<string, IMCPClient>> {
+        const clients = new Map<string, IMCPClient>();
+        
+        // Get server manager from container
         const serverManager = this.container.getServerManager();
         const serverIds = serverManager.getServerIds();
         
         for (const serverId of serverIds) {
             try {
-                const server = serverManager.getServer(serverId);
-                if (server) {
-                    const client = await this.createClientFromServer(server);
-                    if (client) {
-                        clients.set(serverId, client);
-                        debug(`Successfully initialized client for server ${serverId}`);
-                    }
-                }
+                const client = this.container.getMCPClient(serverId);
+                await client.initialize();
+                clients.set(serverId, client);
             } catch (error) {
                 debug(`Failed to initialize client for server ${serverId}: ${error instanceof Error ? error.message : String(error)}`);
+                // Continue with other clients even if one fails
             }
         }
-
+        
         return clients;
     }
 
-    private async createClientFromServer(server: Server): Promise<MCPClientService | undefined> {
-        try {
-            const client = new MCPClientService(server.config);
-            await client.initialize();
-            return client;
-        } catch (error) {
-            debug(`Failed to create MCPClientService: ${error instanceof Error ? error.message : String(error)}`);
-            return undefined;
-        }
-    }
-
-    private convertToToolDefinition(mcpTool: ToolDefinition): ToolDefinition {
-        const handler = mcpTool.handler;
-        if (!handler || typeof handler !== 'function') {
-            throw new MCPError(`Tool ${mcpTool.name} has no valid handler`, ErrorType.TOOL_ERROR);
-        }
-
-        return {
-            name: mcpTool.name,
-            description: mcpTool.description,
-            version: mcpTool.version || '1.0.0',
-            parameters: mcpTool.parameters || [],
-            enabled: true,
-            server: mcpTool.server,
-            handler: async (args: any): Promise<ToolResponse> => {
-                try {
-                    const mcpResponse = await handler(args);
-                    return {
-                        success: !mcpResponse.error,
-                        data: mcpResponse.data,
-                        error: mcpResponse.error,
-                        metadata: mcpResponse.metadata
-                    };
-                } catch (error) {
-                    return {
-                        success: false,
-                        data: null,
-                        error: error instanceof Error ? error.message : String(error)
-                    };
-                }
-            }
-        };
+    async cleanup(): Promise<void> {
+        // Cleanup any resources if needed
+        this.bridgeInitialized = false;
     }
 } 

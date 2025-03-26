@@ -1,24 +1,24 @@
 import ollama, { ChatRequest } from 'ollama';
-import { MCPClientService } from "../../../../tools/mcp/mcp-client-service.js";
-import { MCPTool } from "../../../../tools/mcp/types/tools.js";
+import { IMCPClient } from "../../../../tools/mcp/interfaces/core.js";
+import { ToolDefinition } from "../../../../tools/mcp/types/tools.js";
 import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../../types/ollama.js";
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
 import { ToolsHandler } from "../../../../tools/tools-handler.js";
 import { IToolManager } from "../../../../tools/mcp/interfaces/core.js";
-import { ToolDefinition, ToolResponse } from "../../../../tools/mcp/types/tools.js";
+import { ToolResponse } from "../../../../tools/mcp/types/tools.js";
 
 export class OllamaBridge {
     private model: string;
     private messages: OllamaMessage[] = [];
-    private availableTools: Map<string, MCPTool> = new Map();
+    private availableTools: Map<string, ToolDefinition> = new Map();
     private convertedTools: Map<string, OllamaToolDefinition> = new Map();
     private promptGenerator: SystemPromptGenerator;
 
     constructor(
         model: string,
         private endpoint: string,
-        private clients: Map<string, MCPClientService>,
+        private clients: Map<string, IMCPClient>,
         toolsHandler: IToolManager
     ) {
         this.model = model;
@@ -33,14 +33,8 @@ export class OllamaBridge {
                 description: tool.description,
                 parameters: {
                     type: 'object',
-                    properties: tool.parameters.reduce((acc, param) => {
-                        acc[param.name] = {
-                            type: param.type,
-                            description: param.description
-                        };
-                        return acc;
-                    }, {} as Record<string, any>),
-                    required: tool.parameters.filter(p => p.required).map(p => p.name)
+                    properties: tool.inputSchema.properties,
+                    required: tool.inputSchema.required
                 }
             }
         };
@@ -63,26 +57,31 @@ export class OllamaBridge {
             throw new Error(`Invalid tool call: ${toolCall.function.name}`);
         }
 
+        // Try each client until one successfully executes the tool
         for (const [clientName, client] of this.clients.entries()) {
-            if (await client.hasToolEnabled(toolCall.function.name)) {
-                return client.callTool(toolCall.function.name, toolCall.function.arguments);
+            try {
+                const result = await client.callTool(toolCall.function.name, toolCall.function.arguments);
+                return JSON.stringify(result);
+            } catch (error) {
+                console.warn(`Client ${clientName} failed to execute tool: ${error}`);
+                continue;
             }
         }
 
-        throw new Error(`No client found for tool: ${toolCall.function.name}`);
+        throw new Error(`No client could execute tool: ${toolCall.function.name}`);
     }
 
-    private async getRelevantToolsFromPromptGenerator(message: string): Promise<MCPTool[]> {
+    private async getRelevantToolsFromPromptGenerator(message: string): Promise<ToolDefinition[]> {
         // Use the system prompt generator to analyze the request and get relevant tools
         const systemPrompt = await this.promptGenerator.generatePrompt("", message);
         const toolNames = systemPrompt.match(/Tool: ([^\n]+)/g)?.map(m => m.substring(6)) || [];
         
         return toolNames
             .map(name => this.availableTools.get(name))
-            .filter((tool): tool is MCPTool => !!tool);
+            .filter((tool): tool is ToolDefinition => !!tool);
     }
 
-    private getConvertedTool(tool: MCPTool): OllamaToolDefinition {
+    private getConvertedTool(tool: ToolDefinition): OllamaToolDefinition {
         let converted = this.convertedTools.get(tool.name);
         if (!converted) {
             converted = OllamaToolAdapter.convertMCPToolToOllama(tool);

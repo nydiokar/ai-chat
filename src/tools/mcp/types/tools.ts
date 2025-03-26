@@ -1,9 +1,31 @@
-import { z } from 'zod';
 import { ServerConfig } from './server.js';
 
 /**
- * Core tool interfaces
+ * Core MCP Tool Schema - follows JSON Schema standard
  */
+export interface MCPToolSchema {
+    type: "object";
+    properties: Record<string, {
+        type: string;
+        description?: string;
+        enum?: string[];
+    }>;
+    required: string[];
+}
+
+/**
+ * Core tool interface aligned with MCP standard
+ */
+export interface ToolDefinition {
+    name: string;
+    description: string;
+    inputSchema: MCPToolSchema;
+    version?: string;
+    metadata?: Record<string, any>;
+    enabled?: boolean;
+    server?: ServerConfig;
+    handler?: (args: any) => Promise<ToolResponse>;
+}
 
 /**
  * Represents a tool's response
@@ -13,38 +35,6 @@ export interface ToolResponse {
     data: any;
     error?: string;
     metadata?: Record<string, any>;
-}
-
-/**
- * Represents a tool's parameter
- */
-export interface ToolParameter {
-    name: string;
-    type: string;
-    description: string;
-    required?: boolean;
-    enum?: string[];
-}
-
-/**
- * Base tool configuration
- */
-export interface ToolConfig {
-    name: string;
-    description: string;
-    version?: string;
-    enabled?: boolean;
-    parameters?: ToolParameter[];
-}
-
-/**
- * Core tool interface
- */
-export interface Tool extends ToolConfig {
-    inputSchema: z.ZodSchema;
-    handler: (args: any) => Promise<ToolResponse>;
-    examples?: string[];
-    metadata?: Record<string, unknown>;
 }
 
 /**
@@ -88,7 +78,7 @@ export interface ToolAnalytics {
 }
 
 /**
- * MCP-specific interfaces
+ * MCP server configuration
  */
 export interface MCPServerConfig {
     id: string;
@@ -96,29 +86,7 @@ export interface MCPServerConfig {
     command: string;
     args: string[];
     env?: Record<string, string>;
-    tools?: ToolConfig[];
-}
-
-export interface MCPConfig {
-    mcpServers: Record<string, MCPServerConfig>;
-}
-
-/**
- * Tool definition with server configuration
- */
-export interface ToolDefinition extends ToolConfig {
-    version: string;
-    parameters: ToolParameter[];
-    server?: ServerConfig;
-    inputSchema?: z.ZodSchema;
-    handler?: (args: any) => Promise<ToolResponse>;
-}
-
-/**
- * MCP-specific tool interface
- */
-export interface MCPTool extends Tool {
-    server: ServerConfig;
+    tools?: ToolDefinition[];
 }
 
 /**
@@ -138,8 +106,8 @@ export interface MCPToolModel {
  * Tool information provider interface
  */
 export interface ToolInformationProvider {
-    getAvailableTools(): Promise<Tool[]>;
-    getToolByName(name: string): Promise<Tool | undefined>;
+    getAvailableTools(): Promise<ToolDefinition[]>;
+    getToolByName(name: string): Promise<ToolDefinition | undefined>;
     refreshToolInformation(): Promise<void>;
 }
 
