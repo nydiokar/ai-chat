@@ -105,18 +105,10 @@ export class MCPContainer {
     }
 
     private registerFeatureServices(): void {
-        if (this.config.features.enhanced.caching) {
-            this.container.bind('CacheManager').toSelf();
-        }
-        if (this.config.features.enhanced.analytics) {
-            this.container.bind('AnalyticsManager').toSelf();
-        }
-        if (this.config.features.enhanced.healthMonitoring) {
-            this.container.bind('HealthMonitor').toSelf();
-        }
-        if (this.config.features.enhanced.stateManagement) {
-            this.container.bind('StateManager').toSelf();
-        }
+        // Enhanced features are handled by the enhanced versions of:
+        // - EnhancedMCPClient (caching, health monitoring, analytics)
+        // - EnhancedServerManager (state management)
+        // - EnhancedToolsHandler (enhanced tool operations)
     }
 
     private hasEnhancedFeatures(): boolean {

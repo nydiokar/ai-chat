@@ -34,23 +34,6 @@ const servers: Record<string, any> = {
             BRAVE_API_KEY: process.env.BRAVE_API_KEY
         }
     },
-    // Custom MCP Servers
-    "deep-web-research": {
-        id: "deep-web-research",
-        name: "Deep Web Research",
-        command: nodePath,
-        args: [
-            path.join("mcp-repos", "mcp-DEEPwebresearch", "dist", "index.js")
-        ],
-        env: {
-            PWD: projectRoot,
-            MAX_PARALLEL_SEARCHES: "5",
-            SEARCH_DELAY_MS: "200",
-            MAX_RETRIES: "3",
-            TIMEOUT_MS: "55000",
-            LOG_LEVEL: "info"
-        }
-    }
 };
 
 // Filter enabled servers based on environment requirements
@@ -76,11 +59,11 @@ export const mcpConfig: MCPConfig = {
             clientCommunication: true
         },
         enhanced: {
-            analytics: true,
-            contextManagement: true,
-            caching: true,
-            stateManagement: true,
-            healthMonitoring: true
+            analytics: false,
+            contextManagement: false,
+            caching: false,
+            stateManagement: false,
+            healthMonitoring: false
         }
     },
     mcpServers: enabledServers
