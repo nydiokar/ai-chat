@@ -19,7 +19,7 @@ import { startDashboard } from '../tools/dashboard/dashboard.js';
 export class DiscordService {
     private client: Client;
     private db: DatabaseService;
-    private static instance: DiscordService;
+    private static instances: Map<string, DiscordService> = new Map();
     private aiServices: Map<string, AIService> = new Map();
     private readonly contextRefreshInterval = 30 * 60 * 1000;
     private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
@@ -35,9 +35,11 @@ export class DiscordService {
     ) {
         this.client = new Client({
             intents: [
-                GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.MessageContent
+                GatewayIntentBits.Guilds,           // Required for basic server functionality
+                GatewayIntentBits.GuildMessages,    // Required for message handling in servers
+                GatewayIntentBits.MessageContent,   // Required to read message content
+                GatewayIntentBits.DirectMessages,   // Required for DM support
+                GatewayIntentBits.GuildMembers      // Required for user management
             ]
         });
         this.db = dbService;
@@ -47,52 +49,33 @@ export class DiscordService {
         try {
             debug('Initializing cache service...');
             // Initialize session cache with proper error handling and memory services
+            const env = process.env.NODE_ENV || 'development';
+            const sessionFile = `logs/${env}/discord-sessions.json`;
+            
             this.sessionCache = CacheService.getInstance({
                 type: CacheType.PERSISTENT,
                 namespace: 'discord-sessions',
                 ttl: defaultConfig.discord.sessionTimeout * 60 * 60 * 1000, // Convert hours to ms
-                filename: 'discord-sessions.json',
+                filename: sessionFile,
                 writeDelay: 100
             });
-            debug('Cache service instance created');
-
-            // Verify cache is properly initialized by testing it
-            debug('Starting cache verification test...');
-            try {
-                debug('Testing cache write...');
-                await this.sessionCache.set('test-key', 'test-value');
-                debug('Cache write successful');
-
-                debug('Testing cache read...');
-                const testValue = await this.sessionCache.get('test-key');
-                debug(`Cache read result: ${JSON.stringify(testValue)}`);
-
-                if (testValue !== 'test-value') {
-                    throw new Error(`Cache verification failed: expected "test-value" but got ${JSON.stringify(testValue)}`);
-                }
-                debug('Cache read verification successful');
-
-                debug('Testing cache delete...');
-                await this.sessionCache.delete('test-key');
-                debug('Cache delete successful');
-
-                debug('Cache initialization verified successfully');
-            } catch (error) {
-                const err = error instanceof Error ? error : new Error(String(error));
-                debug(`Cache verification step failed: ${err.message}`);
-                if (err.stack) debug(err.stack);
-                throw err;
-            }
+            
+            debug('Cache service initialized');
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            debug(`Cache initialization failed: ${err.message}`);
-            if (err.stack) debug(err.stack);
-            throw err;
+            console.error('Failed to initialize cache:', error);
+            throw error;
         }
     }
 
     private async handleMessage(message: Message): Promise<void> {
         if (message.author.bot) return;
+
+        // Check if message is from the allowed guild
+        const allowedGuildId = process.env.DISCORD_GUILD_ID;
+        if (allowedGuildId && message.guild?.id !== allowedGuildId) {
+            debug(`Message ignored - not from allowed guild. Message guild: ${message.guild?.id}, Allowed guild: ${allowedGuildId}`);
+            return;
+        }
 
         // Check if this is a direct message or if the bot is mentioned
         const isDM = !message.guild;
@@ -153,8 +136,14 @@ export class DiscordService {
             try {
                 const cachedSession = await this.sessionCache.get<DiscordCachedConversation>(sessionKey);
                 if (cachedSession) {
-                    conversation = cachedSession;
-                    debug('Using cached session');
+                    // Verify the cached conversation still exists in the database
+                    const dbConversation = await this.db.getConversation(cachedSession.id);
+                    if (dbConversation) {
+                        conversation = cachedSession;
+                        debug('Using cached session');
+                    } else {
+                        debug('Cached conversation not found in database, creating new one');
+                    }
                 }
             } catch (error) {
                 debug(`Cache error, falling back to database: ${error instanceof Error ? error.message : String(error)}`);
@@ -179,13 +168,21 @@ export class DiscordService {
                         username: message.author.username,
                         guildId: message.guild?.id || 'DM'
                     };
+                    
+                    // Create conversation and immediately verify it exists
                     const conversationId = await this.db.createConversation(
                         defaultConfig.defaultModel,
                         undefined,
                         undefined,
                         context
                     );
+                    
+                    // Verify the conversation was created
                     conversation = await this.db.getConversation(conversationId);
+                    if (!conversation) {
+                        throw new Error(`Failed to create conversation - could not verify conversation ${conversationId} exists`);
+                    }
+                    debug(`Created and verified new conversation with ID: ${conversationId}`);
                 }
 
                 // Cache the conversation with retry mechanism
@@ -194,6 +191,11 @@ export class DiscordService {
                 } catch (error) {
                     debug(`Failed to cache conversation: ${error instanceof Error ? error.message : String(error)}`);
                 }
+            }
+
+            // Double check we have a valid conversation before proceeding
+            if (!conversation || !conversation.id) {
+                throw new Error('No valid conversation available');
             }
 
             let service = this.aiServices.get(conversation.id.toString());
@@ -221,9 +223,25 @@ export class DiscordService {
             // Use the cleaned content (without the bot mention) for processing
             const response = await service.processMessage(cleanContent, messages);
 
-            // Update database
-            await this.db.addMessage(conversation.id, cleanContent, 'user');
-            await this.db.addMessage(conversation.id, response.content, 'assistant');
+            // Update database with explicit error handling
+            try {
+                debug(`Adding user message to conversation ${conversation.id}`);
+                await this.db.addMessage(conversation.id, cleanContent, 'user', undefined, {
+                    userId: message.author.id,
+                    username: message.author.username,
+                    guildId: message.guild?.id,
+                    channelId: message.channelId
+                });
+
+                debug(`Adding assistant message to conversation ${conversation.id}`);
+                await this.db.addMessage(conversation.id, response.content, 'assistant', undefined, {
+                    channelId: message.channelId,
+                    guildId: message.guild?.id
+                });
+            } catch (error) {
+                debug(`Error adding messages to conversation ${conversation.id}: ${error instanceof Error ? error.message : String(error)}`);
+                throw error;
+            }
 
             // Update cache with new messages and handle errors
             const newUserMessage: DiscordCachedMessage = {
@@ -265,7 +283,11 @@ export class DiscordService {
                 debug(`Failed to update cache with new messages: ${error instanceof Error ? error.message : String(error)}`);
             }
 
-            await message.reply(response.content);
+            // Split and send message in chunks if needed
+            const messageChunks = this.splitMessage(response.content);
+            for (const chunk of messageChunks) {
+                await message.reply(chunk);
+            }
             
             this.updateLastActivity(conversation.id.toString());
         } catch (error) {
@@ -388,22 +410,27 @@ export class DiscordService {
             return;
         }
 
+        const MAX_RETRIES = 3;
+        const INITIAL_RETRY_DELAY = 2000; // 2 seconds
+
         try {
             console.log('\n=== Discord Bot Initialization ===');
             
-            // Initialize cache first
-            console.log('\n1. Initializing cache...');
-            await this.initializeCache();
-            console.log('  ✓ Cache initialized');
+            console.log('\n1. Setting up event handlers...');
+            await this.setupEventHandlers();
+            console.log('   ✓ Event handlers configured');
 
-            // Set up event handlers
-            console.log('\n2. Setting up event handlers...');
-            this.setupEventHandlers();
-            console.log('  ✓ Event handlers configured');
+            console.log('\n2. Setting up database connection...');
+            await this.db.connect();
+            console.log('   ✓ Database connected');
+
+            console.log('\n3. Initializing cache service...');
+            await this.initializeCache();
+            console.log('   ✓ Cache service initialized');
 
             // Initialize MCP if enabled
             if (defaultConfig.discord.mcp.enabled) {
-                console.log('\n3. Initializing MCP...');
+                console.log('\n4. Initializing MCP...');
                 
                 // Create and configure MCP container
                 this.mcpContainer = new MCPContainer(mcpConfig);
@@ -440,7 +467,7 @@ export class DiscordService {
                     console.log('  ✓ MCP client connected');
 
                     // Start all configured servers
-                    console.log('\n4. Starting MCP servers...');
+                    console.log('\n5. Starting MCP servers...');
                     let successCount = 0;
                     const totalServers = Object.keys(mcpConfig.mcpServers).length;
                     
@@ -455,17 +482,26 @@ export class DiscordService {
                     }
                     console.log(`\nServers started: ${successCount}/${totalServers}`);
 
-                    // Initialize AIServiceFactory
-                    console.log('\n5. Initializing AI Service...');
+                    // Initialize AIServiceFactory with MCP container
+                    console.log('\n6. Initializing AI Service Factory...');
                     try {
                         await AIServiceFactory.initialize(this.mcpContainer);
-                        console.log('  ✓ AI Service initialized');
+                        console.log('  ✓ AI Service Factory initialized');
                     } catch (error) {
-                        console.error('  ✗ Failed to initialize AI Service:', error);
+                        console.error('  ✗ Failed to initialize AI Service Factory:', error);
+                        // Don't throw here, we'll continue with degraded functionality
                     }
 
                 } catch (mcpError) {
                     console.error('  ✗ Failed to initialize MCP:', mcpError);
+                    // Initialize AIServiceFactory without MCP container for fallback functionality
+                    console.log('\n6. Initializing AI Service Factory without MCP...');
+                    try {
+                        await AIServiceFactory.initialize(mcpConfig);
+                        console.log('  ✓ AI Service Factory initialized in fallback mode');
+                    } catch (error) {
+                        console.error('  ✗ Failed to initialize AI Service Factory in fallback mode:', error);
+                    }
                 }
 
                 // Initialize the MCP dashboard if enabled
@@ -481,24 +517,55 @@ export class DiscordService {
                         console.error('Error starting MCP Dashboard:', error);
                     }
                 }
+            } else {
+                // If MCP is disabled, adjust step numbering and messaging
+                console.log('\n4. Initializing AI Service Factory...');
+                try {
+                    await AIServiceFactory.initialize(mcpConfig);
+                    console.log('  ✓ AI Service Factory initialized (MCP tools will be loaded if configured)');
+                } catch (error) {
+                    console.error('  ✗ Failed to initialize AI Service Factory:', error);
+                }
             }
 
-            // Login to Discord
-            console.log('\n6. Logging in to Discord...');
-            await this.client.login(this.token);
-            this.isInitialized = true;
-            console.log('  ✓ Successfully logged in');
-            
-            // Register slash commands
-            console.log('\n7. Setting up slash commands...');
-            try {
-                await this.registerSlashCommands();
-                console.log('  ✓ Slash commands setup complete');
-            } catch (error) {
-                console.error('  ✗ Failed to setup slash commands:', error);
+            // Login to Discord with retry logic
+            console.log('\n5. Logging in to Discord...');
+            let retryCount = 0;
+            let lastError;
+
+            while (retryCount < MAX_RETRIES) {
+                try {
+                    await this.client.login(this.token);
+                    this.isInitialized = true;
+                    console.log('  ✓ Successfully logged in');
+                    break;
+                } catch (error) {
+                    lastError = error;
+                    retryCount++;
+                    
+                    if (retryCount === MAX_RETRIES) {
+                        console.error(`\n❌ Failed to login after ${MAX_RETRIES} attempts. Stopping bot.`);
+                        throw error;
+                    }
+
+                    const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount - 1);
+                    console.log(`Login attempt ${retryCount} failed. Retrying in ${delay/1000} seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
             
-            console.log('\n=== Initialization Complete ===\n');
+            // Register slash commands
+            if (this.isInitialized) {
+                console.log('\n8. Setting up slash commands...');
+                try {
+                    await this.registerSlashCommands();
+                    console.log('  ✓ Slash commands setup complete');
+                } catch (error) {
+                    console.error('  ✗ Failed to setup slash commands:', error);
+                }
+                
+                console.log('\n=== Initialization Complete ===\n');
+            }
             
         } catch (error) {
             console.error('\n❌ Failed to start Discord client:', error);
@@ -509,74 +576,53 @@ export class DiscordService {
 
     private async registerSlashCommands() {
         try {
-            console.log('\n=== Discord Command Registration ===');
-            
             // Get the client ID from the client object
             if (!this.client.user?.id) {
-                console.log('❌ Client ID not available yet, skipping registration');
+                debug('Client ID not available yet, skipping registration');
                 return;
             }
-            
-            const clientId = this.client.user.id;
-            const rest = new REST({ version: '10' }).setToken(this.token);
-            
+
             const commands = [
-                taskCommands.toJSON(),
                 hotTokensCommands.toJSON(),
+                taskCommands.toJSON(),
                 pulseCommand.toJSON()
             ];
-            
-            // Get the guilds the bot is in
-            const guilds = this.client.guilds.cache;
-            console.log(`\nRegistering ${commands.length} commands in ${guilds.size} guilds...`);
-            
-            // First, clear all commands
-            console.log('\n1. Clearing existing commands...');
-            
-            // Clear global commands
-            try {
-                await rest.put(Routes.applicationCommands(clientId), { body: [] });
-                console.log('  ✓ Cleared global commands');
-            } catch (error) {
-                console.error('  ✗ Error clearing global commands:', error);
-            }
-            
-            // Clear guild commands
-            for (const [guildId, guild] of guilds) {
-                try {
-                    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-                    console.log(`  ✓ Cleared commands from ${guild.name}`);
-                } catch (error) {
-                    console.error(`  ✗ Error clearing commands from ${guild.name}:`, error);
-                }
-            }
-            
-            // Register new commands
-            console.log('\n2. Registering new commands...');
-            let successCount = 0;
-            
-            for (const [guildId, guild] of guilds) {
+
+            const rest = new REST().setToken(this.token);
+            const guildId = process.env.DISCORD_GUILD_ID;
+
+            debug('Started refreshing application (/) commands.');
+
+            if (guildId) {
+                // Register commands for specific guild
+                debug(`Registering commands for guild ${guildId}`);
                 try {
                     await rest.put(
-                        Routes.applicationGuildCommands(clientId, guildId),
-                        { body: commands }
+                        Routes.applicationGuildCommands(this.client.user.id, guildId),
+                        { body: commands },
                     );
-                    console.log(`  ✓ Registered in ${guild.name}`);
-                    successCount++;
+                    debug(`Successfully registered commands for guild ${guildId}`);
                 } catch (error) {
-                    console.error(`  ✗ Failed to register in ${guild.name}:`, error);
+                    // If guild registration fails, try global registration
+                    debug('Guild registration failed, falling back to global registration');
+                    await rest.put(
+                        Routes.applicationCommands(this.client.user.id),
+                        { body: commands },
+                    );
                 }
+            } else {
+                // Register commands globally
+                debug('Registering commands globally');
+                await rest.put(
+                    Routes.applicationCommands(this.client.user.id),
+                    { body: commands },
+                );
             }
-            
-            // Print summary
-            console.log('\n=== Command Registration Summary ===');
-            console.log(`Commands registered successfully in ${successCount}/${guilds.size} guilds`);
-            console.log('Registered commands:');
-            commands.forEach(cmd => console.log(`  - /${cmd.name}`));
-            console.log('\n=== End Command Registration ===\n');
-            
+
+            debug('Successfully reloaded application (/) commands.');
         } catch (error) {
-            console.error('\n❌ Error registering slash commands:', error);
+            console.error('Error refreshing commands:', error);
+            throw error; // Re-throw to handle in the calling function
         }
     }
 
@@ -618,6 +664,10 @@ export class DiscordService {
                 await this.client.destroy();
             }
 
+            // Remove instance from static map
+            const env = process.env.NODE_ENV || 'development';
+            DiscordService.instances.delete(env);
+
             console.log('Discord service stopped successfully');
         } catch (error) {
             console.error('Error stopping Discord client:', error);
@@ -649,41 +699,45 @@ export class DiscordService {
     }
 
     private splitMessage(content: string): string[] {
-        const MAX_LENGTH = 1900;
-        const parts: string[] = [];
-        let currentPart = '';
-
-        const paragraphs = content.split('\n');
-
+        const MAX_LENGTH = 1900; // Leave some room for formatting
+        const messages: string[] = [];
+        
+        // Split on double newlines to preserve formatting
+        const paragraphs = content.split('\n\n');
+        let currentMessage = '';
+        
         for (const paragraph of paragraphs) {
-            if (currentPart.length + paragraph.length + 1 <= MAX_LENGTH) {
-                currentPart += (currentPart ? '\n' : '') + paragraph;
-            } else {
-                if (currentPart) {
-                    parts.push(currentPart);
+            // If adding this paragraph would exceed limit, push current message and start new one
+            if (currentMessage.length + paragraph.length + 2 > MAX_LENGTH) {
+                if (currentMessage) {
+                    messages.push(currentMessage.trim());
+                    currentMessage = '';
                 }
+                
+                // If single paragraph is too long, split it
                 if (paragraph.length > MAX_LENGTH) {
                     const words = paragraph.split(' ');
-                    currentPart = '';
                     for (const word of words) {
-                        if (currentPart.length + word.length + 1 <= MAX_LENGTH) {
-                            currentPart += (currentPart ? ' ' : '') + word;
+                        if (currentMessage.length + word.length + 1 > MAX_LENGTH) {
+                            messages.push(currentMessage.trim());
+                            currentMessage = word;
                         } else {
-                            parts.push(currentPart);
-                            currentPart = word;
+                            currentMessage += (currentMessage ? ' ' : '') + word;
                         }
                     }
                 } else {
-                    currentPart = paragraph;
+                    currentMessage = paragraph;
                 }
+            } else {
+                currentMessage += (currentMessage ? '\n\n' : '') + paragraph;
             }
         }
-
-        if (currentPart) {
-            parts.push(currentPart);
+        
+        if (currentMessage) {
+            messages.push(currentMessage.trim());
         }
-
-        return parts;
+        
+        return messages;
     }
 
     public getClient(): Client {
@@ -691,21 +745,27 @@ export class DiscordService {
     }
 
     static async getInstance(): Promise<DiscordService> {
-        if (!DiscordService.instance) {
+        const env = process.env.NODE_ENV || 'development';
+        
+        if (!DiscordService.instances.has(env)) {
             const token = process.env.DISCORD_TOKEN;
             if (!token) {
                 throw new Error('DISCORD_TOKEN environment variable is not set');
             }
             
-            DiscordService.instance = new DiscordService(
+            const instance = new DiscordService(
                 token,
                 DatabaseService.getInstance()
             );
 
             // Initialize the service
-            await DiscordService.instance.start();
+            await instance.start();
+            DiscordService.instances.set(env, instance);
+            
+            debug(`Created new Discord service instance for environment: ${env}`);
         }
-        return DiscordService.instance;
+        
+        return DiscordService.instances.get(env)!;
     }
 
     /**

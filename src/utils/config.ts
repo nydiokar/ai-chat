@@ -1,5 +1,66 @@
 import { AIModel, Model } from '../types/index.js';
 
+// Define AI providers and their models
+export const AIProviders = {
+  OPENAI: 'gpt',
+  ANTHROPIC: 'claude',
+  OLLAMA: 'ollama'
+} as const;
+
+// Define available OpenAI models
+export const OpenAIModels = {
+  GPT4: 'gpt-4-0125-preview',
+  GPT35Turbo: 'gpt-3.5-turbo-0125',
+  GPT35Turbo16k: 'gpt-3.5-turbo-16k',
+  GPT4oMini: 'gpt-4o-mini-2024-07-18',
+  GPT4o: 'gpt-4o-2024-08-06',
+} as const;
+
+// Model configuration by environment
+export const modelConfig = {
+  development: {
+    default: OpenAIModels.GPT35Turbo,
+    fallback: OpenAIModels.GPT35Turbo,
+    options: [OpenAIModels.GPT35Turbo, OpenAIModels.GPT35Turbo16k, OpenAIModels.GPT4oMini, OpenAIModels.GPT4o],
+  },
+  production: {
+    default: OpenAIModels.GPT4oMini,
+    fallback: OpenAIModels.GPT35Turbo,
+    options: Object.values(OpenAIModels),
+  },
+} as const;
+
+// Helper functions for model selection
+function getAIProvider(): AIModel {
+  const provider = process.env.MODEL || AIProviders.OPENAI;
+  
+  if (!Object.values(AIProviders).includes(provider as any)) {
+    console.warn(`[Config] Invalid provider ${provider}, defaulting to ${AIProviders.OPENAI}`);
+    return AIProviders.OPENAI as AIModel;
+  }
+  
+  return provider as AIModel;
+}
+
+function getOpenAIModel(currentProvider: AIModel): string {
+  // Only configure OpenAI model if we're using OpenAI
+  if (currentProvider !== AIProviders.OPENAI) {
+    return modelConfig.development.default; // Fallback value, won't be used
+  }
+
+  const env = process.env.NODE_ENV || 'development';
+  const envConfig = modelConfig[env as keyof typeof modelConfig];
+  const configuredModel = process.env.OPENAI_MODEL;
+
+  // If valid model specified in env, use it
+  if (configuredModel && envConfig.options.includes(configuredModel as any)) {
+    return configuredModel;
+  }
+
+  // Otherwise use default for environment
+  return envConfig.default;
+}
+
 // Base configuration interface
 export interface BaseConfig {
   debug: boolean;
@@ -36,32 +97,24 @@ export interface BaseConfig {
 }
 
 export const defaultConfig: BaseConfig = {
-  defaultModel: (() => {
-    const model = process.env.MODEL || 'gpt';
-    console.warn('[Config] Resolved model:', model);
-    if (!Object.values(Model).includes(model as AIModel)) {
-      console.warn(`[Config] Invalid model ${model}, defaulting to gpt`);
-      return 'gpt';
-    }
-    return model as AIModel;
-  })(),
+  defaultModel: getAIProvider(),
   messageHandling: {
-    maxContextMessages: 5,  // Unified limit between OpenAI and Discord
+    maxContextMessages: 3,  // Unified limit between OpenAI and Discord
     maxTokens: 4096,
     tokenBuffer: 1000,
     maxMessageLength: 8000
   },
   debug: process.env.DEBUG === 'true',
   logging: {
-    level: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
-    showTools: process.env.LOG_SHOW_TOOLS === 'true',
-    showRequests: process.env.LOG_SHOW_REQUESTS === 'true'
+    level: (process.env.LOG_LEVEL || 'debug') as 'error' | 'warn' | 'info' | 'debug',
+    showTools: process.env.LOG_SHOW_TOOLS === 'true',  // Just check if true, no default override
+    showRequests: process.env.LOG_SHOW_REQUESTS === 'true'  // Just check if true, no default override
   },
   maxRetries: 3,
   retryDelay: 1000,
   rateLimitDelay: 1000,
   openai: {
-    model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo-0125',
+    model: getOpenAIModel(getAIProvider()),
     temperature: Number(process.env.OPENAI_TEMPERATURE) || 0.7,
     maxRetries: Number(process.env.OPENAI_MAX_RETRIES) || 3
   },
@@ -98,20 +151,11 @@ export function validateEnvironment(): void {
     
     // Only validate MCP if Discord is enabled and MCP is explicitly enabled
     if (process.env.MCP_ENABLED === 'true') {
-      required.push('MCP_AUTH_TOKEN');
       
       // Validate MCP log level if specified
       const validLogLevels = ['error', 'warn', 'info', 'debug'];
       if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
         throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
-      }
-
-      // Validate MCP server-specific environment variables
-      if (process.env.MCP_GITHUB_ENABLED === 'true') {
-        required.push('GITHUB_TOKEN');
-      }
-      if (process.env.MCP_BRAVE_ENABLED === 'true') {
-        required.push('BRAVE_API_KEY');
       }
     }
   }

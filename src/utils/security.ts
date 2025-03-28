@@ -11,7 +11,7 @@ export function redactSensitiveInfo(obj: any): any {
     
     const sensitiveKeys = [
         'key', 'password', 'secret', 'auth', 'credential',
-        'GITHUB_PERSONAL_ACCESS_TOKEN', 'OPENAI_API_KEY',
+        'GITHUB_TOKEN', 'OPENAI_API_KEY',
         'ollama_api_key', 'ollama_api_url', 'API_KEY', 'API_URL', 'API_TOKEN'
     ];
     

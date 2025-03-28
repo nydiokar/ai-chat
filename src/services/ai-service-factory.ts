@@ -41,7 +41,7 @@ export class AIServiceFactory {
             // This avoids redundant refresh since the ToolManager already listens to the server manager
             // and will emit events when tools change
             if ('on' in this.toolManager) {
-                (this.toolManager as any).on('tools.refreshed', (event: any) => {
+                (this.toolManager as any).on('tools.refreshed', () => {
                     console.log('[AIServiceFactory] Tools refreshed by tool manager');
                 });
             }
@@ -72,9 +72,12 @@ export class AIServiceFactory {
 
         // For now, we only support OpenAI
         const selectedModel = model || defaultConfig.defaultModel;
-        console.warn(`[AIServiceFactory] Using model: ${selectedModel}`);
-        console.warn(`[AIServiceFactory] Environment MODEL: ${process.env.MODEL}`);
-        console.warn(`[AIServiceFactory] Default config model: ${defaultConfig.defaultModel}`);
+        
+        // Log model configuration at info level
+        console.log('[AIServiceFactory] Model Configuration:');
+        console.log(`  • Selected model: ${selectedModel}`);
+        console.log(`  • Environment MODEL: ${process.env.MODEL}`);
+        console.log(`  • Default config: ${defaultConfig.defaultModel}`);
 
         try {
             if (selectedModel !== 'gpt') {

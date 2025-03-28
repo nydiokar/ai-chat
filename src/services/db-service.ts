@@ -1,9 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { AIModel, ConversationStats, MessageRole, Role, MessageContext } from '../types/index.js';
 import { ToolResponse } from '../tools/mcp/types/tools.js';
 import { MCPError } from '../types/errors.js';
-import { debug } from '../utils/config.js';
+import { debug, info, error, warn } from '../utils/logger.js';
 import { DiscordContext } from '../types/discord.js';
+import path from 'path';
 
 export class DatabaseError extends Error {
   public cause?: any;
@@ -41,8 +42,94 @@ export class DatabaseService {
   private readonly MAX_SUMMARY_LENGTH = 500;
 
   protected constructor() {
+    const env = process.env.NODE_ENV || 'development';
+    
+    // Configure database based on environment
+    const dbConfig = {
+      development: {
+        provider: 'sqlite',
+        url: `file:${path.resolve(process.cwd(), 'prisma/dev.db')}`
+      },
+      production: {
+        provider: 'postgresql',
+        url: process.env.DATABASE_URL || ''
+      }
+    };
+
+    const config = dbConfig[env as keyof typeof dbConfig] || dbConfig.development;
+    
+    info({
+      component: 'Database',
+      message: 'Initializing PrismaClient',
+      environment: env,
+      config: {
+        provider: config.provider,
+        url: config.url.replace(/^.*\//, '.../')  // Hide full path for security
+      }
+    });
+    
     this.prisma = new PrismaClient({
-      log: ['error', 'warn'],
+      log: [
+        { emit: 'event', level: 'error' },
+        { emit: 'event', level: 'warn' },
+        { emit: 'event', level: 'info' }
+      ],
+      datasources: {
+        db: {
+          url: config.url
+        }
+      }
+    });
+
+    // Set up Prisma event handlers
+    (this.prisma as any).$on('error', (e: Prisma.LogEvent) => {
+      error({
+        component: 'Database',
+        message: 'Prisma error',
+        error: e
+      });
+    });
+
+    (this.prisma as any).$on('warn', (e: Prisma.LogEvent) => {
+      warn({
+        component: 'Database',
+        message: 'Prisma warning',
+        warning: e
+      });
+    });
+
+    (this.prisma as any).$on('info', (e: Prisma.LogEvent) => {
+      info({
+        component: 'Database',
+        message: 'Prisma info',
+        info: e
+      });
+    });
+
+    // Log slow queries
+    (this.prisma as any).$extends({
+      query: {
+        $allOperations: async ({ operation, model, args }: { 
+          operation: string; 
+          model: string | null; 
+          args: Record<string, unknown>; 
+        }, next: (args: Record<string, unknown>) => Promise<unknown>) => {
+          const start = Date.now();
+          const result = await next(args);
+          const duration = Date.now() - start;
+          
+          if (duration > 100) { // Log queries that take more than 100ms
+            warn({
+              component: 'Database',
+              message: 'Slow query detected',
+              query: { operation, model, args },
+              duration: `${duration}ms`
+            });
+          }
+          
+          return result;
+        }
+      }
     });
   }
 
@@ -74,16 +161,36 @@ export class DatabaseService {
   }
 
   async disconnect(): Promise<void> {
-    await this.prisma.$disconnect();
+    try {
+      await this.prisma.$disconnect();
+      info({
+        component: 'Database',
+        message: 'Disconnected from database'
+      });
+    } catch (err) {
+      error({
+        component: 'Database',
+        message: 'Failed to disconnect from database',
+        error: err instanceof Error ? err : new Error(String(err))
+      });
+      throw err;
+    }
   }
 
-  // Add connection error handling
   async connect(): Promise<void> {
     try {
       await this.prisma.$connect();
-    } catch (error) {
-      console.error('Failed to connect to database:', error);
-      throw error;
+      info({
+        component: 'Database',
+        message: 'Connected to database'
+      });
+    } catch (err) {
+      error({
+        component: 'Database',
+        message: 'Failed to connect to database',
+        error: err instanceof Error ? err : new Error(String(err))
+      });
+      throw err;
     }
   }
 
@@ -154,6 +261,18 @@ export class DatabaseService {
     context?: MessageContext
   ): Promise<void> {
     try {
+      debug(`Adding message to conversation ${conversationId}`);
+      
+      // First verify the conversation exists
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id: conversationId }
+      });
+
+      if (!conversation) {
+        debug(`Conversation ${conversationId} not found when trying to add message`);
+        throw new DatabaseError(`Conversation ${conversationId} not found`);
+      }
+
       const messageContent = typeof content === 'string' 
         ? content 
         : content.data?.content?.map((c: { text: string }) => c.text).filter(Boolean).join('\n') || JSON.stringify(content.data);
@@ -198,7 +317,9 @@ export class DatabaseService {
           });
         }
       });
+      debug(`Successfully added ${role} message to conversation ${conversationId}`);
     } catch (error) {
+      debug(`Error adding message to conversation ${conversationId}: ${error instanceof Error ? error.message : String(error)}`);
       throw MCPError.fromDatabaseError(error instanceof Error ? error : new Error(String(error)));
     }
   }

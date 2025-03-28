@@ -53,8 +53,15 @@ export class BaseToolManager implements IToolManager {
     }
 
     private shouldRefreshCache(): boolean {
-        return this.toolsCache.size === 0 || 
-               Date.now() - this.lastCacheRefresh > this.CACHE_TTL;
+        // Only refresh if cache is empty or TTL has expired
+        const shouldRefresh = this.toolsCache.size === 0 || 
+                             Date.now() - this.lastCacheRefresh > this.CACHE_TTL;
+        
+        // If we're refreshing, update the timestamp to prevent multiple refreshes
+        if (shouldRefresh) {
+            this.lastCacheRefresh = Date.now();
+        }
+        return shouldRefresh;
     }
 
     public async executeTool(name: string, args: any): Promise<ToolResponse> {
@@ -113,75 +120,60 @@ export class BaseToolManager implements IToolManager {
         }
     }
 
-    public async refreshToolInformation(): Promise<void> {
-        debug('\n=== Tool Information Refresh ===');
-        this.toolsCache.clear();
-        
-        let totalTools = 0;
-        const serverSummary: Record<string, { available: number; unavailable: number; tools: string[] }> = {};
-        
+    public async refreshToolInformation(force: boolean = false): Promise<void> {
+        // Skip if not forced and cache is still valid
+        if (!force && !this.shouldRefreshCache()) {
+            return;
+        }
+
+        const toolSummary: Record<string, { available: number; unavailable: number }> = {};
+
         for (const [serverId, client] of this.clientsMap.entries()) {
-            debug(`\nChecking server: ${serverId}`);
             try {
+                // Initialize the client first
+                await client.initialize();
+
+                // Now try to list tools
                 const tools = await client.listTools();
                 
-                // Get server config
-                const serverConfig = this.serverConfigs.get(serverId);
-                if (!serverConfig) {
-                    debug(`  ✗ No config found for ${serverId}, skipping`);
-                    serverSummary[serverId] = { available: 0, unavailable: 0, tools: [] };
-                    continue;
-                }
-                
-                // Update totals
-                totalTools += tools.length;
-                serverSummary[serverId] = {
-                    available: tools.length,
-                    unavailable: 0,
-                    tools: tools.map(t => t.name)
-                };
-                debug(`  ✓ Server available with ${tools.length} tools`);
-                
-                // Cache tools with server information
+                // Update tool cache for this server
                 tools.forEach((tool: ToolDefinition) => {
-                    // Store tool in cache with server info
-                    const toolWithServer: ToolDefinition = {
+                    this.toolsCache.set(tool.name, {
                         ...tool,
-                        server: serverConfig,
+                        server: this.serverConfigs.get(serverId),
                         enabled: true,
                         metadata: tool.metadata || {}
-                    };
-                    this.toolsCache.set(tool.name, toolWithServer);
+                    });
                 });
-            } catch (error) {
-                debug(`  ✗ Server ${serverId} unavailable: ${error instanceof Error ? error.message : String(error)}`);
-                serverSummary[serverId] = { available: 0, unavailable: 1, tools: [] };
                 
-                // Remove any cached tools from this server since it's unavailable
+                // Update summary
+                toolSummary[serverId] = {
+                    available: tools.length,
+                    unavailable: 0
+                };
+
+                console.log(`[${serverId}] Successfully loaded ${tools.length} tools`);
+            } catch (error) {
+                console.error(`[${serverId}] Failed to refresh tools:`, error);
+                
+                // Clear tool cache for this server
                 for (const [toolName, tool] of this.toolsCache.entries()) {
                     if (tool.server?.id === serverId) {
                         this.toolsCache.delete(toolName);
                     }
                 }
+                
+                // Update summary
+                toolSummary[serverId] = {
+                    available: 0,
+                    unavailable: 1
+                };
             }
         }
 
-        this.lastCacheRefresh = Date.now();
-
-        // Print summary
-        debug('\n=== Tool Availability Summary ===');
-        debug(`Total available tools: ${totalTools}`);
-        debug('\nServer status:');
-        Object.entries(serverSummary).forEach(([serverId, status]) => {
-            const statusSymbol = status.available > 0 ? '✓' : '✗';
-            debug(`\n${statusSymbol} ${serverId}:`);
-            if (status.available > 0) {
-                debug(`  Available tools (${status.available}):`);
-                status.tools.forEach(tool => debug(`    - ${tool}`));
-            } else {
-                debug('  No tools available');
-            }
-        });
-        debug('\n=== End Tool Information ===\n');
+        // Log summary
+        for (const [serverId, summary] of Object.entries(toolSummary)) {
+            console.log(`[${serverId}] Tool summary - Available: ${summary.available}, Unavailable: ${summary.unavailable}`);
+        }
     }
 } 

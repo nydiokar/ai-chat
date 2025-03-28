@@ -4,21 +4,24 @@ import { BaseAIService } from './base-service.js';
 import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
-import { debug, defaultConfig } from '../../utils/config.js';
-import { redactSensitiveInfo } from '../../utils/security.js';
+import { debug, defaultConfig, modelConfig } from '../../utils/config.js';
 import { 
     ChatCompletionMessageParam,
     ChatCompletionTool,
     ChatCompletion,
     ChatCompletionToolMessageParam,
-    ChatCompletionCreateParams
+    ChatCompletionCreateParams,
+    ChatCompletionMessageToolCall
 } from 'openai/resources/chat/completions.js';
 import { ToolDefinition, ToolResponse } from '../../tools/mcp/types/tools.js';
+import { CacheService, CacheType } from '../cache/cache-service.js';
+import { info, error as logError, warn } from '../../utils/logger.js';
 
 export class OpenAIService extends BaseAIService {
     private readonly openai: OpenAI;
     private readonly model: string;
     private readonly temperature: number;
+    private readonly messageCache: CacheService;
 
     constructor(container: MCPContainer) {
         super(container);
@@ -27,12 +30,49 @@ export class OpenAIService extends BaseAIService {
             throw new MCPError('OpenAI API key not found', ErrorType.API_ERROR);
         }
         
+        // Configure OpenAI logging based on our config
+        const logLevel = defaultConfig.logging.showRequests ? 'info' : 'warn';
+        process.env.OPENAI_DEBUG = defaultConfig.logging.showRequests ? 'true' : undefined;
+        process.env.OPENAI_LOG_LEVEL = logLevel;
+        
+        // Validate model
+        const env = process.env.NODE_ENV || 'development';
+        const envConfig = modelConfig[env as keyof typeof modelConfig];
+        const configuredModel = process.env.OPENAI_MODEL || defaultConfig.openai.model;
+
+        // Check if the model is in the available options
+        const isValidModel = envConfig.options.some(model => model === configuredModel);
+        if (!isValidModel) {
+            throw new MCPError(
+                `Unsupported model: ${configuredModel}. Available models for ${env}: ${envConfig.options.join(', ')}`,
+                ErrorType.INVALID_MODEL
+            );
+        }
+        
         this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY
+            apiKey: process.env.OPENAI_API_KEY,
+            maxRetries: defaultConfig.openai.maxRetries || 3
         });
         
-        this.model = defaultConfig.openai.model;
+        this.model = configuredModel;
         this.temperature = defaultConfig.openai.temperature;
+
+        // Initialize cache in the appropriate environment directory
+        const cacheFile = `logs/${env}/openai-messages.json`;
+        
+        this.messageCache = CacheService.getInstance({
+            type: CacheType.PERSISTENT,
+            namespace: 'openai-messages',
+            ttl: defaultConfig.discord.sessionTimeout * 60 * 60 * 1000,
+            filename: cacheFile,
+            writeDelay: 100
+        });
+
+        info({
+            component: 'OpenAI',
+            message: 'Service initialized',
+            model: this.model
+        });
     }
 
     async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
@@ -40,11 +80,19 @@ export class OpenAIService extends BaseAIService {
             // Check rate limit
             aiRateLimiter.checkLimit('gpt');
             
-            // Get system prompt (which internally gets relevant tools)
-            const systemPrompt = await this.getSystemPrompt();
-            
-            // Get the tools that were used in the system prompt
-            const relevantTools = await this.promptGenerator.getTools(message);
+            // Try to get from cache first
+            const cacheKey = `${message}_${conversationHistory?.length || 0}_${this.systemPrompt}`;
+            const cachedResponse = await this.messageCache.get(cacheKey);
+            if (cachedResponse) {
+                debug('Using cached response');
+                return cachedResponse as AIResponse;
+            }
+
+            // Get system prompt and relevant tools
+            const [systemPrompt, relevantTools] = await Promise.all([
+                this.getSystemPrompt(),
+                this.promptGenerator.getTools(message)
+            ]);
             
             // Prepare messages
             const messages = this.prepareMessages(systemPrompt, message, conversationHistory);
@@ -60,7 +108,7 @@ export class OpenAIService extends BaseAIService {
             if (!choice.message.tool_calls) {
                 return {
                     content: choice.message.content || '',
-                    tokenCount: completion.usage?.total_tokens || null,
+                    tokenCount: totalTokens,
                     toolResults: []
                 };
             }
@@ -68,7 +116,7 @@ export class OpenAIService extends BaseAIService {
             // Add the assistant's message with tool calls
             currentMessages.push(choice.message);
 
-            // Handle tool calls
+            // Process tool calls
             const toolResults = await Promise.all(
                 choice.message.tool_calls.map(async toolCall => {
                     try {
@@ -122,14 +170,22 @@ export class OpenAIService extends BaseAIService {
             const finalCompletion = await this.createCompletion(currentMessages, relevantTools);
             totalTokens += finalCompletion.usage?.total_tokens || 0;
 
-            return {
+            const response: AIResponse = {
                 content: finalCompletion.choices[0].message.content || '',
                 tokenCount: totalTokens,
                 toolResults
             };
 
+            await this.messageCache.set(cacheKey, response);
+            return response;
+
         } catch (error) {
             debug(`OpenAI error: ${error instanceof Error ? error.message : String(error)}`);
+            if (error instanceof Error && error.message.includes('model')) {
+                throw new MCPError('Invalid model configuration', ErrorType.INVALID_MODEL, { 
+                    cause: error
+                });
+            }
             throw new MCPError('Failed to generate response', ErrorType.API_ERROR, { 
                 cause: error instanceof Error ? error : new Error(String(error))
             });
@@ -146,31 +202,40 @@ export class OpenAIService extends BaseAIService {
         ];
 
         if (history) {
-            // Take last N messages that fit within token limit
             const historyLimit = defaultConfig.messageHandling.maxContextMessages;
             const recentHistory = history.slice(-historyLimit);
             
-            messages.push(...recentHistory.map(msg => {
-                if (msg.role === 'tool' && msg.tool_call_id) {
-                    return {
-                        role: 'tool' as const,
-                        content: msg.content,
-                        tool_call_id: msg.tool_call_id
-                    } as ChatCompletionToolMessageParam;
-                }
-                return {
-                    role: msg.role,
-                    content: msg.content
-                } as ChatCompletionMessageParam;
-            }));
+            messages.push(...recentHistory.map(msg => 
+                this.convertToCompletionMessage(msg)
+            ));
         }
 
         messages.push({ role: 'user', content: message });
         return messages;
     }
 
-    private sanitizeToolName(name: string): string {
-        return name.replace(/[-\s]/g, '_').toLowerCase();
+    private convertToCompletionMessage(msg: AIMessage): ChatCompletionMessageParam {
+        if (msg.role === 'tool' && msg.tool_call_id) {
+            return {
+                role: 'tool',
+                content: msg.content,
+                tool_call_id: msg.tool_call_id
+            } as ChatCompletionToolMessageParam;
+        }
+        return {
+            role: msg.role,
+            content: msg.content,
+            name: msg.name
+        } as ChatCompletionMessageParam;
+    }
+
+    private parseToolArguments(args: string | undefined): Record<string, unknown> {
+        try {
+            return JSON.parse(args || '{}');
+        } catch (error) {
+            debug(`Failed to parse tool arguments: ${error}`);
+            return {};
+        }
     }
 
     private async createCompletion(
@@ -206,10 +271,14 @@ export class OpenAIService extends BaseAIService {
         
         // Log token usage (keep this since it's important for cost tracking)
         if (completion.usage) {
-            console.log(`Token usage - Total: ${completion.usage.total_tokens} (Prompt: ${completion.usage.prompt_tokens}, Completion: ${completion.usage.completion_tokens})`);
+            debug(`Token usage - Total: ${completion.usage.total_tokens} (Prompt: ${completion.usage.prompt_tokens}, Completion: ${completion.usage.completion_tokens})`);
         }
         
         return completion;
+    }
+
+    private sanitizeToolName(name: string): string {
+        return name.replace(/[-\s]/g, '_').toLowerCase();
     }
 
     getModel(): string {

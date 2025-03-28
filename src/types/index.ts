@@ -1,4 +1,3 @@
-
 export enum Role {
   user = 'user',
   assistant = 'assistant',
@@ -66,7 +65,7 @@ export interface BaseConfig {
 }
 
 export interface MessageContext {
-  userId: string;
+  userId?: string;
   username?: string;
   guildId?: string;
   channelId?: string;

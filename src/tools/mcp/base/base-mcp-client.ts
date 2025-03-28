@@ -4,7 +4,6 @@ import { ServerConfig } from '../types/server.js';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCPError } from '../types/errors.js';
-import { z } from 'zod';
 import { injectable, inject } from 'inversify';
 import { 
     CallToolResultSchema,
@@ -17,6 +16,7 @@ import {
     ResourceCreateParams, 
     ResourceUpdateParams 
 } from '../types/resources.js';
+import { Writable } from 'stream';
 
 @injectable()
 export class BaseMCPClient implements IMCPClient {
@@ -27,11 +27,13 @@ export class BaseMCPClient implements IMCPClient {
 
     constructor(config: ServerConfig, serverId: string) {
         this.serverId = serverId;
+        
+        // Use default stdio configuration
         this.transport = new StdioClientTransport({
             command: config.command,
             args: config.args,
             env: config.env,
-            stderr: 'inherit'
+            stderr: 'inherit'  // Use default 'inherit' which is known to work
         });
 
         this.client = new Client({
@@ -61,6 +63,11 @@ export class BaseMCPClient implements IMCPClient {
 
     public async listTools(): Promise<ToolDefinition[]> {
         try {
+            if (!this.isConnected) {
+                console.warn(`[${this.serverId}] Client not connected, attempting to connect...`);
+                await this.connect();
+            }
+
             // Get raw response
             const response = await this.client.request({
                 method: 'tools/list',
@@ -96,6 +103,11 @@ export class BaseMCPClient implements IMCPClient {
 
     public async callTool(name: string, args: any): Promise<ToolResponse> {
         try {
+            if (!this.isConnected) {
+                console.warn(`[${this.serverId}] Client not connected, attempting to connect...`);
+                await this.connect();
+            }
+
             // Use the SDK's CallToolResultSchema directly for validation
             const result = await this.client.request({
                 method: 'tools/call',
