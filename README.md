@@ -1,4 +1,4 @@
-# Kanebra - AI-Enhanced Task and Token Management System
+# Kanebra - Discord bot with MCP capabilities
 
 A comprehensive system that combines AI capabilities, cryptocurrency token tracking, and advanced task management. Built with a modular architecture using the Model Context Protocol (MCP) for extensible tool integration.
 
@@ -169,4 +169,3 @@ For detailed documentation, please refer to the `/docs` directory:
 
 ## License
 
-[Add your license here]
