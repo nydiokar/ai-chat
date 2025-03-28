@@ -1,6 +1,6 @@
 import { TaskManager } from './task-manager.js';
 import { TaskFilters, TaskStatus, TaskPriority, TaskListResult } from '../types/task.js';
-import { debug } from '../utils/config.js';
+import { debug } from '../utils/logger.js';
 
 export class TaskQueryService {
   private static instance: TaskQueryService;

@@ -35,7 +35,6 @@ export class AIServiceFactory {
             // Get available tools after refresh - even if some servers failed, 
             // we should still get tools from working ones
             const tools = await this.toolManager.getAvailableTools();
-            console.log('[AIServiceFactory] Initialized with tools:', tools.map(t => t.name));
             
             // Listen for tool refresh events from the ToolManager directly
             // This avoids redundant refresh since the ToolManager already listens to the server manager

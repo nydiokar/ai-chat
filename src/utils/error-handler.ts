@@ -1,11 +1,30 @@
 import { MCPError } from '../types/errors.js';
+import { error as logError } from './logger.js';
+import { createErrorContext } from './log-utils.js';
 
-export function handleError(error: unknown): never {
-    if (error instanceof MCPError) {
-        // Log the error with its type
-        console.error(`[${error.type}] ${error.message}`);
+const COMPONENT = 'ErrorHandler';
+
+export function handleError(err: unknown): never {
+    if (err instanceof MCPError) {
+        // Log MCP-specific errors with their type and context
+        logError('MCP operation failed', createErrorContext(
+            COMPONENT,
+            'handleError',
+            'MCP',
+            err.type,
+            err
+        ));
     } else {
-        console.error('Unexpected error:', error);
+        // Log unexpected errors
+        logError('Unexpected error occurred', createErrorContext(
+            COMPONENT,
+            'handleError',
+            'System',
+            'UNKNOWN',
+            err instanceof Error ? err : new Error(String(err))
+        ));
     }
-    throw error;
+    
+    // Re-throw the error after logging
+    throw err;
 } 

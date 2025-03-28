@@ -5,6 +5,18 @@ import { ServerConfig } from '../types/server.js';
 import { CacheStatus, HealthStatus } from '../types/status.js';
 import { IMCPClient } from '../interfaces/core.js';
 import { ClientMetrics } from '../types/metrics.js';
+import { info, warn, error, debug } from '../../../utils/logger.js';
+import { createLogContext, createErrorContext } from '../../../utils/log-utils.js';
+import { MCPError, ErrorType } from '../types/errors.js';
+import { z } from 'zod';
+
+const COMPONENT = 'EnhancedMCPClient';
+
+// Define health status values if not already defined in types
+const HEALTH_STATUS = {
+    HEALTHY: 'HEALTHY',
+    UNHEALTHY: 'UNHEALTHY'
+} as const;
 
 // Global registry to track which servers have polling set up
 // This ensures we don't set up multiple intervals for the same server
@@ -21,10 +33,12 @@ export class EnhancedMCPClient extends BaseMCPClient {
     private maxReconnectAttempts: number = 5;
     private reconnectDelay: number = 1000; // Start with 1 second
     private reconnectTimer?: NodeJS.Timeout;
-    private isReconnecting: boolean = false;
     private metrics: ClientMetrics;
     private toolsPollingInterval?: NodeJS.Timeout;
     private readonly TOOLS_REFRESH_INTERVAL = 30000; // 30 seconds
+    private shouldReconnect: boolean = true;
+    private baseReconnectDelay: number = 1000;
+    private maxReconnectDelay: number = 60000; // 1 minute
 
     constructor(config: ServerConfig, serverId: string) {
         super(config, serverId);
@@ -46,12 +60,32 @@ export class EnhancedMCPClient extends BaseMCPClient {
             successRate: 1.0,
             serverId: this.serverId
         };
+
+        info('Enhanced MCP Client initialized', createLogContext(
+            COMPONENT,
+            'constructor',
+            {
+                serverId: this.serverId,
+                healthCheckInterval: this.HEALTH_CHECK_INTERVAL,
+                toolsRefreshInterval: this.TOOLS_REFRESH_INTERVAL,
+                maxReconnectAttempts: this.maxReconnectAttempts
+            }
+        ));
     }
 
     private setupHealthMonitoring(): void {
         setInterval(() => {
             this.checkHealth();
         }, this.HEALTH_CHECK_INTERVAL);
+
+        debug('Health monitoring setup', createLogContext(
+            COMPONENT,
+            'setupHealthMonitoring',
+            {
+                serverId: this.serverId,
+                intervalMs: this.HEALTH_CHECK_INTERVAL
+            }
+        ));
     }
     
     /**
@@ -62,19 +96,34 @@ export class EnhancedMCPClient extends BaseMCPClient {
         try {
             // We need to access the raw client from the MCP SDK
             if (!this.client) {
-                console.log(`[${this.serverId}] No client available for polling setup`);
+                warn('No client available for polling setup', createLogContext(
+                    COMPONENT,
+                    'setupNotificationHandlers',
+                    { serverId: this.serverId }
+                ));
                 return;
             }
 
             // Check if this server is already being polled using the global registry
             if (pollingServers.has(this.serverId)) {
-                console.log(`[${this.serverId}] Tool polling already set up, skipping duplicate setup`);
+                debug('Tool polling already set up', createLogContext(
+                    COMPONENT,
+                    'setupNotificationHandlers',
+                    { serverId: this.serverId }
+                ));
                 return;
             }
 
             // Set up tools polling on a regular interval
             const TOOLS_POLL_INTERVAL = 30000; // 30 seconds
-            console.log(`[${this.serverId}] Setting up tools polling every ${TOOLS_POLL_INTERVAL/1000} seconds`);
+            info('Setting up tools polling', createLogContext(
+                COMPONENT,
+                'setupNotificationHandlers',
+                {
+                    serverId: this.serverId,
+                    intervalMs: TOOLS_POLL_INTERVAL
+                }
+            ));
             
             // Mark this server as having polling set up
             pollingServers.add(this.serverId);
@@ -82,14 +131,32 @@ export class EnhancedMCPClient extends BaseMCPClient {
             setInterval(async () => {
                 try {
                     await this.refreshTools();
-                } catch (error) {
-                    console.warn(`[${this.serverId}] Error polling for tool changes:`, error);
+                } catch (err) {
+                    error('Error polling for tool changes', createErrorContext(
+                        COMPONENT,
+                        'setupNotificationHandlers',
+                        'System',
+                        'POLLING_ERROR',
+                        err,
+                        { serverId: this.serverId }
+                    ));
                 }
             }, TOOLS_POLL_INTERVAL);
 
-            console.log(`[${this.serverId}] Tool polling setup complete`);
-        } catch (error) {
-            console.warn(`[${this.serverId}] Could not set up polling:`, error);
+            info('Tool polling setup complete', createLogContext(
+                COMPONENT,
+                'setupNotificationHandlers',
+                { serverId: this.serverId }
+            ));
+        } catch (err) {
+            error('Could not set up polling', createErrorContext(
+                COMPONENT,
+                'setupNotificationHandlers',
+                'System',
+                'SETUP_ERROR',
+                err,
+                { serverId: this.serverId }
+            ));
         }
     }
 
@@ -108,7 +175,15 @@ export class EnhancedMCPClient extends BaseMCPClient {
             if (cachedTools) {
                 // Simple check - compare number of tools
                 if (cachedTools.length !== latestTools.length) {
-                    console.log(`[${this.serverId}] Tool count changed from ${cachedTools.length} to ${latestTools.length}`);
+                    info('Tool count changed', createLogContext(
+                        COMPONENT,
+                        'refreshTools',
+                        {
+                            serverId: this.serverId,
+                            previousCount: cachedTools.length,
+                            currentCount: latestTools.length
+                        }
+                    ));
                     this.eventEmitter.emit('tools.changed', { serverId: this.serverId });
                 } else {
                     // Check for tool name changes
@@ -116,7 +191,14 @@ export class EnhancedMCPClient extends BaseMCPClient {
                     const hasNewTools = latestTools.some(t => !cachedNames.has(t.name));
                     
                     if (hasNewTools) {
-                        console.log(`[${this.serverId}] Tool names changed`);
+                        info('Tool names changed', createLogContext(
+                            COMPONENT,
+                            'refreshTools',
+                            {
+                                serverId: this.serverId,
+                                toolCount: latestTools.length
+                            }
+                        ));
                         this.eventEmitter.emit('tools.changed', { serverId: this.serverId });
                     }
                 }
@@ -124,18 +206,126 @@ export class EnhancedMCPClient extends BaseMCPClient {
             
             // Update the cache with latest tools
             this.setCachedValue(cacheKey, latestTools);
-        } catch (error) {
-            console.warn(`[${this.serverId}] Error refreshing tools:`, error);
+        } catch (err) {
+            error('Error refreshing tools', createErrorContext(
+                COMPONENT,
+                'refreshTools',
+                'System',
+                'REFRESH_ERROR',
+                err,
+                { serverId: this.serverId }
+            ));
         }
     }
 
     private async checkHealth(): Promise<void> {
+        const now = new Date();
+        const timeSinceLastCheck = now.getTime() - this.lastHealthCheck.getTime();
+
         try {
-            await super.connect();
-            this.lastHealthCheck = new Date();
-            this.healthMonitor.emit('health.ok');
-        } catch (error) {
-            this.healthMonitor.emit('health.error', error);
+            await this.listTools();
+            this.lastHealthCheck = now;
+            
+            const wasReconnecting = this.reconnectAttempts > 0;
+            if (wasReconnecting) {
+                this.reconnectAttempts = 0;
+                this.reconnectDelay = this.baseReconnectDelay;
+            }
+
+            info('Health status', createLogContext(
+                COMPONENT,
+                'checkHealth',
+                {
+                    serverId: this.serverId,
+                    status: HEALTH_STATUS.HEALTHY,
+                    timeSinceLastCheck,
+                    connectionRestored: wasReconnecting,
+                    previousAttempts: wasReconnecting ? this.reconnectAttempts : undefined
+                }
+            ));
+
+            this.healthMonitor.emit('health.status', { 
+                status: HEALTH_STATUS.HEALTHY,
+                serverId: this.serverId,
+                timestamp: now
+            });
+        } catch (err) {
+            error('Health status', createErrorContext(
+                COMPONENT,
+                'checkHealth',
+                'System',
+                'HEALTH_CHECK_ERROR',
+                err,
+                {
+                    serverId: this.serverId,
+                    status: HEALTH_STATUS.UNHEALTHY,
+                    timeSinceLastCheck,
+                    reconnectAttempts: this.reconnectAttempts,
+                    maxReconnectAttempts: this.maxReconnectAttempts
+                }
+            ));
+
+            this.healthMonitor.emit('health.status', {
+                status: HEALTH_STATUS.UNHEALTHY,
+                serverId: this.serverId,
+                timestamp: now,
+                error: err
+            });
+
+            await this.handleReconnect();
+        }
+    }
+
+    private async handleReconnect(): Promise<void> {
+        if (!this.shouldReconnect) return;
+
+        this.reconnectAttempts++;
+        
+        try {
+            await new Promise(resolve => setTimeout(resolve, this.reconnectDelay));
+            await this.connect();
+            
+            info('Reconnection status', createLogContext(
+                COMPONENT,
+                'handleReconnect',
+                {
+                    serverId: this.serverId,
+                    status: 'success',
+                    attempt: this.reconnectAttempts
+                }
+            ));
+            
+            this.reconnectAttempts = 0;
+            this.reconnectDelay = this.baseReconnectDelay;
+        } catch (err) {
+            const isMaxAttempts = this.reconnectAttempts >= this.maxReconnectAttempts;
+            
+            error('Reconnection status', createErrorContext(
+                COMPONENT,
+                'handleReconnect',
+                'MCP',
+                isMaxAttempts ? 'MAX_RECONNECT_ATTEMPTS' : 'RECONNECT_ERROR',
+                err,
+                {
+                    serverId: this.serverId,
+                    attempt: this.reconnectAttempts,
+                    maxAttempts: this.maxReconnectAttempts,
+                    backoffDelay: Math.round(this.reconnectDelay/1000),
+                    final: isMaxAttempts
+                }
+            ));
+
+            if (isMaxAttempts) {
+                this.shouldReconnect = false;
+                return;
+            }
+
+            this.reconnectDelay = Math.min(
+                this.reconnectDelay * 2,
+                this.maxReconnectDelay
+            );
+            
+            await this.handleReconnect();
         }
     }
 
@@ -219,7 +409,10 @@ export class EnhancedMCPClient extends BaseMCPClient {
      * Get current metrics for this client
      */
     getMetrics(): ClientMetrics {
-        return { ...this.metrics };
+        return {
+            ...this.metrics,
+            lastUpdateTime: new Date()
+        };
     }
 
     public getCacheStatus(): CacheStatus {
@@ -253,20 +446,43 @@ export class EnhancedMCPClient extends BaseMCPClient {
         return this;
     }
 
-    private getCachedValue<T>(key: string): T | null {
+    public getCachedValue<T>(key: string): T | null {
         const cached = this.cache.get(key);
-        if (!cached) return null;
-
-        const { value, timestamp } = cached;
-        if (Date.now() - timestamp > this.CACHE_TTL) {
-            this.cache.delete(key);
+        const now = Date.now();
+        
+        if (!cached) {
+            debug('Cache operation', createLogContext(
+                COMPONENT,
+                'getCachedValue',
+                {
+                    serverId: this.serverId,
+                    key,
+                    result: 'miss'
+                }
+            ));
             return null;
         }
 
-        return value as T;
+        if (now - cached.timestamp > this.CACHE_TTL) {
+            this.cache.delete(key);
+            debug('Cache operation', createLogContext(
+                COMPONENT,
+                'getCachedValue',
+                {
+                    serverId: this.serverId,
+                    key,
+                    result: 'expired',
+                    age: now - cached.timestamp,
+                    ttl: this.CACHE_TTL
+                }
+            ));
+            return null;
+        }
+
+        return cached.value;
     }
 
-    private setCachedValue<T>(key: string, value: T): void {
+    public setCachedValue<T>(key: string, value: T): void {
         this.cache.set(key, {
             value,
             timestamp: Date.now()
@@ -280,32 +496,29 @@ export class EnhancedMCPClient extends BaseMCPClient {
      */
     public async connect(): Promise<void> {
         try {
-            console.log(`[${this.serverId}] Connecting enhanced client...`);
-            
-            // Reset reconnection state
-            this.isReconnecting = false;
-            
-            // Call the base connect method to establish connection
+            info('Connecting to MCP server', createLogContext(
+                COMPONENT,
+                'connect',
+                { serverId: this.serverId }
+            ));
+
             await super.connect();
             
-            // Reset reconnection counters on successful connection
-            this.reconnectAttempts = 0;
-            this.reconnectDelay = 1000;
-            
-            // Emit connection established event
-            this.emit('connection.established', { serverId: this.serverId });
-            
-            // Once connected, set up notification handlers
-            this.setupNotificationHandlers();
-            
-            // Check if notifications are supported
-            await this.checkNotificationSupport();
-            
-            console.log(`[${this.serverId}] Enhanced client connected successfully`);
-        } catch (error) {
-            console.error(`[${this.serverId}] Enhanced client connect error:`, error);
-            this.handleConnectionError(error);
-            throw error;
+            info('Connected successfully', createLogContext(
+                COMPONENT,
+                'connect',
+                { serverId: this.serverId }
+            ));
+        } catch (err) {
+            error('Connection failed', createErrorContext(
+                COMPONENT,
+                'connect',
+                'System',
+                'CONNECTION_ERROR',
+                err,
+                { serverId: this.serverId }
+            ));
+            throw err;
         }
     }
 
@@ -317,21 +530,29 @@ export class EnhancedMCPClient extends BaseMCPClient {
         try {
             if (!this.client) return;
             
-            // Get server capabilities if available
-            const capabilities = (this.client as any).getServerCapabilities?.();
+            // Use the standard client interface to check capabilities
+            const hasTools = await this.listTools().then(() => true).catch(() => false);
+            const hasResources = await this.listResources().then(() => true).catch(() => false);
             
-            if (capabilities) {
-                console.log(`[${this.serverId}] Server capabilities:`, capabilities);
-                
-                // Log any tools capability 
-                if (capabilities.tools) {
-                    console.log(`[${this.serverId}] Server supports tools capability`);
+            debug('Server capabilities checked', createLogContext(
+                COMPONENT,
+                'checkNotificationSupport',
+                {
+                    serverId: this.serverId,
+                    hasTools,
+                    hasResources,
+                    status: 'completed'
                 }
-            } else {
-                console.log(`[${this.serverId}] Server capabilities not available`);
-            }
-        } catch (error) {
-            console.warn(`[${this.serverId}] Error checking capabilities:`, error);
+            ));
+        } catch (err) {
+            error('Failed to check notification support', createErrorContext(
+                COMPONENT,
+                'checkNotificationSupport',
+                'System',
+                'CAPABILITIES_ERROR',
+                err,
+                { serverId: this.serverId }
+            ));
         }
     }
 
@@ -339,71 +560,105 @@ export class EnhancedMCPClient extends BaseMCPClient {
      * Clean up resources when disconnecting
      */
     public async disconnect(): Promise<void> {
-        // Clear any pending reconnect attempts
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = undefined;
+        try {
+            info('Disconnecting from MCP server', createLogContext(
+                COMPONENT,
+                'disconnect',
+                { serverId: this.serverId }
+            ));
+
+            // Clear any pending reconnect timers
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = undefined;
+            }
+
+            // Clear polling interval
+            if (this.toolsPollingInterval) {
+                clearInterval(this.toolsPollingInterval);
+                this.toolsPollingInterval = undefined;
+            }
+
+            // Remove from polling registry
+            pollingServers.delete(this.serverId);
+
+            await super.disconnect();
+            
+            info('Disconnected successfully', createLogContext(
+                COMPONENT,
+                'disconnect',
+                { serverId: this.serverId }
+            ));
+        } catch (err) {
+            error('Disconnect failed', createErrorContext(
+                COMPONENT,
+                'disconnect',
+                'System',
+                'DISCONNECT_ERROR',
+                err,
+                { serverId: this.serverId }
+            ));
+            throw err;
         }
-        
-        // Stop reconnection attempts
-        this.isReconnecting = false;
-        
-        // Remove from polling registry when disconnecting
-        pollingServers.delete(this.serverId);
-        
-        return super.disconnect();
     }
 
     private handleConnectionError(error: any): void {
-        this.emit('connection.error', { 
-            serverId: this.serverId, 
-            error, 
-            timestamp: new Date() 
-        });
-        
-        // Don't attempt reconnect if we're intentionally disconnecting
-        if (this.isReconnecting === false) {
-            console.log(`Not attempting reconnect for ${this.serverId} as disconnection was intentional`);
-            return;
-        }
-        
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            
-            // Exponential backoff with jitter
-            const jitter = Math.random() * 0.3 + 0.85; // 0.85-1.15 multiplier
-            this.reconnectDelay = Math.min(
-                this.reconnectDelay * 2 * jitter,
-                60000 // Max 1 minute
-            );
-            
-            console.log(`Reconnecting to ${this.serverId} in ${Math.round(this.reconnectDelay/1000)}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-            
-            // Store the timer so we can cancel it if needed
-            this.reconnectTimer = setTimeout(() => {
-                this.emit('connection.reconnecting', { 
-                    serverId: this.serverId,
-                    attempt: this.reconnectAttempts,
-                    maxAttempts: this.maxReconnectAttempts
-                });
-                
-                this.isReconnecting = true;
-                this.connect().catch(e => {
-                    console.error(`Reconnection attempt failed for ${this.serverId}:`, e);
-                });
-            }, this.reconnectDelay);
-        } else {
-            this.isReconnecting = false;
-            this.emit('connection.failed', { 
+        error('Connection error occurred', createErrorContext(
+            COMPONENT,
+            'handleConnectionError',
+            'MCP',
+            'CONNECTION_ERROR',
+            error,
+            {
                 serverId: this.serverId,
-                attempts: this.reconnectAttempts,
-                error
+                attempt: this.reconnectAttempts,
+                maxAttempts: this.maxReconnectAttempts
+            }
+        ));
+
+        if (this.shouldReconnect) {
+            this.handleReconnect().catch(err => {
+                error('Reconnection handling failed', createErrorContext(
+                    COMPONENT,
+                    'handleConnectionError',
+                    'MCP',
+                    'RECONNECT_HANDLER_ERROR',
+                    err,
+                    {
+                        serverId: this.serverId,
+                        attempt: this.reconnectAttempts,
+                        maxAttempts: this.maxReconnectAttempts
+                    }
+                ));
             });
-            console.error(`Failed to connect to ${this.serverId} after ${this.reconnectAttempts} attempts`);
         }
     }
 
     protected emit(event: string, data: any): void {
         this.eventEmitter.emit(event, data);
+    }
+
+    public resetMetrics(): void {
+        info('Resetting metrics', createLogContext(
+            COMPONENT,
+            'resetMetrics',
+            {
+                serverId: this.serverId,
+                previousRequests: this.metrics.requests,
+                previousErrors: this.metrics.errors
+            }
+        ));
+
+        this.metrics = {
+            requests: 0,
+            errors: 0,
+            toolCalls: 0,
+            avgResponseTime: 0,
+            responseTimeData: [],
+            startTime: new Date(),
+            lastUpdateTime: new Date(),
+            successRate: 1.0,
+            serverId: this.serverId
+        };
     }
 } 

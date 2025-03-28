@@ -4,7 +4,7 @@ import { BaseAIService } from './base-service.js';
 import { MCPContainer } from '../../tools/mcp/di/container.js';
 import { MCPError, ErrorType } from '../../types/errors.js';
 import { aiRateLimiter } from './utils/rate-limiter.js';
-import { debug, defaultConfig, modelConfig } from '../../utils/config.js';
+import { defaultConfig, modelConfig } from '../../utils/config.js';
 import { 
     ChatCompletionMessageParam,
     ChatCompletionTool,
@@ -15,7 +15,10 @@ import {
 } from 'openai/resources/chat/completions.js';
 import { ToolDefinition, ToolResponse } from '../../tools/mcp/types/tools.js';
 import { CacheService, CacheType } from '../cache/cache-service.js';
-import { info, error as logError, warn } from '../../utils/logger.js';
+import { info, error as logError, warn, debug } from '../../utils/logger.js';
+import { createLogContext, createErrorContext, LogContext } from '../../utils/log-utils.js';
+
+const COMPONENT = 'OpenAIService';
 
 export class OpenAIService extends BaseAIService {
     private readonly openai: OpenAI;
@@ -68,11 +71,16 @@ export class OpenAIService extends BaseAIService {
             writeDelay: 100
         });
 
-        info({
-            component: 'OpenAI',
-            message: 'Service initialized',
-            model: this.model
-        });
+        info('Service initialized', createLogContext(
+            COMPONENT,
+            'constructor',
+            {
+                model: this.model,
+                environment: env,
+                maxRetries: defaultConfig.openai.maxRetries || 3,
+                temperature: this.temperature
+            }
+        ));
     }
 
     async generateResponse(message: string, conversationHistory?: AIMessage[]): Promise<AIResponse> {
@@ -84,7 +92,11 @@ export class OpenAIService extends BaseAIService {
             const cacheKey = `${message}_${conversationHistory?.length || 0}_${this.systemPrompt}`;
             const cachedResponse = await this.messageCache.get(cacheKey);
             if (cachedResponse) {
-                debug('Using cached response');
+                debug('Using cached response', createLogContext(
+                    COMPONENT,
+                    'generateResponse',
+                    { cached: true, messageLength: message.length }
+                ));
                 return cachedResponse as AIResponse;
             }
 
@@ -99,44 +111,68 @@ export class OpenAIService extends BaseAIService {
             let currentMessages = [...messages];
             let totalTokens = 0;
 
-            // Create initial completion
+            info('Starting OpenAI completion', createLogContext(
+                COMPONENT,
+                'generateResponse',
+                {
+                    messageLength: message.length,
+                    toolCount: relevantTools.length,
+                    historyLength: conversationHistory?.length || 0
+                }
+            ));
+
+            // Initial completion to get tool calls
             const completion = await this.createCompletion(currentMessages, relevantTools);
             totalTokens += completion.usage?.total_tokens || 0;
             const choice = completion.choices[0];
 
             // If no tool calls, return response directly
             if (!choice.message.tool_calls) {
-                return {
+                const response = {
                     content: choice.message.content || '',
                     tokenCount: totalTokens,
                     toolResults: []
                 };
+                await this.messageCache.set(cacheKey, response);
+                return response;
             }
 
-            // Add the assistant's message with tool calls
+            // Add assistant's message with tool calls
             currentMessages.push(choice.message);
 
-            // Process tool calls
+            // Execute tool calls and collect results
             const toolResults = await Promise.all(
                 choice.message.tool_calls.map(async toolCall => {
                     try {
-                        debug(`Executing tool ${toolCall.function.name} with args: ${toolCall.function.arguments}`);
-                        const args = JSON.parse(toolCall.function.arguments || '{}');
-                        const result = await this.toolManager.executeTool(
-                            toolCall.function.name,
-                            args
-                        );
-                        debug(`Tool ${toolCall.function.name} execution successful: ${JSON.stringify(result.data)}`);
+                        const toolName = toolCall.function.name;
+                        const args = this.parseToolArguments(toolCall.function.arguments);
+                        
+                        info('Executing tool', createLogContext(
+                            COMPONENT,
+                            'executeTool',
+                            {
+                                tool: toolName,
+                                args: JSON.stringify(args),
+                                toolCallId: toolCall.id
+                            }
+                        ));
 
-                        // Format the result based on its type
-                        let formattedResult: string;
-                        if (typeof result.data === 'string') {
-                            formattedResult = result.data;
-                        } else if (Array.isArray(result.data) && result.data.every(item => typeof item.text === 'string')) {
-                            formattedResult = result.data.map(item => item.text).join(' ');
-                        } else {
-                            formattedResult = JSON.stringify(result.data);
-                        }
+                        const result = await this.toolManager.executeTool(toolName, args);
+
+                        info('Tool execution completed', createLogContext(
+                            COMPONENT,
+                            'executeTool',
+                            {
+                                tool: toolName,
+                                success: true,
+                                resultSummary: typeof result.data === 'string' ? result.data.substring(0, 100) : 'object result'
+                            }
+                        ));
+
+                        // Format result for tool response
+                        const formattedResult = typeof result.data === 'string' 
+                            ? result.data 
+                            : JSON.stringify(result.data);
 
                         // Add tool response message
                         currentMessages.push({
@@ -145,30 +181,57 @@ export class OpenAIService extends BaseAIService {
                             tool_call_id: toolCall.id
                         } as ChatCompletionToolMessageParam);
 
-                        return result;
+                        return {
+                            success: true,
+                            data: result.data,
+                            metadata: {
+                                toolName: toolCall.function.name
+                            }
+                        } as ToolResponse;
                     } catch (error) {
-                        debug(`Tool execution error (${toolCall.function.name}): ${error}`);
-                        const errorResult = {
-                            success: false,
-                            data: null,
-                            error: error instanceof Error ? error.message : String(error)
-                        };
+                        const errorMessage = error instanceof Error ? error.message : String(error);
+                        
+                        logError('Tool execution failed', createErrorContext(
+                            COMPONENT,
+                            'executeTool',
+                            'System',
+                            'EXECUTION_ERROR',
+                            error,
+                            {
+                                tool: toolCall.function.name,
+                                args: toolCall.function.arguments
+                            }
+                        ));
 
-                        // Add error response message with better formatting
+                        // Add error response message
                         currentMessages.push({
                             role: 'tool',
-                            content: `Error executing ${toolCall.function.name}: ${errorResult.error}`,
+                            content: `Error: ${errorMessage}`,
                             tool_call_id: toolCall.id
                         } as ChatCompletionToolMessageParam);
 
-                        return errorResult;
+                        return {
+                            tool: toolCall.function.name,
+                            success: false,
+                            data: null,
+                            error: errorMessage
+                        } as ToolResponse;
                     }
                 })
             );
 
             // Get final response with tool results
-            const finalCompletion = await this.createCompletion(currentMessages, relevantTools);
+            const finalCompletion = await this.createCompletion(currentMessages, []);
             totalTokens += finalCompletion.usage?.total_tokens || 0;
+
+            info('OpenAI completion finished', createLogContext(
+                COMPONENT,
+                'generateResponse',
+                {
+                    totalTokens,
+                    toolResults: toolResults.map(r => ({ toolName: r.metadata?.toolName || 'unknown', success: r.success }))
+                }
+            ));
 
             const response: AIResponse = {
                 content: finalCompletion.choices[0].message.content || '',
@@ -180,12 +243,33 @@ export class OpenAIService extends BaseAIService {
             return response;
 
         } catch (error) {
-            debug(`OpenAI error: ${error instanceof Error ? error.message : String(error)}`);
             if (error instanceof Error && error.message.includes('model')) {
+                logError('Model configuration error', createErrorContext(
+                    COMPONENT,
+                    'generateResponse',
+                    'System',
+                    'INVALID_MODEL',
+                    error,
+                    { model: this.model }
+                ));
                 throw new MCPError('Invalid model configuration', ErrorType.INVALID_MODEL, { 
                     cause: error
                 });
             }
+            
+            logError('Failed to generate response', createErrorContext(
+                COMPONENT,
+                'generateResponse',
+                'System',
+                'API_ERROR',
+                error,
+                {
+                    model: this.model,
+                    messageLength: message.length,
+                    historyLength: conversationHistory?.length || 0
+                }
+            ));
+            
             throw new MCPError('Failed to generate response', ErrorType.API_ERROR, { 
                 cause: error instanceof Error ? error : new Error(String(error))
             });
@@ -243,22 +327,20 @@ export class OpenAIService extends BaseAIService {
         tools: ToolDefinition[]
     ): Promise<ChatCompletion> {
         debug(`Creating completion with ${tools.length} tools`);
+        
         // Format tools for OpenAI function calling
-        const formattedTools: ChatCompletionTool[] = tools.map(tool => {
-            debug(`Formatting tool: ${tool.name}`);
-            return {
-                type: 'function',
-                function: {
-                    name: this.sanitizeToolName(tool.name),
-                    description: tool.description,
-                    parameters: {
-                        type: 'object',
-                        properties: tool.inputSchema.properties,
-                        required: tool.inputSchema.required
-                    }
+        const formattedTools: ChatCompletionTool[] = tools.map(tool => ({
+            type: 'function',
+            function: {
+                name: this.sanitizeToolName(tool.name),
+                description: tool.description,
+                parameters: {
+                    type: 'object',
+                    properties: tool.inputSchema.properties,
+                    required: tool.inputSchema.required
                 }
-            };
-        });
+            }
+        }));
         
         // Create the completion with formatted tools
         const completion = await this.openai.chat.completions.create({
@@ -279,6 +361,34 @@ export class OpenAIService extends BaseAIService {
 
     private sanitizeToolName(name: string): string {
         return name.replace(/[-\s]/g, '_').toLowerCase();
+    }
+
+    private async determineToolArgs(message: string, tool: ToolDefinition): Promise<any | null> {
+        try {
+            const completion = await this.createCompletion(
+                [{
+                    role: 'system',
+                    content: `Extract arguments for the tool "${tool.name}" with schema: ${JSON.stringify(tool.inputSchema)}. Respond only with a valid JSON object containing the arguments.`
+                },
+                {
+                    role: 'user',
+                    content: message
+                }],
+                []
+            );
+
+            const argsString = completion.choices[0].message.content;
+            if (!argsString) return null;
+
+            try {
+                return JSON.parse(argsString);
+            } catch {
+                return null;
+            }
+        } catch (error) {
+            debug(`Failed to determine args for tool ${tool.name}`, { tool: tool.name } as Partial<LogContext>);
+            return null;
+        }
     }
 
     getModel(): string {

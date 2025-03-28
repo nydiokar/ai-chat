@@ -1,6 +1,6 @@
 import { TaskRepository } from '../tasks/task-repository.js';
 
-import { debug } from '../utils/config.js';
+import { debug } from '../utils/logger.js';
 import {
   CreateTaskDTO,
   UpdateTaskDTO,

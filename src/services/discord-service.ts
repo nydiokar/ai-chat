@@ -3,7 +3,8 @@ import { DatabaseService } from './db-service.js';
 import { AIModel, Message as DBMessage, Role } from '../types/index.js';
 import { AIService } from '../types/ai-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
-import { debug, defaultConfig } from '../utils/config.js';
+import { defaultConfig } from '../utils/config.js';
+import { debug } from '../utils/logger.js';
 import { IServerManager } from '../tools/mcp/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { mcpConfig } from '../mcp_config.js';
@@ -422,11 +423,11 @@ export class DiscordService {
 
             console.log('\n2. Setting up database connection...');
             await this.db.connect();
-            console.log('   ✓ Database connected');
+
 
             console.log('\n3. Initializing cache service...');
             await this.initializeCache();
-            console.log('   ✓ Cache service initialized');
+
 
             // Initialize MCP if enabled
             if (defaultConfig.discord.mcp.enabled) {
@@ -559,7 +560,6 @@ export class DiscordService {
                 console.log('\n8. Setting up slash commands...');
                 try {
                     await this.registerSlashCommands();
-                    console.log('  ✓ Slash commands setup complete');
                 } catch (error) {
                     console.error('  ✗ Failed to setup slash commands:', error);
                 }
@@ -594,7 +594,7 @@ export class DiscordService {
             debug('Started refreshing application (/) commands.');
 
             if (guildId) {
-                // Register commands for specific guild
+                // Register commands for specific guild only
                 debug(`Registering commands for guild ${guildId}`);
                 try {
                     await rest.put(
@@ -603,15 +603,11 @@ export class DiscordService {
                     );
                     debug(`Successfully registered commands for guild ${guildId}`);
                 } catch (error) {
-                    // If guild registration fails, try global registration
-                    debug('Guild registration failed, falling back to global registration');
-                    await rest.put(
-                        Routes.applicationCommands(this.client.user.id),
-                        { body: commands },
-                    );
+                    console.error('Failed to register guild commands:', error);
+                    throw error; // Let the error propagate to handle it properly
                 }
             } else {
-                // Register commands globally
+                // Register commands globally only if no guild ID is specified
                 debug('Registering commands globally');
                 await rest.put(
                     Routes.applicationCommands(this.client.user.id),
@@ -622,7 +618,7 @@ export class DiscordService {
             debug('Successfully reloaded application (/) commands.');
         } catch (error) {
             console.error('Error refreshing commands:', error);
-            throw error; // Re-throw to handle in the calling function
+            throw error;
         }
     }
 

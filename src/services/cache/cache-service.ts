@@ -1,7 +1,7 @@
 import { Keyv } from 'keyv';
 import { KeyvFile } from 'keyv-file';
 import { DatabaseService } from '../db-service.js';
-import { debug } from '../../utils/config.js';
+import { debug } from '../../utils/logger.js';
 import type { 
     CacheConfig, 
     KeyvInstance 

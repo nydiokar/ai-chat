@@ -1,5 +1,6 @@
 import winston from 'winston';
 import { format } from 'winston';
+import { LogContext } from './log-utils.js';
 const { combine, timestamp, printf, colorize } = format;
 
 // Color scheme for different log levels
@@ -72,8 +73,8 @@ const openAIFormat = format((info: winston.Logform.TransformableInfo): winston.L
 const initFormat = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
   const message = info.message as string;
   if (typeof message === 'string') {
-    // Skip detailed environment and config logs during initialization
-    if (message.includes('[MCP Config]') && !message.includes('initialization complete')) {
+    // Skip all MCP Config logs except critical warnings
+    if (message.includes('[MCP Config]')) {
       info.level = 'silent';
     }
     // Make initialization logs more concise
@@ -119,15 +120,33 @@ const prettyPrint = format((info: winston.Logform.TransformableInfo): winston.Lo
   return info;
 });
 
-// Create different formats for different environments
+// Add structured format support
+const structuredFormat = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
+  if (info.context) {
+    // Add context fields to the log entry
+    const { context, ...rest } = info;
+    return {
+      ...rest,
+      ...context,
+      // Ensure message and level aren't overwritten
+      message: info.message,
+      level: info.level
+    };
+  }
+  return info;
+});
+
+// Update development format to include structured logging
 const developmentFormat = combine(
-  timestamp({ format: 'HH:mm:ss' }), // Simplified timestamp
+  timestamp({ format: 'HH:mm:ss' }),
   initFormat(),
   openAIFormat(),
+  structuredFormat(),
   prettyPrint(),
   colorize({ all: true }),
   printf((info) => {
-    const { level, message, timestamp } = info;
+    const { level, message, timestamp, component, operation, duration, ...rest } = info;
+    
     // Skip silent messages
     if (level === 'silent') return '';
     
@@ -138,29 +157,34 @@ const developmentFormat = combine(
     
     const separator = '┃';
     const levelPad = level.padEnd(7);
-    const prefix = `${timestamp} ${separator} ${levelPad} ${separator}`;
+    let prefix = `${timestamp} ${separator} ${levelPad} ${separator}`;
     
-    // Add newlines for certain types of messages
-    if (typeof message === 'string' && (
-      message.includes('===') || 
-      message.startsWith('✓') ||
-      message.startsWith('🔌') ||
-      message.startsWith('🤖')
-    )) {
-      return `\n${prefix} ${message}\n`;
+    // Add component and operation if available
+    if (component) {
+      prefix += ` [${component}${operation ? `:${operation}` : ''}]`;
     }
     
-    return `${prefix} ${message}`;
+    // Add duration if available and is a number
+    const durationStr = typeof duration === 'number' ? ` (${duration.toFixed(2)}ms)` : '';
+    
+    // Format the message
+    let output = `${prefix} ${message}${durationStr}`;
+    
+    // Add any remaining context as JSON
+    const context = Object.keys(rest).length > 0 ? `\n  ${JSON.stringify(rest)}` : '';
+    
+    return output + context;
   })
 );
 
+// Update production format to include structured data
 const productionFormat = combine(
   timestamp(),
   openAIFormat(),
+  structuredFormat(),
   prettyPrint(),
   printf((info) => {
-    const { level, message, timestamp } = info;
-    return JSON.stringify({ timestamp, level, message });
+    return JSON.stringify(info);
   })
 );
 
@@ -190,15 +214,44 @@ const logger = winston.createLogger({
   ]
 });
 
-// Convenience methods with proper typing
-export const debug = (message: string | object) => logger.debug(message);
-export const info = (message: string | object) => logger.info(message);
-export const warn = (message: string | object) => logger.warn(message);
-export const error = (message: string | object, err?: Error) => {
-  if (err) {
-    logger.error({ message, error: { message: err.message } }); // Removed stack trace for conciseness
+// Enhanced logging methods with context support
+export const debug = (message: string | object, context?: Partial<LogContext>) => {
+  if (typeof message === 'object' && !context) {
+    logger.debug(message);
   } else {
+    logger.debug({ message, context });
+  }
+};
+
+export const info = (message: string | object, context?: Partial<LogContext>) => {
+  if (typeof message === 'object' && !context) {
+    logger.info(message);
+  } else {
+    logger.info({ message, context });
+  }
+};
+
+export const warn = (message: string | object, context?: Partial<LogContext>) => {
+  if (typeof message === 'object' && !context) {
+    logger.warn(message);
+  } else {
+    logger.warn({ message, context });
+  }
+};
+
+export const error = (message: string | object, errorOrContext?: Error | Partial<LogContext>) => {
+  if (errorOrContext instanceof Error) {
+    logger.error({
+      message,
+      error: {
+        message: errorOrContext.message,
+        stack: process.env.NODE_ENV === 'development' ? errorOrContext.stack : undefined
+      }
+    });
+  } else if (typeof message === 'object' && !errorOrContext) {
     logger.error(message);
+  } else {
+    logger.error({ message, context: errorOrContext });
   }
 };
 

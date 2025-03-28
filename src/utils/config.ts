@@ -1,4 +1,9 @@
 import { AIModel, Model } from '../types/index.js';
+import { info, warn, error } from './logger.js';
+import { createLogContext, createErrorContext } from './log-utils.js';
+import { z } from 'zod';
+
+const COMPONENT = 'ConfigService';
 
 // Define AI providers and their models
 export const AIProviders = {
@@ -6,6 +11,9 @@ export const AIProviders = {
   ANTHROPIC: 'claude',
   OLLAMA: 'ollama'
 } as const;
+
+// Cache for AI provider selection
+let cachedProvider: AIModel | null = null;
 
 // Define available OpenAI models
 export const OpenAIModels = {
@@ -32,20 +40,48 @@ export const modelConfig = {
 
 // Helper functions for model selection
 function getAIProvider(): AIModel {
+  // Return cached provider if available
+  if (cachedProvider) {
+    return cachedProvider;
+  }
+
   const provider = process.env.MODEL || AIProviders.OPENAI;
   
   if (!Object.values(AIProviders).includes(provider as any)) {
-    console.warn(`[Config] Invalid provider ${provider}, defaulting to ${AIProviders.OPENAI}`);
-    return AIProviders.OPENAI as AIModel;
+    warn('Invalid AI provider specified', createLogContext(
+      COMPONENT,
+      'getAIProvider',
+      {
+        provider,
+        defaultProvider: AIProviders.OPENAI
+      }
+    ));
+    cachedProvider = AIProviders.OPENAI as AIModel;
+    return cachedProvider;
   }
   
-  return provider as AIModel;
+  info('AI provider selected', createLogContext(
+    COMPONENT,
+    'getAIProvider',
+    { provider }
+  ));
+  
+  cachedProvider = provider as AIModel;
+  return cachedProvider;
 }
 
 function getOpenAIModel(currentProvider: AIModel): string {
   // Only configure OpenAI model if we're using OpenAI
   if (currentProvider !== AIProviders.OPENAI) {
-    return modelConfig.development.default; // Fallback value, won't be used
+    info('Non-OpenAI provider, using default model', createLogContext(
+      COMPONENT,
+      'getOpenAIModel',
+      {
+        provider: currentProvider,
+        defaultModel: modelConfig.development.default
+      }
+    ));
+    return modelConfig.development.default;
   }
 
   const env = process.env.NODE_ENV || 'development';
@@ -54,10 +90,26 @@ function getOpenAIModel(currentProvider: AIModel): string {
 
   // If valid model specified in env, use it
   if (configuredModel && envConfig.options.includes(configuredModel as any)) {
+    info('Using configured OpenAI model', createLogContext(
+      COMPONENT,
+      'getOpenAIModel',
+      {
+        model: configuredModel,
+        environment: env
+      }
+    ));
     return configuredModel;
   }
 
   // Otherwise use default for environment
+  info('Using default OpenAI model for environment', createLogContext(
+    COMPONENT,
+    'getOpenAIModel',
+    {
+      model: envConfig.default,
+      environment: env
+    }
+  ));
   return envConfig.default;
 }
 
@@ -131,6 +183,8 @@ export const defaultConfig: BaseConfig = {
 };
 
 export function validateEnvironment(): void {
+  const context = createLogContext(COMPONENT, 'validateEnvironment');
+  
   // Only validate DATABASE_URL by default
   const required = ['DATABASE_URL'];
   
@@ -143,6 +197,14 @@ export function validateEnvironment(): void {
   if (model === 'ollama') {
     process.env.OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';  // Explicitly use IPv4
     process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2.latest';
+    info('Configured Ollama settings', createLogContext(
+      COMPONENT,
+      'validateEnvironment',
+      {
+        host: process.env.OLLAMA_HOST,
+        model: process.env.OLLAMA_MODEL
+      }
+    ));
   }
   
   // Validate Discord and MCP if Discord is enabled
@@ -151,10 +213,25 @@ export function validateEnvironment(): void {
     
     // Only validate MCP if Discord is enabled and MCP is explicitly enabled
     if (process.env.MCP_ENABLED === 'true') {
+      info('MCP enabled for Discord', createLogContext(
+        COMPONENT,
+        'validateEnvironment',
+        {
+          logLevel: process.env.MCP_LOG_LEVEL || 'info'
+        }
+      ));
       
       // Validate MCP log level if specified
       const validLogLevels = ['error', 'warn', 'info', 'debug'];
       if (process.env.MCP_LOG_LEVEL && !validLogLevels.includes(process.env.MCP_LOG_LEVEL)) {
+        error('Invalid MCP log level', createErrorContext(
+          COMPONENT,
+          'validateEnvironment',
+          'System',
+          'CONFIG_ERROR',
+          new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`),
+          { logLevel: process.env.MCP_LOG_LEVEL }
+        ));
         throw new Error(`Invalid MCP_LOG_LEVEL. Must be one of: ${validLogLevels.join(', ')}`);
       }
     }
@@ -163,8 +240,29 @@ export function validateEnvironment(): void {
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
+    error('Missing required environment variables', createErrorContext(
+      COMPONENT,
+      'validateEnvironment',
+      'System',
+      'CONFIG_ERROR',
+      new Error(`Missing required environment variables: ${missing.join(', ')}`),
+      { missing }
+    ));
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+
+  info('Environment validation successful', createLogContext(
+    COMPONENT,
+    'validateEnvironment',
+    {
+      model,
+      environment: process.env.NODE_ENV || 'development',
+      features: {
+        discord: process.env.DISCORD_ENABLED === 'true',
+        mcp: process.env.MCP_ENABLED === 'true'
+      }
+    }
+  ));
 }
 
 export function sanitizeInput(input: string): string {
@@ -178,19 +276,34 @@ export function validateInput(input: string, config: BaseConfig = defaultConfig)
   const sanitized = sanitizeInput(input);
   
   if (!sanitized) {
+    warn('Empty input received', createLogContext(
+      COMPONENT,
+      'validateInput',
+      { inputLength: input.length }
+    ));
     return 'Input cannot be empty';
   }
 
   if (sanitized.length > config.messageHandling.maxMessageLength) {
+    warn('Input exceeds maximum length', createLogContext(
+      COMPONENT,
+      'validateInput',
+      {
+        inputLength: sanitized.length,
+        maxLength: config.messageHandling.maxMessageLength
+      }
+    ));
     return `Input exceeds maximum length of ${config.messageHandling.maxMessageLength} characters`;
   }
 
-  return null;
-}
+  info('Input validation successful', createLogContext(
+    COMPONENT,
+    'validateInput',
+    {
+      inputLength: sanitized.length,
+      sanitized: sanitized !== input
+    }
+  ));
 
-export function debug(message: string, config: BaseConfig = defaultConfig) {
-  if (config.debug) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${message}`);
-  }
+  return null;
 }

@@ -8,7 +8,7 @@ import {
     ChatCompletionUserMessageParam,
     ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.js';
-import { debug } from '../../utils/config.js';
+import { debug } from '../../utils/logger.js';
 import { AIMessage, AIResponse } from '../../types/ai-service.js';
 import { ToolDefinition, ToolResponse } from '../../tools/mcp/types/tools.js';
 import { Server } from '../../tools/mcp/types/server.js';

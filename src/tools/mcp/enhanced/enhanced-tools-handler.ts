@@ -6,7 +6,10 @@ import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { EnhancedMCPClient } from './enhanced-mcp-client.js';
-import { BaseServerManager } from '../base/base-server-manager.js';
+import { info, warn, error, debug } from '../../../utils/logger.js';
+import { createLogContext, createErrorContext } from '../../../utils/log-utils.js';
+
+const COMPONENT = 'EnhancedToolsHandler';
 
 @injectable()
 export class EnhancedToolsHandler extends BaseToolManager {
@@ -16,6 +19,7 @@ export class EnhancedToolsHandler extends BaseToolManager {
     private toolContexts: Map<string, ToolContext>;
     private readonly MAX_HISTORY_SIZE = 100;
     private readonly MAX_ERROR_HISTORY = 10;
+    private readonly REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
     constructor(
         @inject('ClientsMap') clientsMap: Map<string, string>,
@@ -28,6 +32,16 @@ export class EnhancedToolsHandler extends BaseToolManager {
         this.usageHistory = new Map();
         this.toolContexts = new Map();
         
+        info('Enhanced Tools Handler initialized', createLogContext(
+            COMPONENT,
+            'constructor',
+            {
+                maxHistorySize: this.MAX_HISTORY_SIZE,
+                maxErrorHistory: this.MAX_ERROR_HISTORY,
+                refreshInterval: this.REFRESH_INTERVAL
+            }
+        ));
+
         // Set up listeners for client events
         this.setupClientEventListeners();
     }
@@ -36,60 +50,74 @@ export class EnhancedToolsHandler extends BaseToolManager {
      * Set up event listeners for client notifications
      * This ensures tool data is refreshed when servers report changes
      */
-    private setupClientEventListeners(): void {
+    private async setupClientEventListeners(): Promise<void> {
         try {
-            // Get all server IDs from serverConfigs
             const serverIds = Array.from(this.serverConfigs.keys());
             
-            // Loop through each server
             for (const serverId of serverIds) {
-                // Get the client for this server
                 const client = this.clientsMap.get(serverId);
-                if (!client) continue;
+                if (!client || !(client instanceof EnhancedMCPClient)) continue;
                 
-                // Check if the client is an EnhancedMCPClient
-                if (client instanceof EnhancedMCPClient) {
-                    // Listen for the tools.changed event from the client
-                    client.on('tools.changed', async () => {
-                        console.log(`Received tools.changed event from server ${serverId}`);
-                        
-                        // Clear the cached tools
-                        this.cache.delete('available-tools');
-                        
-                        // Refresh the tool information
-                        await this.refreshToolInformation()
-                            .catch(error => console.error(`Failed to refresh tools after change event from ${serverId}:`, error));
-                            
-                        // Emit an event that downstream consumers can listen for
-                        this.analytics.emit('tools.refreshed', { serverId });
-                    });
+                client.on('tools.changed', async () => {
+                    debug('Tool change event', createLogContext(
+                        COMPONENT,
+                        'setupClientEventListeners',
+                        { 
+                            serverId,
+                            event: 'tools.changed',
+                            action: 'refresh'
+                        }
+                    ));
                     
-                    console.log(`Set up event listener for tools.changed events from ${serverId}`);
-                }
+                    this.cache.delete('available-tools');
+                    
+                    try {
+                        await this.refreshToolInformation();
+                    } catch (err) {
+                        error('Tool refresh failed', createErrorContext(
+                            COMPONENT,
+                            'setupClientEventListeners',
+                            'System',
+                            'REFRESH_ERROR',
+                            err,
+                            { serverId }
+                        ));
+                    }
+                });
             }
-            
-            // Find the EnhancedMCPClient instances to listen to their events
-            // A better approach than trying to access the server manager directly
+
             const enhancedClients = Array.from(this.clientsMap.values())
                 .filter(client => client instanceof EnhancedMCPClient) as EnhancedMCPClient[];
                 
-            console.log(`Found ${enhancedClients.length} enhanced clients for events`);
+            info('Client setup completed', createLogContext(
+                COMPONENT,
+                'setupClientEventListeners',
+                { 
+                    clientCount: enhancedClients.length,
+                    serverCount: serverIds.length
+                }
+            ));
             
-            // Set up a periodic refresh every 5 minutes as a fallback
+            // Set up periodic refresh
             setInterval(() => {
-                console.log('Performing periodic tool refresh');
-                this.refreshToolInformation()
-                    .catch(error => console.error('Failed to refresh tools:', error));
-            }, 5 * 60 * 1000); // 5 minutes
-            
-            // We'll rely on explicit refreshes when tools are needed
-            this.analytics.on('cache.miss', () => {
-                console.log('Cache miss detected, refreshing tool information');
-                this.refreshToolInformation()
-                    .catch(error => console.error('Failed to refresh tools after cache miss:', error));
-            });
-        } catch (error) {
-            console.error('Error setting up client event listeners:', error);
+                this.refreshToolInformation().catch(err => {
+                    error('Periodic refresh failed', createErrorContext(
+                        COMPONENT,
+                        'setupClientEventListeners',
+                        'System',
+                        'REFRESH_ERROR',
+                        err
+                    ));
+                });
+            }, this.REFRESH_INTERVAL);
+        } catch (err) {
+            error('Client setup failed', createErrorContext(
+                COMPONENT,
+                'setupClientEventListeners',
+                'System',
+                'SETUP_ERROR',
+                err
+            ));
         }
     }
 
@@ -105,14 +133,33 @@ export class EnhancedToolsHandler extends BaseToolManager {
         this.analytics.emit('cache.miss', { key: cacheKey });
         const tools = await super.getAvailableTools();
         this.setCachedValue(cacheKey, tools);
+        
+        info('Tools retrieved', createLogContext(
+            COMPONENT,
+            'getAvailableTools',
+            {
+                toolCount: tools.length,
+                cacheStatus: 'updated'
+            }
+        ));
+        
         return tools;
     }
 
     public override async executeTool(name: string, args: any): Promise<ToolResponse> {
-        this.analytics.emit('tool.called', { name, args });
         const startTime = Date.now();
+        this.analytics.emit('tool.called', { name, args });
 
         try {
+            debug('Tool execution started', createLogContext(
+                COMPONENT,
+                'executeTool',
+                {
+                    toolName: name,
+                    args: JSON.stringify(args)
+                }
+            ));
+
             const result = await super.executeTool(name, args);
             const duration = Date.now() - startTime;
             
@@ -131,22 +178,69 @@ export class EnhancedToolsHandler extends BaseToolManager {
                 result
             });
 
+            info('Tool execution completed', createLogContext(
+                COMPONENT,
+                'executeTool',
+                {
+                    toolName: name,
+                    success: result.success,
+                    duration,
+                    status: result.success ? 'success' : 'failed'
+                }
+            ));
+
             return result;
-        } catch (error) {
+        } catch (err) {
             const duration = Date.now() - startTime;
+            
+            error('Tool execution failed', createErrorContext(
+                COMPONENT,
+                'executeTool',
+                'MCP',
+                'TOOL_EXECUTION_ERROR',
+                err,
+                {
+                    toolName: name,
+                    duration,
+                    args: JSON.stringify(args)
+                }
+            ));
+
             this.analytics.emit('tool.error', { 
                 name, 
                 duration,
-                error: error instanceof Error ? error.message : String(error)
+                error: err instanceof Error ? err.message : String(err)
             });
-            throw error;
+            throw err;
         }
     }
 
     public override async refreshToolInformation(): Promise<void> {
-        this.cache.clear();
-        this.analytics.emit('cache.cleared');
-        await super.refreshToolInformation();
+        try {
+            debug('Starting tool information refresh', createLogContext(
+                COMPONENT,
+                'refreshToolInformation',
+                { cacheSize: this.cache.size }
+            ));
+
+            this.cache.clear();
+            this.analytics.emit('cache.cleared');
+            await super.refreshToolInformation();
+
+            info('Tool information refresh completed', createLogContext(
+                COMPONENT,
+                'refreshToolInformation'
+            ));
+        } catch (err) {
+            error('Tool information refresh failed', createErrorContext(
+                COMPONENT,
+                'refreshToolInformation',
+                'System',
+                'REFRESH_ERROR',
+                err
+            ));
+            throw err;
+        }
     }
 
     public getAnalytics(): EventEmitter {
@@ -162,16 +256,21 @@ export class EnhancedToolsHandler extends BaseToolManager {
 
     private getCachedValue<T>(key: string): T | null {
         const cached = this.cache.get(key);
-        if (!cached) return null;
+        const now = Date.now();
+        
+        if (!cached) {
+            this.analytics.emit('cache.miss', { key });
+            return null;
+        }
 
-        const { value, timestamp } = cached;
-        if (Date.now() - timestamp > this.CACHE_TTL) {
+        if (now - cached.timestamp > this.CACHE_TTL) {
             this.cache.delete(key);
             this.analytics.emit('cache.expired', { key });
             return null;
         }
 
-        return value as T;
+        this.analytics.emit('cache.hit', { key });
+        return cached.value as T;
     }
 
     private setCachedValue<T>(key: string, value: T): void {
@@ -190,6 +289,12 @@ export class EnhancedToolsHandler extends BaseToolManager {
                 averageExecutionTime: 0,
                 recentErrors: []
             });
+            
+            debug('Tool context initialized', createLogContext(
+                COMPONENT,
+                'initializeContext',
+                { toolName }
+            ));
         }
     }
 
@@ -197,9 +302,18 @@ export class EnhancedToolsHandler extends BaseToolManager {
         try {
             let history = this.usageHistory.get(usage.toolName) || [];
             
-            // Maintain fixed history size
             if (history.length >= this.MAX_HISTORY_SIZE) {
                 history = history.slice(-this.MAX_HISTORY_SIZE + 1);
+                debug('Usage history updated', createLogContext(
+                    COMPONENT,
+                    'trackToolUsage',
+                    {
+                        toolName: usage.toolName,
+                        historySize: history.length,
+                        maxSize: this.MAX_HISTORY_SIZE,
+                        action: 'trimmed'
+                    }
+                ));
             }
             
             history.push(usage);
@@ -224,14 +338,28 @@ export class EnhancedToolsHandler extends BaseToolManager {
                     usage.result.error,
                     ...(context.recentErrors || [])
                 ].slice(0, this.MAX_ERROR_HISTORY);
+
+                warn('Tool error recorded', createLogContext(
+                    COMPONENT,
+                    'trackToolUsage',
+                    {
+                        toolName: usage.toolName,
+                        errorCount: context.recentErrors.length,
+                        maxErrors: this.MAX_ERROR_HISTORY,
+                        successRate: context.successRate
+                    }
+                ));
             }
-        } catch (error) {
-            console.error('Error tracking tool usage:', error);
-            throw new MCPError(
-                'Failed to track tool usage',
-                ErrorType.TOOL_TRACKING_FAILED,
-                { cause: error instanceof Error ? error : new Error(String(error)) }
-            );
+        } catch (err) {
+            error('Failed to track tool usage', createErrorContext(
+                COMPONENT,
+                'trackToolUsage',
+                'System',
+                'TOOL_TRACKING_ERROR',
+                err,
+                { toolName: usage.toolName }
+            ));
+            throw MCPError.toolTrackingFailed(err instanceof Error ? err : new Error(String(err)));
         }
     }
 
@@ -268,16 +396,36 @@ export class EnhancedToolsHandler extends BaseToolManager {
     public async getToolByName(name: string): Promise<ToolDefinition | undefined> {
         try {
             const tool = await super.getToolByName(name);
+            
             if (tool) {
                 this.initializeContext(name);
+                debug('Tool retrieved', createLogContext(
+                    COMPONENT,
+                    'getToolByName',
+                    { 
+                        toolName: name,
+                        status: 'found'
+                    }
+                ));
+            } else {
+                warn('Tool not found', createLogContext(
+                    COMPONENT,
+                    'getToolByName',
+                    { toolName: name }
+                ));
             }
+            
             return tool;
-        } catch (error) {
-            throw new MCPError(
-                `Failed to get tool ${name}`,
-                ErrorType.TOOL_NOT_FOUND,
-                { cause: error instanceof Error ? error : new Error(String(error)) }
-            );
+        } catch (err) {
+            error(`Failed to get tool ${name}`, createErrorContext(
+                COMPONENT,
+                'getToolByName',
+                'System',
+                'TOOL_NOT_FOUND',
+                err,
+                { toolName: name }
+            ));
+            throw MCPError.toolNotFound(err instanceof Error ? err : new Error(String(err)));
         }
     }
 } 

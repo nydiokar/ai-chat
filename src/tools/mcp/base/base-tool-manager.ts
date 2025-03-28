@@ -3,7 +3,7 @@ import { ToolDefinition, ToolResponse, ToolHandler } from '../types/tools.js';
 import { inject, injectable } from 'inversify';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
-import { debug } from '../../../utils/config.js';
+import { debug } from '../../../utils/logger.js';
 
 @injectable()
 export class BaseToolManager implements IToolManager {

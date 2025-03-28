@@ -34,11 +34,14 @@ export interface Server {
 }
 
 export interface ServerEvent {
-    id: string;
+    type: 'start' | 'stop' | 'pause' | 'resume' | 'error' | 'restart' | 'response';
     timestamp: Date;
-    type: 'start' | 'stop' | 'error' | 'pause' | 'resume';
     error?: Error;
-    metadata?: Record<string, any>;
+    duration?: number;
+    data?: {
+        state?: ServerState;
+        [key: string]: any;
+    };
 }
 
 // Constants from current-functionalities.md

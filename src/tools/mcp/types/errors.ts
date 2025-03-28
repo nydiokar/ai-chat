@@ -53,95 +53,81 @@ export function createMCPErrorRecord(
     };
 }
 
-export enum ErrorType {
+export const enum ErrorType {
+    // System errors
+    INVALID_CONFIG = 'INVALID_CONFIG',
+    CONNECTION_ERROR = 'CONNECTION_ERROR',
+    SETUP_ERROR = 'SETUP_ERROR',
+    POLLING_ERROR = 'POLLING_ERROR',
+    REFRESH_ERROR = 'REFRESH_ERROR',
+    HEALTH_CHECK_ERROR = 'HEALTH_CHECK_ERROR',
+    DISCONNECT_ERROR = 'DISCONNECT_ERROR',
+    CAPABILITIES_ERROR = 'CAPABILITIES_ERROR',
+    INITIALIZATION_FAILED = 'INITIALIZATION_FAILED',
+    VALIDATION_FAILED = 'VALIDATION_FAILED',
+    
+    // MCP errors
+    PROTOCOL_ERROR = 'PROTOCOL_ERROR',
+    AUTHENTICATION_ERROR = 'AUTHENTICATION_ERROR',
+    SERVER_ERROR = 'SERVER_ERROR',
     SERVER_NOT_FOUND = 'SERVER_NOT_FOUND',
+    INVALID_STATE = 'INVALID_STATE',
     SERVER_START_FAILED = 'SERVER_START_FAILED',
     SERVER_RELOAD_FAILED = 'SERVER_RELOAD_FAILED',
+    MAX_RECONNECT_ATTEMPTS = 'MAX_RECONNECT_ATTEMPTS',
+    RECONNECT_ERROR = 'RECONNECT_ERROR',
+    RECONNECT_HANDLER_ERROR = 'RECONNECT_HANDLER_ERROR',
+    
+    // Tool errors
+    TOOL_ERROR = 'TOOL_ERROR',
     TOOL_NOT_FOUND = 'TOOL_NOT_FOUND',
+    TOOL_EXECUTION_ERROR = 'TOOL_EXECUTION_ERROR',
     TOOL_EXECUTION_FAILED = 'TOOL_EXECUTION_FAILED',
+    TOOL_TRACKING_ERROR = 'TOOL_TRACKING_ERROR',
     TOOL_TRACKING_FAILED = 'TOOL_TRACKING_FAILED',
-    VALIDATION_FAILED = 'VALIDATION_FAILED',
-    INITIALIZATION_FAILED = 'INITIALIZATION_FAILED'
-}
-
-interface ErrorOptions {
-    cause?: Error;
+    TOOL_REGISTRATION_ERROR = 'TOOL_REGISTRATION_ERROR',
+    TOOL_VALIDATION_ERROR = 'TOOL_VALIDATION_ERROR'
 }
 
 export class MCPError extends Error {
-    public readonly cause?: Error;
-
     constructor(
+        public readonly type: ErrorType,
         message: string,
-        public readonly type: ErrorType = ErrorType.INITIALIZATION_FAILED,
-        options?: ErrorOptions
+        public readonly cause?: Error
     ) {
         super(message);
-        this.cause = options?.cause;
         this.name = 'MCPError';
     }
 
-    static serverNotFound(error?: Error): MCPError {
-        return new MCPError(
-            error?.message || 'Server not found',
-            ErrorType.SERVER_NOT_FOUND,
-            { cause: error }
-        );
+    static serverNotFound(id?: string): MCPError {
+        return new MCPError(ErrorType.SERVER_NOT_FOUND, `Server ${id || ''} not found`);
     }
 
     static serverStartFailed(error: Error): MCPError {
-        return new MCPError(
-            `Server start failed: ${error.message}`,
-            ErrorType.SERVER_START_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.SERVER_START_FAILED, `Server start failed: ${error.message}`, error);
     }
 
     static serverReloadFailed(error: Error): MCPError {
-        return new MCPError(
-            `Server reload failed: ${error.message}`,
-            ErrorType.SERVER_RELOAD_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.SERVER_RELOAD_FAILED, `Server reload failed: ${error.message}`, error);
     }
 
     static toolNotFound(error?: Error): MCPError {
-        return new MCPError(
-            error?.message || 'Tool not found',
-            ErrorType.TOOL_NOT_FOUND,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.TOOL_NOT_FOUND, error?.message || 'Tool not found', error);
     }
 
     static toolExecutionFailed(error: Error): MCPError {
-        return new MCPError(
-            `Tool execution failed: ${error.message}`,
-            ErrorType.TOOL_EXECUTION_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.TOOL_EXECUTION_FAILED, `Tool execution failed: ${error.message}`, error);
     }
 
     static toolTrackingFailed(error: Error): MCPError {
-        return new MCPError(
-            `Tool tracking failed: ${error.message}`,
-            ErrorType.TOOL_TRACKING_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.TOOL_TRACKING_FAILED, `Tool tracking failed: ${error.message}`, error);
     }
 
     static validationFailed(error: Error): MCPError {
-        return new MCPError(
-            `Validation failed: ${error.message}`,
-            ErrorType.VALIDATION_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.VALIDATION_FAILED, `Validation failed: ${error.message}`, error);
     }
 
     static initializationFailed(error: Error): MCPError {
-        return new MCPError(
-            `Initialization failed: ${error.message}`,
-            ErrorType.INITIALIZATION_FAILED,
-            { cause: error }
-        );
+        return new MCPError(ErrorType.INITIALIZATION_FAILED, `Initialization failed: ${error.message}`, error);
     }
 } 

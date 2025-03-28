@@ -1,5 +1,5 @@
 import { TaskStatus } from '../types/task.js';
-import { debug } from './config.js';
+import { debug } from './logger.js';
 
 export interface ParsedCommand {
   command: string;
