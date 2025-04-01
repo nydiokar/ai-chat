@@ -5,11 +5,12 @@ import {
   ConversationContext
 } from '../../types/memory.js';
 import type { Message } from '@prisma/client';
-import winston from 'winston';
+import { getLogger } from '../../utils/shared-logger.js';
+import type { Logger } from 'winston';
 
 export class ReferenceSystemService {
   private static instance: ReferenceSystemService;
-  private _logger: winston.Logger;
+  private readonly _logger: Logger;
 
   private readonly PRONOUN_PATTERNS = {
     subject: /\b(he|she|it|they|this|that|these|those)\b/gi,
@@ -24,17 +25,7 @@ export class ReferenceSystemService {
   };
 
   private constructor() {
-    this._logger = winston.createLogger({
-      level: 'debug',
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-      ),
-      transports: [
-        new winston.transports.File({ filename: 'reference-system.log' }),
-        new winston.transports.Console()
-      ]
-    });
+    this._logger = getLogger('ReferenceSystemService');
   }
 
   public static getInstance(): ReferenceSystemService {

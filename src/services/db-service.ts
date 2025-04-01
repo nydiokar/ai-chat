@@ -261,7 +261,6 @@ export class DatabaseService {
     context?: MessageContext
   ): Promise<void> {
     try {
-      debug(`Adding message to conversation ${conversationId}`);
       
       // First verify the conversation exists
       const conversation = await this.prisma.conversation.findUnique({
@@ -319,7 +318,6 @@ export class DatabaseService {
       });
       debug(`Successfully added ${role} message to conversation ${conversationId}`);
     } catch (error) {
-      debug(`Error adding message to conversation ${conversationId}: ${error instanceof Error ? error.message : String(error)}`);
       throw MCPError.fromDatabaseError(error instanceof Error ? error : new Error(String(error)));
     }
   }

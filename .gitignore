@@ -19,11 +19,8 @@ docs/
 cline_docs/
 mcp-repos/
 *.json
-.env copy   
 .env.production
 .env.development
-.env.test
-.env.local
-.env.test.local
-.env.production.local
-.env.development.local
+cache/
+schema.prisma
+clinerules.txt

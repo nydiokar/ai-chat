@@ -1,9 +1,10 @@
 import { ConversationContext, ContextScore, ContextDecayParams, TopicContext, ConversationMessage } from '../../types/memory.js';
-import winston from 'winston';
+import { getLogger } from '../../utils/shared-logger.js';
+import type { Logger } from 'winston';
 
 export class ContextScoringService {
   private static instance: ContextScoringService;
-  private _logger: winston.Logger;
+  private readonly _logger: Logger;
   
   private readonly DEFAULT_DECAY_PARAMS: ContextDecayParams = {
     baseHalfLife: 24 * 60 * 60 * 1000, // 24 hours
@@ -12,17 +13,7 @@ export class ContextScoringService {
   };
 
   private constructor() {
-    this._logger = winston.createLogger({
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-      ),
-      transports: [
-        new winston.transports.File({ filename: 'context-scoring.log' }),
-        new winston.transports.Console()
-      ]
-    });
+    this._logger = getLogger('ContextScoringService');
   }
 
   public static getInstance(): ContextScoringService {

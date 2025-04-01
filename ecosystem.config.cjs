@@ -10,16 +10,15 @@ module.exports = {
       env_production: {
         NODE_ENV: "production",
         DOTENV_CONFIG_PATH: ".env.production",
-        INSTANCE_ID: "production"
+        INSTANCE_ID: "production",
+        FORCE_COLOR: "1"
       },
       max_memory_restart: "1G",
       autorestart: true,
-      error_file: "logs/production/error.log",
-      output_file: "logs/production/output.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-      merge_logs: true,
+      error_file: "/dev/null",
+      output_file: "/dev/null",
       log_type: "raw",
-      combine_logs: true,
+      merge_logs: false,
       time: false,
       restart_delay: 4000,
       exp_backoff_restart_delay: 100,
@@ -42,16 +41,15 @@ module.exports = {
       env_development: {
         NODE_ENV: "development",
         DOTENV_CONFIG_PATH: ".env.development",
-        INSTANCE_ID: "development"
+        INSTANCE_ID: "development",
+        FORCE_COLOR: "1"
       },
       max_memory_restart: "1G",
       autorestart: true,
-      error_file: "logs/development/error.log",
-      output_file: "logs/development/output.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-      merge_logs: true,
+      error_file: "/dev/null",
+      output_file: "/dev/null",
       log_type: "raw",
-      combine_logs: true,
+      merge_logs: false,
       time: false,
       restart_delay: 2000,
       exp_backoff_restart_delay: 100,

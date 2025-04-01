@@ -17,8 +17,17 @@ import { ToolDefinition, ToolResponse } from '../../tools/mcp/types/tools.js';
 import { CacheService, CacheType } from '../cache/cache-service.js';
 import { info, error as logError, warn, debug } from '../../utils/logger.js';
 import { createLogContext, createErrorContext, LogContext } from '../../utils/log-utils.js';
+import path from 'path';
+import fs from 'fs';
+import type { CacheConfig } from '../../types/cache/base.js';
 
 const COMPONENT = 'OpenAIService';
+
+// Add custom cache config interface that extends the base config
+interface OpenAICacheConfig extends CacheConfig {
+    maxSize?: number;
+    onError?: (error: Error) => void;
+}
 
 export class OpenAIService extends BaseAIService {
     private readonly openai: OpenAI;
@@ -60,16 +69,33 @@ export class OpenAIService extends BaseAIService {
         this.model = configuredModel;
         this.temperature = defaultConfig.openai.temperature;
 
-        // Initialize cache in the appropriate environment directory
-        const cacheFile = `logs/${env}/openai-messages.json`;
+        // Initialize cache in a dedicated cache directory
+        const cacheDir = path.join(process.cwd(), 'cache', env);
         
-        this.messageCache = CacheService.getInstance({
+        // Ensure cache directory exists
+        if (!fs.existsSync(cacheDir)) {
+            fs.mkdirSync(cacheDir, { recursive: true });
+        }
+
+        const cacheFile = path.join(cacheDir, 'openai-messages.cache');
+        
+        const cacheConfig: OpenAICacheConfig = {
             type: CacheType.PERSISTENT,
             namespace: 'openai-messages',
             ttl: defaultConfig.discord.sessionTimeout * 60 * 60 * 1000,
             filename: cacheFile,
-            writeDelay: 100
-        });
+            writeDelay: 1000,
+            maxSize: 1000,
+            onError: (err: Error) => {
+                logError('Cache error', createLogContext(
+                    COMPONENT,
+                    'cache',
+                    { error: err.message }
+                ));
+            }
+        };
+
+        this.messageCache = CacheService.getInstance(cacheConfig);
 
         info('Service initialized', createLogContext(
             COMPONENT,
@@ -78,7 +104,8 @@ export class OpenAIService extends BaseAIService {
                 model: this.model,
                 environment: env,
                 maxRetries: defaultConfig.openai.maxRetries || 3,
-                temperature: this.temperature
+                temperature: this.temperature,
+                cacheLocation: cacheFile
             }
         ));
     }

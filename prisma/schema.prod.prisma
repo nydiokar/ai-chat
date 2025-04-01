@@ -1,0 +1,386 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Message {
+  id              Int          @id @default(autoincrement())
+  content         String
+  role            String
+  createdAt       DateTime     @default(now())
+  conversationId  Int
+  tokenCount      Int?
+  discordUserId   String?
+  discordUsername String?
+  discordGuildId  String?
+  discordChannelId String?
+  contextId       String?      // Link to ConversationContext
+  parentMessageId Int?         // Added this field
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parentMessage   Message?     @relation("MessageThread", fields: [parentMessageId], references: [id])
+  childMessages   Message[]    @relation("MessageThread")
+  context         ConversationContext? @relation(fields: [contextId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([discordUserId])
+  @@index([contextId])
+  @@index([discordGuildId, discordChannelId])
+  @@index([parentMessageId])
+}
+
+model Conversation {
+  id               Int       @id @default(autoincrement())
+  model            String    // AI model used (gpt, claude, etc.)
+  title            String?
+  summary          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  tokenCount       Int       @default(0)
+  discordChannelId String?
+  discordGuildId   String?
+  messages         Message[]
+  session          Session?
+  tasks            Task[]
+  contexts         ConversationContext[]
+
+  @@index([createdAt])
+  @@index([discordGuildId, discordChannelId])
+}
+
+model Session {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @unique
+  discordUserId  String
+  createdAt      DateTime     @default(now())
+  lastActivity   DateTime     @default(now())
+  isActive       Boolean      @default(true)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([discordUserId])
+  @@index([lastActivity])
+}
+
+model MCPServer {
+  id        String    @id
+  name      String
+  version   String
+  status    String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tools     MCPTool[]
+}
+
+model Tool {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  toolType      String   // 'MCP', 'SYSTEM', 'CUSTOM'
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  mcpTool       MCPTool? 
+  usage         ToolUsage[]
+
+  @@index([toolType])
+  @@index([createdAt])
+}
+
+model MCPTool {
+  id          String          @id
+  serverId    String
+  name        String
+  description String
+  isEnabled   Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  server      MCPServer       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  context     MCPToolContext?
+  usage       ToolUsage[]
+  tool        Tool?           @relation(fields: [toolId], references: [id])
+  toolId      String?         @unique
+
+  @@unique([serverId, name])
+  @@index([serverId])
+}
+
+model MCPToolContext {
+  id            Int      @id @default(autoincrement())
+  toolId        String   @unique
+  contextData   Json
+  lastRefreshed DateTime @default(now())
+  refreshCount  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tool          MCPTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@index([toolId])
+}
+
+model ToolUsage {
+  id             Int      @id @default(autoincrement())
+  toolId         String?  // This is good as optional
+  conversationId Int
+  input          Json?
+  output         String?
+  error          String?
+  duration       Int
+  status         String
+  createdAt      DateTime @default(now())
+  tool           Tool?    @relation(fields: [toolId], references: [id])
+  mcpTool        MCPTool  @relation(fields: [mcpToolId], references: [id])
+  mcpToolId      String   // This should stay required
+
+  @@index([toolId])
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+// Remaining existing models stay unchanged
+model User {
+  id                String               @id
+  username          String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  isActive          Boolean             @default(true)
+  preferences       Json?
+  assignedTasks     Task[]              @relation("TaskAssignee")
+  tasks             Task[]
+  taskHistory       TaskHistory[]
+  commandPatterns   CommandUsagePattern[]
+  memoryPreferences UserMemoryPreferences?
+
+  @@index([username])
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskHistory {
+  id          Int      @id @default(autoincrement())
+  taskId      Int
+  userId      String
+  action      String
+  oldValue    String?
+  newValue    String?
+  note        String?
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model CacheMetrics {
+  key           String   @id
+  hits          Int      @default(0)
+  misses        Int      @default(0)
+  lastAccessed  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([hits])
+  @@index([lastAccessed])
+  @@map("cache_metrics")
+}
+
+model QueryMetrics {
+  id            Int      @id @default(autoincrement())
+  queryHash     String   @unique
+  queryString   String
+  executionTime Int      // in milliseconds
+  rowCount      Int?
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([executionTime])
+  @@index([timestamp])
+}
+
+model Task {
+  id                Int           @id @default(autoincrement())
+  title             String
+  description       String
+  status            TaskStatus    @default(OPEN)
+  priority          TaskPriority  @default(MEDIUM)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  dueDate           DateTime?
+  completedAt       DateTime?
+  creatorId         String
+  assigneeId        String?
+  conversationId    Int?
+  tags              Json
+  metadata          Json?
+  parentTaskId      Int?
+  isRecurring       Boolean       @default(false)
+  recurrencePattern Json?         // Stores RecurrencePattern as JSON
+  originalTaskId    Int?          // For recurring instances, references template task
+  parentTask        Task?         @relation("SubTasks", fields: [parentTaskId], references: [id])
+  subTasks          Task[]        @relation("SubTasks")
+  templateTask      Task?         @relation("RecurringInstances", fields: [originalTaskId], references: [id])
+  recurringInstances Task[]       @relation("RecurringInstances")
+  conversation      Conversation? @relation(fields: [conversationId], references: [id])
+  assignee          User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator           User          @relation(fields: [creatorId], references: [id])
+  history           TaskHistory[]
+  blockedBy         TaskDependency[] @relation("BlockedBy")
+  blocking          TaskDependency[] @relation("Blocking")
+
+  @@index([creatorId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([conversationId])
+  @@index([isRecurring])
+  @@index([originalTaskId])
+}
+
+model TaskDependency {
+  id              Int       @id @default(autoincrement())
+  blockedTaskId   Int
+  blockerTaskId   Int
+  dependencyType  String    @default("BLOCKS") // For future extensibility
+  metadata        Json?     // For storing additional dependency info
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  blockedTask     Task      @relation("BlockedBy", fields: [blockedTaskId], references: [id], onDelete: Cascade)
+  blockerTask     Task      @relation("Blocking", fields: [blockerTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([blockedTaskId, blockerTaskId])
+  @@index([blockedTaskId])
+  @@index([blockerTaskId])
+}
+
+// Memory System Models
+
+model ConversationContext {
+  id             String    @id @default(cuid())
+  conversationId Int
+  topics         Json      // This should be properly typed as string[]
+  entities       Json      // This should be properly typed as string[]
+  summary        String
+  timestamp      DateTime  @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messages       Message[]
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+model EntityRelationship {
+  id           String   @id @default(cuid())
+  sourceId     String
+  targetId     String
+  relationType String
+  strength     Float
+  lastUpdated  DateTime @default(now())
+
+  @@unique([sourceId, targetId, relationType])
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([lastUpdated])
+}
+
+model CommandUsagePattern {
+  id          String   @id @default(cuid())
+  userId      String
+  commandName String
+  frequency   Int      @default(0)
+  lastUsed    DateTime @default(now())
+  successRate Float    @default(0)
+  contexts    Json     // This should be properly typed as string[]
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commandName])
+  @@index([userId])
+  @@index([lastUsed])
+  @@index([frequency])
+}
+
+model PerformanceMetric {
+  id              String   @id @default(uuid())
+  timestamp       DateTime
+  cpuUsage        Float
+  memoryTotal     BigInt
+  memoryFree      BigInt
+  totalToolCalls  Int
+  toolSuccessRate Float
+  averageQueryTime Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model UserMemoryPreferences {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  settings      Json     // This should be properly typed as Record<string, any>
+  lastUpdated   DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastUpdated])
+}
+
+enum TokenCategory {
+  MEME
+  DEFI
+  GAMING
+  LAYER1
+  LAYER2
+  INFRASTRUCTURE
+  AI
+  OTHER
+}
+
+model HotToken {
+  id                 String        @id @default(cuid())
+  name               String
+  contractAddress    String        @unique
+  note              String?
+  marketCapNow      Float?
+  marketCapFirstEntry Float?
+  category          TokenCategory
+  tags              Json?         // Store tags as a JSON array
+  meta              Json?
+  isCommunity       Boolean       @default(false)
+  firstSeen         DateTime      @default(now())
+  priceAlerts       PriceAlert[]
+
+  @@index([category])
+  @@index([isCommunity])
+}
+
+model PriceAlert {
+  id              String    @id @default(cuid())
+  contractAddress String
+  targetPrice     Float
+  condition       String    // 'above' or 'below'
+  userId          String
+  createdAt       DateTime  @default(now())
+  triggered       Boolean   @default(false)
+  token          HotToken  @relation(fields: [contractAddress], references: [contractAddress], onDelete: Cascade)
+
+  @@index([contractAddress])
+  @@index([userId])
+  @@index([triggered])
+}

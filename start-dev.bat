@@ -1,33 +1,36 @@
 @echo off
 setlocal
 
-echo Stopping any existing dev instances...
+REM Stop PM2 process
 call pm2 stop them-bot-dev 2>nul
 call pm2 delete them-bot-dev 2>nul
-taskkill /F /IM node.exe /FI "WINDOWTITLE eq them-bot-dev*" 2>nul
 
-echo Setting up directories...
-mkdir logs 2>nul
-mkdir logs\development 2>nul
-mkdir cache 2>nul
+REM Set environment variables
+set NODE_ENV=development
+set DOTENV_CONFIG_PATH=.env.development
 
-echo Building project...
+REM Create necessary directories
+if not exist "logs\development" mkdir "logs\development"
+if not exist "cache\development" mkdir "cache\development"
+
+REM Build TypeScript
+echo Building TypeScript...
 call npm run build
 
-REM Start TypeScript compiler in watch mode (in background)
-echo Starting TypeScript compiler in watch mode...
-start "TypeScript Watch" cmd /c "npm run build:watch"
+REM Check if build was successful
+if errorlevel 1 (
+    echo Build failed
+    exit /b %errorlevel%
+)
 
-echo Starting Discord Bot (Development)...
-SET NODE_ENV=development
-set NODE_OPTIONS=--no-deprecation
+REM Set PM2 instance name
 set PM2_NAME=them-bot-dev
 
 REM Start the bot with PM2 in no-watch mode
 call pm2 start ecosystem.config.cjs --only them-bot-dev --env development
 
-REM Show logs in a separate window with more lines and raw output
-start "Bot Logs" cmd /c "pm2 logs them-bot-dev --raw --lines 200 --timestamp"
+REM Open logs in a new window with raw output and colors
+start "Bot Logs" cmd /k "pm2 logs them-bot-dev --raw --timestamp --lines 0"
 
 echo Development environment is running!
 echo - TypeScript is watching for changes

@@ -1,258 +1,300 @@
 import winston from 'winston';
-import { format } from 'winston';
-import { LogContext } from './log-utils.js';
-const { combine, timestamp, printf, colorize } = format;
+import path from 'path';
+import chalk from 'chalk';
 
-// Color scheme for different log levels
-const colors = {
+// Define log levels with proper severity ordering
+const levels = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+  trace: 4
+} as const;
+
+type LogLevel = keyof typeof levels;
+
+// Define colors for different log levels and components
+const colors: Record<LogLevel, string> = {
   error: 'red',
   warn: 'yellow',
-  info: 'green',
+  info: 'cyan',
   debug: 'blue',
-  tool: 'magenta'
+  trace: 'gray'
 };
 
-// Add colors to winston
+const componentColors: Record<string, string> = {
+  'OpenAIService': 'magenta',
+  'DiscordBot': 'green',
+  'Database': 'blue',
+  'Cache': 'yellow',
+  'default': 'white'
+};
+
 winston.addColors(colors);
 
-// Custom format for OpenAI debug logs to make them more concise
-const openAIFormat = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
-  const message = info.message as string;
-  if (typeof message === 'string' && message.includes('OpenAI:DEBUG')) {
-    // Extract only essential information from OpenAI debug logs
-    if (message.includes('request')) {
-      const modelMatch = message.match(/model: '([^']+)'/);
-      const model = modelMatch ? modelMatch[1] : 'unknown';
-      
-      // Try to extract tool calls if present
-      const toolChoice = message.includes('tool_choice: \'auto\'') ? ' (auto)' : '';
-      
-      info.message = `🤖 Request → ${model}${toolChoice}`;
-    } else if (message.includes('response')) {
-      // Only show status code and important response data
-      const statusMatch = message.match(/response (\d+)/);
-      const status = statusMatch ? statusMatch[1] : 'unknown';
-      
-      // Try to extract finish_reason if present
-      const finishMatch = message.match(/"finish_reason":\s*"([^"]+)"/);
-      const finish = finishMatch ? finishMatch[1] : '';
-      
-      // Extract token usage if present
-      const tokensMatch = message.match(/"total_tokens":\s*(\d+)/);
-      const tokens = tokensMatch ? ` [${tokensMatch[1]} tokens]` : '';
-      
-      info.message = `🤖 Response ← ${status}${finish ? ` (${finish})` : ''}${tokens}`;
-    } else {
-      // Skip other OpenAI debug messages
-      info.level = 'silent';
-    }
-  } else if (info.component === 'OpenAI') {
-    // Format our custom OpenAI logs
-    const { event, ...details } = info;
-    switch (event) {
-      case 'tool_execution':
-        info.message = `🔧 Executing ${details.tool}`;
-        break;
-      case 'tool_result':
-        info.message = `🔧 ${details.tool}: ${details.success ? '✓' : '✗'} ${
-          details.success ? JSON.stringify(details.data) : details.error
-        }`;
-        break;
-      case 'tool_error':
-        info.message = `🔧 Error in ${details.tool}: ${details.error}`;
-        break;
-      case 'tool_result_formatted':
-        info.message = `🔧 Result: ${details.result}`;
-        break;
-    }
-  }
-  return info;
-});
+interface LogEntry {
+  level: string;
+  message: unknown;
+  timestamp?: string;
+  component?: string;
+  operation?: string;
+  context?: Record<string, unknown>;
+  error?: {
+    message?: string;
+    stack?: string;
+  };
+}
 
-// Custom format for initialization and config logs
-const initFormat = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
-  const message = info.message as string;
-  if (typeof message === 'string') {
-    // Skip all MCP Config logs except critical warnings
-    if (message.includes('[MCP Config]')) {
-      info.level = 'silent';
-    }
-    // Make initialization logs more concise
-    if (message.includes('Starting bot instance:')) {
-      info.message = '\n=== Starting Discord Bot ===\n';
-    }
-    // Clean up database connection logs
-    if (message.includes('Initializing PrismaClient')) {
-      info.message = '🔌 Connecting to database...';
-    }
-    if (message.includes('Connected to database')) {
-      info.message = '✓ Database connected';
-    }
-    // Clean up MCP container logs
-    if (message.startsWith('MCPContainer:')) {
-      info.level = 'silent';
-    }
-    // Format tool loading logs
-    if (message.includes('Successfully loaded') && message.includes('tools')) {
-      const [server, count] = message.match(/\[(.*?)\].*?(\d+)/)?.slice(1) || [];
-      info.message = `✓ ${server}: ${count} tools loaded`;
-      info.level = 'info';
-    }
-  }
-  return info;
-});
-
-// Custom format for pretty printing objects
-const prettyPrint = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
-  if (typeof info.message === 'object' && info.message !== null) {
-    try {
-      // Only stringify top-level properties to keep it concise
-      const simplified = Object.keys(info.message).reduce((acc: any, key) => {
-        const value = (info.message as any)[key];
-        acc[key] = typeof value === 'object' ? '[Object]' : value;
-        return acc;
-      }, {});
-      info.message = JSON.stringify(simplified);
-    } catch (e) {
-      info.message = '[Circular]';
-    }
-  }
-  return info;
-});
-
-// Add structured format support
-const structuredFormat = format((info: winston.Logform.TransformableInfo): winston.Logform.TransformableInfo => {
-  if (info.context) {
-    // Add context fields to the log entry
-    const { context, ...rest } = info;
+// Simplify common objects for cleaner logging
+const simplifyObject = (obj: any): any => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  // Handle OpenAI response
+  if (obj.choices?.[0]?.message) {
     return {
-      ...rest,
-      ...context,
-      // Ensure message and level aren't overwritten
-      message: info.message,
-      level: info.level
+      content: obj.choices[0].message.content,
+      tokens: obj.usage?.total_tokens || 'unknown',
+      model: obj.model
     };
   }
+
+  // Handle OpenAI request
+  if (obj.model?.includes('gpt-')) {
+    return {
+      model: obj.model,
+      messages: obj.messages?.map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.tool_calls ? { tool_calls: m.tool_calls } : {})
+      })),
+      tools: obj.tools?.map((t: any) => ({
+        type: t.type,
+        function: {
+          name: t.function.name,
+          description: t.function.description
+        }
+      })),
+      temperature: obj.temperature
+    };
+  }
+
+  // Handle database operations
+  if (obj.component === 'Database') {
+    return obj.message;
+  }
+
+  // For AIServiceFactory config, make it one line
+  if (obj.message === 'Model Configuration:') {
+    return `Model: ${obj.model || 'unknown'}, Env: ${obj.environment || 'unknown'}`;
+  }
+
+  // Remove noisy fields
+  const cleaned = { ...obj };
+  delete cleaned.stack;
+  delete cleaned.config;
+  delete cleaned.headers;
+  delete cleaned.authorization;
+  delete cleaned['set-cookie'];
+  
+  return cleaned;
+};
+
+// Filter out noisy debug logs
+const filterNoisyLogs = winston.format((info) => {
+  // Only filter out HTTP headers and rate limit info
+  if (typeof info.message === 'string' && 
+     (info.message.includes('x-ratelimit') ||
+      info.message.includes('content-type-options'))) {
+    return false;
+  }
   return info;
 });
 
-// Update development format to include structured logging
-const developmentFormat = combine(
-  timestamp({ format: 'HH:mm:ss' }),
-  initFormat(),
-  openAIFormat(),
-  structuredFormat(),
-  prettyPrint(),
-  colorize({ all: true }),
-  printf((info) => {
-    const { level, message, timestamp, component, operation, duration, ...rest } = info;
-    
-    // Skip silent messages
-    if (level === 'silent') return '';
-    
-    // Special formatting for tool executions
-    if (level === 'tool') {
-      return `\n${message}\n`;
-    }
-    
-    const separator = '┃';
-    const levelPad = level.padEnd(7);
-    let prefix = `${timestamp} ${separator} ${levelPad} ${separator}`;
-    
-    // Add component and operation if available
-    if (component) {
-      prefix += ` [${component}${operation ? `:${operation}` : ''}]`;
-    }
-    
-    // Add duration if available and is a number
-    const durationStr = typeof duration === 'number' ? ` (${duration.toFixed(2)}ms)` : '';
-    
-    // Format the message
-    let output = `${prefix} ${message}${durationStr}`;
-    
-    // Add any remaining context as JSON
-    const context = Object.keys(rest).length > 0 ? `\n  ${JSON.stringify(rest)}` : '';
-    
-    return output + context;
-  })
-);
-
-// Update production format to include structured data
-const productionFormat = combine(
-  timestamp(),
-  openAIFormat(),
-  structuredFormat(),
-  prettyPrint(),
-  printf((info) => {
-    return JSON.stringify(info);
-  })
-);
-
-// Create the logger
-const logger = winston.createLogger({
-  level: 'debug',
-  levels: {
-    error: 0,
-    warn: 1,
-    info: 2,
-    debug: 3,
-    tool: 4
-  },
-  format: process.env.NODE_ENV === 'production' ? productionFormat : developmentFormat,
-  transports: [
-    new winston.transports.Console({
-      level: 'debug',
-      handleExceptions: true
-    }),
-    new winston.transports.File({ 
-      filename: 'logs/error.log', 
-      level: 'error'
-    }),
-    new winston.transports.File({ 
-      filename: 'logs/combined.log'
-    })
-  ]
+// Add colors to level
+const colorLevel = winston.format((info) => {
+  info.colorLevel = (chalk as any)[colors[info.level as LogLevel] || 'white'](info.level.toUpperCase().padEnd(5));
+  return info;
 });
 
-// Enhanced logging methods with context support
-export const debug = (message: string | object, context?: Partial<LogContext>) => {
-  if (typeof message === 'object' && !context) {
-    logger.debug(message);
-  } else {
-    logger.debug({ message, context });
-  }
-};
-
-export const info = (message: string | object, context?: Partial<LogContext>) => {
-  if (typeof message === 'object' && !context) {
-    logger.info(message);
-  } else {
-    logger.info({ message, context });
-  }
-};
-
-export const warn = (message: string | object, context?: Partial<LogContext>) => {
-  if (typeof message === 'object' && !context) {
-    logger.warn(message);
-  } else {
-    logger.warn({ message, context });
-  }
-};
-
-export const error = (message: string | object, errorOrContext?: Error | Partial<LogContext>) => {
-  if (errorOrContext instanceof Error) {
-    logger.error({
-      message,
-      error: {
-        message: errorOrContext.message,
-        stack: process.env.NODE_ENV === 'development' ? errorOrContext.stack : undefined
-      }
+// Structured log format for console output
+const structuredConsoleFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.errors({ stack: true }),
+  colorLevel(),
+  filterNoisyLogs(),
+  winston.format.printf((info: LogEntry & { colorLevel?: string }) => {
+    // Format date and time
+    const date = info.timestamp ? new Date(info.timestamp) : new Date();
+    const timeStr = date.toLocaleString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
     });
-  } else if (typeof message === 'object' && !errorOrContext) {
-    logger.error(message);
-  } else {
-    logger.error({ message, context: errorOrContext });
+
+    // Get component color
+    const componentColor = info.component ? 
+      componentColors[info.component] || componentColors.default :
+      componentColors.default;
+
+    // Format component and operation
+    const comp = info.component ? 
+      (chalk as any)[componentColor](`[${info.component}]`) : '';
+    const op = info.operation ? 
+      chalk.dim(`(${info.operation})`) : '';
+
+    // Format message
+    let msg = '';
+    if (typeof info.message === 'object' && info.message !== null) {
+      if ((info.message as any)?.choices?.[0]?.message) {
+        // OpenAI response
+        const choice = (info.message as any).choices[0];
+        const tokens = (info.message as any).usage;
+        const tokenInfo = tokens ? 
+          `Total: ${chalk.yellow(tokens.total_tokens)} (Prompt: ${chalk.blue(tokens.prompt_tokens)}, Completion: ${chalk.green(tokens.completion_tokens)})` : '';
+        
+        // Include tool calls if present
+        const toolCalls = choice.message.tool_calls || [];
+        const toolsUsed = toolCalls.length ? 
+          `\n  Tool used: ${chalk.magenta(toolCalls[0].function.name)}` : '';
+        
+        msg = `Token usage - ${tokenInfo}${toolsUsed}`;
+      } else if ((info.message as any)?.model?.includes('gpt-')) {
+        // OpenAI request
+        const message = info.message as any;
+        msg = `Creating completion with ${chalk.yellow(message.tools?.length || 0)} tools`;
+      } else {
+        // Other objects - keep it simple
+        msg = JSON.stringify(info.message)
+          .replace(/{"([^"]+)":/g, '$1:')
+          .replace(/,"/g, ', ')
+          .replace(/"/g, "'");
+      }
+    } else {
+      msg = String(info.message);
+    }
+
+    // Add context if present
+    const ctx = info.context ? 
+      chalk.dim(` ${JSON.stringify(info.context)}`) : '';
+
+    // Add error if present
+    const err = info.error ? 
+      `\n${chalk.red('Error:')} ${info.error.message}${
+        info.error.stack ? `\n${chalk.dim(info.error.stack)}` : ''
+      }` : '';
+
+    // Combine all parts
+    return `${chalk.dim(timeStr)} ${info.colorLevel} ${comp}${op} ${msg}${ctx}${err}`;
+  })
+);
+
+// JSON format for file logging (more concise than console)
+const structuredFileFormat = winston.format.combine(
+  winston.format.timestamp(),
+  filterNoisyLogs(),
+  winston.format.printf((info: LogEntry) => {
+    const simplified = {
+      ...info,
+      message: simplifyObject(info.message),
+      context: simplifyObject(info.context)
+    };
+    return JSON.stringify(simplified);
+  })
+);
+
+// Create logs directory based on environment
+const env = process.env.NODE_ENV || 'development';
+const logDir = path.join(process.cwd(), 'logs', env);
+
+// Configure transports with proper log levels and formatting
+const transports = [
+  // Console transport - human readable, colored output
+    new winston.transports.Console({
+      level: 'debug',
+    format: structuredConsoleFormat,
+    handleExceptions: true,
+    handleRejections: true
+  }),
+  
+  // Main log file - all logs except debug
+  new winston.transports.File({
+    filename: path.join(logDir, 'combined.log'),
+    level: 'info',
+    format: structuredFileFormat,
+    maxsize: 5242880, // 5MB
+    maxFiles: 5
+  }),
+
+  // Error log file - only errors
+    new winston.transports.File({ 
+    filename: path.join(logDir, 'error.log'),
+    level: 'error',
+    format: structuredFileFormat,
+    maxsize: 5242880, // 5MB
+    maxFiles: 5
+  }),
+
+  // Debug log file - everything including debug
+    new winston.transports.File({ 
+    filename: path.join(logDir, 'debug.log'),
+    level: 'debug',
+    format: structuredFileFormat,
+    maxsize: 10485760, // 10MB
+    maxFiles: 3
+  })
+];
+
+// Create the logger with proper configuration
+const logger = winston.createLogger({
+  levels,
+  transports,
+  exitOnError: false,
+  handleExceptions: true,
+  handleRejections: true
+});
+
+// Type for log context
+export interface LogContext {
+  component?: string;
+  operation?: string;
+  [key: string]: unknown;
+}
+
+// Helper functions with proper typing
+export const trace = (message: unknown, context?: LogContext): void => {
+  logger.log('trace', { message, ...context });
+};
+
+export const debug = (message: unknown, context?: LogContext): void => {
+  logger.debug({ message, ...context });
+};
+
+export const info = (message: unknown, context?: LogContext): void => {
+  logger.info({ message, ...context });
+};
+
+export const warn = (message: unknown, context?: LogContext): void => {
+  logger.warn({ message, ...context });
+};
+
+export const error = (message: unknown, errorOrContext?: Error | LogContext): void => {
+  const context: LogContext = {};
+  
+  if (errorOrContext instanceof Error) {
+    context.error = {
+        message: errorOrContext.message,
+      stack: errorOrContext.stack,
+      name: errorOrContext.name
+    };
+  } else if (errorOrContext) {
+    Object.assign(context, errorOrContext);
   }
+  
+  logger.error({ message, ...context });
 };
 
 export default logger;

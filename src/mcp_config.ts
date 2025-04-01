@@ -1,7 +1,7 @@
 import { MCPConfig } from "./tools/mcp/di/container.js";
 import dotenv from 'dotenv';
-import path from 'path';
-import { debug, warn } from './utils/logger.js';
+
+import { warn } from './utils/logger.js';
 
 // Load environment variables based on DOTENV_CONFIG_PATH or NODE_ENV
 const envPath = process.env.DOTENV_CONFIG_PATH || (process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development');
@@ -40,14 +40,6 @@ const servers: Record<string, any> = {
         env: {
             BRAVE_API_KEY: process.env.BRAVE_API_KEY
         }
-    },
-    "youtube-transcript": {
-        id: "youtube-transcript",
-        name: "YouTube Transcript",
-        command: nodePath,
-        args: [
-            "node_modules/@kimtaeyoon83/mcp-server-youtube-transcript/dist/index.js"
-        ]
     }
 };
 

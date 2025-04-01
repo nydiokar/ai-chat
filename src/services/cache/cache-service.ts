@@ -1,13 +1,19 @@
 import { Keyv } from 'keyv';
 import { KeyvFile } from 'keyv-file';
 import { DatabaseService } from '../db-service.js';
-import { debug } from '../../utils/logger.js';
-import type { 
-    CacheConfig, 
-    KeyvInstance 
-} from '../../types/cache/base.js';
+import { debug, info } from '../../utils/logger.js';
+import type { CacheConfig } from '../../types/cache/base.js';
 import { CacheType } from '../../types/cache/types.js';
 import { CacheMetrics } from '../../types/cache/types.js';
+import fs from 'fs';
+import path from 'path';
+
+// Extended Keyv interface to include store
+interface ExtendedKeyv<T> extends Keyv<T> {
+    store: {
+        entries?: () => Promise<[string, { expires: number; value: T }][]>;
+    };
+}
 
 export { CacheType };
 
@@ -21,11 +27,15 @@ export class CacheError extends Error {
 
 export class CacheService {
     private static instances: Map<string, CacheService> = new Map();
-    private readonly cache: KeyvInstance<any>;
-    private readonly longTermCache: KeyvInstance<any>;
-    private readonly metricsCache: KeyvInstance<CacheMetrics>;
+    private readonly cache: ExtendedKeyv<any>;
+    private readonly longTermCache: ExtendedKeyv<any>;
+    private readonly metricsCache: ExtendedKeyv<CacheMetrics>;
     private readonly db: DatabaseService;
     private readonly type: CacheType;
+    private readonly maxFileSize: number = 50 * 1024 * 1024; // 50MB default max file size
+    private readonly rotationCheckInterval: number = 60 * 60 * 1000; // Check every hour
+    private rotationTimer?: NodeJS.Timeout;
+    private readonly cacheFile: string;
     private readonly sensitivePatterns = [
         /github_pat_[a-zA-Z0-9_]+/g,
         /ghp_[a-zA-Z0-9]{36}/g,
@@ -35,6 +45,8 @@ export class CacheService {
 
     private constructor(config: CacheConfig) {
         this.type = config.type;
+        this.cacheFile = config.filename || '';
+        
         const defaultOptions = {
             namespace: config.namespace || 'mcp',
             ttl: config.ttl || 1000 * 60 * 60 // 1 hour default TTL
@@ -58,57 +70,156 @@ export class CacheService {
                 });
             }
 
-            // Create cache instances with proper typing and error handling
-            const cacheInstance = new Keyv({
+            // Create cache instances
+            this.cache = new Keyv({
                 ...defaultOptions,
-                store,  // Pass store directly without undefined check
+                store,
                 namespace: `${defaultOptions.namespace}:data`
-            });
+            }) as ExtendedKeyv<any>;
 
-            // Verify store is properly initialized
-            if (!cacheInstance.store) {
-                throw new Error('Cache store not properly initialized');
-            }
-
-            this.cache = cacheInstance as unknown as KeyvInstance<any>;
-
-            const longTermCacheInstance = new Keyv({
+            this.longTermCache = new Keyv({
                 ...defaultOptions,
-                store,  // Pass store directly without undefined check
+                store,
                 namespace: `${defaultOptions.namespace}:long-term`
-            });
-            this.longTermCache = longTermCacheInstance as unknown as KeyvInstance<any>;
+            }) as ExtendedKeyv<any>;
 
-            const metricsCacheInstance = new Keyv({
+            this.metricsCache = new Keyv({
                 ...defaultOptions,
-                store,  // Pass store directly without undefined check
+                store,
                 namespace: `${defaultOptions.namespace}:metrics`
-            });
-            this.metricsCache = metricsCacheInstance as unknown as KeyvInstance<CacheMetrics>;
+            }) as ExtendedKeyv<CacheMetrics>;
 
-            // Set up error handlers with more detailed logging
-            this.cache.on('error', (err: Error) => {
-                debug(`Cache error in main cache: ${err.message}`);
-                if (err.stack) debug(err.stack);
-            });
-
-            this.longTermCache.on('error', (err: Error) => {
-                debug(`Cache error in long-term cache: ${err.message}`);
-                if (err.stack) debug(err.stack);
-            });
-
-            this.metricsCache.on('error', (err: Error) => {
-                debug(`Cache error in metrics cache: ${err.message}`);
-                if (err.stack) debug(err.stack);
-            });
+            // Set up error handlers
+            this.cache.on('error', this.handleCacheError.bind(this, 'main'));
+            this.longTermCache.on('error', this.handleCacheError.bind(this, 'long-term'));
+            this.metricsCache.on('error', this.handleCacheError.bind(this, 'metrics'));
 
             this.db = DatabaseService.getInstance();
+
+            // Start cache rotation checks if using file storage
+            if (this.type === CacheType.PERSISTENT && config.filename) {
+                this.startRotationChecks();
+            }
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
             debug(`Failed to initialize cache: ${err.message}`);
             if (err.stack) debug(err.stack);
             throw new CacheError('Failed to initialize cache service', err);
         }
+    }
+
+    private handleCacheError(cacheType: string, err: Error): void {
+        debug(`Cache error in ${cacheType} cache: ${err.message}`);
+        if (err.stack) debug(err.stack);
+    }
+
+    private startRotationChecks(): void {
+        // Clear any existing timer
+        if (this.rotationTimer) {
+            clearInterval(this.rotationTimer);
+        }
+
+        // Start periodic checks
+        this.rotationTimer = setInterval(async () => {
+            await this.checkAndRotateCache();
+        }, this.rotationCheckInterval);
+
+        // Initial check
+        void this.checkAndRotateCache();
+    }
+
+    private async checkAndRotateCache(): Promise<void> {
+        if (!this.cacheFile) {
+            return;
+        }
+
+        try {
+            const stats = await fs.promises.stat(this.cacheFile);
+            if (stats.size > this.maxFileSize) {
+                const backupPath = `${this.cacheFile}.${Date.now()}.bak`;
+                
+                // Create backup of current cache
+                await fs.promises.copyFile(this.cacheFile, backupPath);
+                
+                // Clear the current cache
+                await this.clear();
+                
+                // Keep only the last 3 backups
+                const dir = path.dirname(this.cacheFile);
+                const base = path.basename(this.cacheFile);
+                const backups = (await fs.promises.readdir(dir))
+                    .filter(file => file.startsWith(base) && file.endsWith('.bak'))
+                    .sort()
+                    .reverse();
+                
+                // Remove old backups
+                for (const backup of backups.slice(3)) {
+                    await fs.promises.unlink(path.join(dir, backup))
+                        .catch(err => debug(`Failed to remove old backup ${backup}: ${err.message}`));
+                }
+
+                info(`Cache file rotated. Size was ${Math.round(stats.size / 1024 / 1024)}MB`);
+            }
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Cache rotation check failed: ${err.message}`);
+            if (err.stack) debug(err.stack);
+        }
+    }
+
+    private async clear(): Promise<void> {
+        try {
+            await this.cache.clear();
+            await this.longTermCache.clear();
+            await this.metricsCache.clear();
+            debug('Cache cleared successfully');
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Failed to clear cache: ${err.message}`);
+            if (err.stack) debug(err.stack);
+            throw new CacheError('Failed to clear cache', err);
+        }
+    }
+
+    private async cleanExpiredEntries(): Promise<void> {
+        if (!this.cache.store?.entries || !this.longTermCache.store?.entries) {
+            debug('Store does not support entries() method, skipping cleanup');
+            return;
+        }
+
+        try {
+            const now = Date.now();
+            const entries = await this.cache.store.entries();
+            const longTermEntries = await this.longTermCache.store.entries();
+
+            // Process entries from both caches
+            for (const [key, { expires }] of entries) {
+                if (expires && expires < now) {
+                    await this.cache.delete(key);
+                }
+            }
+
+            for (const [key, { expires }] of longTermEntries) {
+                if (expires && expires < now) {
+                    await this.longTermCache.delete(key);
+                }
+            }
+
+            debug('Cache cleanup completed');
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            debug(`Error during cache cleanup: ${err.message}`);
+            if (err.stack) debug(err.stack);
+        }
+    }
+
+    public async cleanup(): Promise<void> {
+        if (this.rotationTimer) {
+            clearInterval(this.rotationTimer);
+        }
+
+        await this.cleanExpiredEntries();
+        await this.checkAndRotateCache();
     }
 
     public static getInstance(config: CacheConfig): CacheService {
@@ -225,11 +336,6 @@ export class CacheService {
 
     async delete(key: string): Promise<boolean> {
         return this.cache.delete(key);
-    }
-
-    async clear(): Promise<void> {
-        await this.cache.clear();
-        await this.metricsCache.clear();
     }
 
     async getMetrics(key: string): Promise<CacheMetrics | null> {

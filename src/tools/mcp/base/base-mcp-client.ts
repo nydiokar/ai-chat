@@ -16,7 +16,6 @@ import {
     ResourceCreateParams, 
     ResourceUpdateParams 
 } from '../types/resources.js';
-import { Writable } from 'stream';
 
 @injectable()
 export class BaseMCPClient implements IMCPClient {

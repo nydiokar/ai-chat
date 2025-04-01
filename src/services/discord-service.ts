@@ -4,7 +4,7 @@ import { AIModel, Message as DBMessage, Role } from '../types/index.js';
 import { AIService } from '../types/ai-service.js';
 import { AIServiceFactory } from './ai-service-factory.js';
 import { defaultConfig } from '../utils/config.js';
-import { debug } from '../utils/logger.js';
+import { debug, error as logError } from '../utils/logger.js';
 import { IServerManager } from '../tools/mcp/interfaces/core.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { mcpConfig } from '../mcp_config.js';
@@ -16,6 +16,10 @@ import { pulseCommand, handlePulseCommand } from '../features/pulse-mcp/commands
 import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
 import { PrismaClient } from '@prisma/client';
 import { startDashboard } from '../tools/dashboard/dashboard.js';
+import path from 'path';
+import fs from 'fs';
+import type { CacheConfig } from '../types/cache/base.js';
+import { createLogContext } from '../utils/log-utils.js';
 
 export class DiscordService {
     private client: Client;
@@ -49,22 +53,36 @@ export class DiscordService {
     private async initializeCache(): Promise<void> {
         try {
             debug('Initializing cache service...');
-            // Initialize session cache with proper error handling and memory services
-            const env = process.env.NODE_ENV || 'development';
-            const sessionFile = `logs/${env}/discord-sessions.json`;
             
-            this.sessionCache = CacheService.getInstance({
+            const env = process.env.NODE_ENV || 'development';
+            const cacheDir = path.join(process.cwd(), 'cache', env);
+            
+            // Ensure cache directory exists
+            if (!fs.existsSync(cacheDir)) {
+                fs.mkdirSync(cacheDir, { recursive: true });
+            }
+
+            const sessionFile = path.join(cacheDir, 'discord-sessions.cache');
+            
+            const cacheConfig: CacheConfig = {
                 type: CacheType.PERSISTENT,
                 namespace: 'discord-sessions',
                 ttl: defaultConfig.discord.sessionTimeout * 60 * 60 * 1000, // Convert hours to ms
                 filename: sessionFile,
-                writeDelay: 100
-            });
+                writeDelay: 1000 // Increased delay to reduce I/O
+            };
+            
+            this.sessionCache = CacheService.getInstance(cacheConfig);
             
             debug('Cache service initialized');
         } catch (error) {
-            console.error('Failed to initialize cache:', error);
-            throw error;
+            const err = error instanceof Error ? error : new Error(String(error));
+            logError('Failed to initialize cache', createLogContext(
+                'DiscordService',
+                'initializeCache',
+                { error: err.message }
+            ));
+            throw err;
         }
     }
 
@@ -226,7 +244,6 @@ export class DiscordService {
 
             // Update database with explicit error handling
             try {
-                debug(`Adding user message to conversation ${conversation.id}`);
                 await this.db.addMessage(conversation.id, cleanContent, 'user', undefined, {
                     userId: message.author.id,
                     username: message.author.username,
@@ -234,13 +251,11 @@ export class DiscordService {
                     channelId: message.channelId
                 });
 
-                debug(`Adding assistant message to conversation ${conversation.id}`);
                 await this.db.addMessage(conversation.id, response.content, 'assistant', undefined, {
                     channelId: message.channelId,
                     guildId: message.guild?.id
                 });
             } catch (error) {
-                debug(`Error adding messages to conversation ${conversation.id}: ${error instanceof Error ? error.message : String(error)}`);
                 throw error;
             }
 
@@ -407,7 +422,7 @@ export class DiscordService {
      */
     public async start(): Promise<void> {
         if (this.isInitialized) {
-            console.warn('DiscordService is already initialized');
+            debug('Discord service is already initialized');
             return;
         }
 
@@ -557,7 +572,7 @@ export class DiscordService {
             
             // Register slash commands
             if (this.isInitialized) {
-                console.log('\n8. Setting up slash commands...');
+                console.log('\n6. Setting up slash commands...');
                 try {
                     await this.registerSlashCommands();
                 } catch (error) {
@@ -582,40 +597,75 @@ export class DiscordService {
                 return;
             }
 
-            const commands = [
-                hotTokensCommands.toJSON(),
-                taskCommands.toJSON(),
-                pulseCommand.toJSON()
-            ];
-
             const rest = new REST().setToken(this.token);
             const guildId = process.env.DISCORD_GUILD_ID;
+            const env = process.env.NODE_ENV || 'development';
 
-            debug('Started refreshing application (/) commands.');
+            debug(`Registering commands for ${env} environment`);
 
+            // Clean up and register commands based on environment
             if (guildId) {
-                // Register commands for specific guild only
-                debug(`Registering commands for guild ${guildId}`);
+                // For development: Clean up only this bot's commands in the guild
+                if (env === 'development') {
+                    debug('Development mode: Cleaning up guild commands for dev bot');
+                    const existingCommands = await rest.get(
+                        Routes.applicationGuildCommands(this.client.user.id, guildId)
+                    ) as any[];
+                    
+                    // Delete each command individually instead of bulk delete
+                    for (const command of existingCommands) {
+                        await rest.delete(
+                            Routes.applicationGuildCommand(this.client.user.id, guildId, command.id)
+                        );
+                    }
+                    debug('Cleaned up dev bot guild commands');
+                }
+                // For production: Clean up all commands in the guild
+                else if (env === 'production') {
+                    debug('Production mode: Cleaning up all guild commands');
+                    await rest.put(
+                        Routes.applicationGuildCommands(this.client.user.id, guildId),
+                        { body: [] }
+                    );
+                    debug('Cleaned up all guild commands');
+                }
+
+                // Register new commands
+                const commands = [
+                    hotTokensCommands.toJSON(),
+                    taskCommands.toJSON(),
+                    pulseCommand.toJSON()
+                ];
+
+                debug('Registering new commands...');
+                
                 try {
                     await rest.put(
                         Routes.applicationGuildCommands(this.client.user.id, guildId),
                         { body: commands },
                     );
-                    debug(`Successfully registered commands for guild ${guildId}`);
+                    debug(`Successfully registered ${commands.length} commands for guild ${guildId}`);
                 } catch (error) {
-                    console.error('Failed to register guild commands:', error);
-                    throw error; // Let the error propagate to handle it properly
+                    debug('Guild registration failed, falling back to global registration');
+                    await rest.put(
+                        Routes.applicationCommands(this.client.user.id),
+                        { body: commands },
+                    );
                 }
             } else {
-                // Register commands globally only if no guild ID is specified
-                debug('Registering commands globally');
+                debug('No guild ID provided, registering commands globally');
+                const commands = [
+                    hotTokensCommands.toJSON(),
+                    taskCommands.toJSON(),
+                    pulseCommand.toJSON()
+                ];
                 await rest.put(
                     Routes.applicationCommands(this.client.user.id),
                     { body: commands },
                 );
             }
 
-            debug('Successfully reloaded application (/) commands.');
+            debug('Command registration complete');
         } catch (error) {
             console.error('Error refreshing commands:', error);
             throw error;

@@ -8,34 +8,22 @@ import {
   ScoredMemory,
   MemoryPerformanceMetrics
 } from '../../types/memory.js';
-import winston from 'winston';
 import NodeCache from 'node-cache';
 import { performance } from 'perf_hooks';
+import { getLogger } from '../../utils/shared-logger.js';
 
 export class MemoryRepository {
   private _prisma: PrismaClient;
   private static instance: MemoryRepository;
-  private _logger: winston.Logger;
+  private readonly _logger;
   private _memoryCache: NodeCache;
   private _performanceMetrics: MemoryPerformanceMetrics;
-  private readonly MAX_CACHE_SIZE = 1000; // Add configurable limit
+  private readonly MAX_CACHE_SIZE = 1000;
 
   private constructor() {
     this._prisma = new PrismaClient();
+    this._logger = getLogger('MemoryRepository');
     
-    // Setup comprehensive logging
-    this._logger = winston.createLogger({
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-      ),
-      transports: [
-        new winston.transports.File({ filename: 'memory-repository.log' }),
-        new winston.transports.Console()
-      ]
-    });
-
     // Setup memory cache
     this._memoryCache = new NodeCache({ 
       stdTTL: 3600, // 1 hour default cache
@@ -49,6 +37,14 @@ export class MemoryRepository {
       cacheHitRate: 0,
       lastResetTimestamp: new Date()
     };
+
+    this._logger.info('Memory repository initialized', {
+      cacheConfig: {
+        ttl: 3600,
+        checkPeriod: 600,
+        maxSize: this.MAX_CACHE_SIZE
+      }
+    });
   }
 
   // Expose prisma for testing

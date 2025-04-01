@@ -1,7 +1,6 @@
-import { AIModel, Model } from '../types/index.js';
+import { AIModel } from '../types/index.js';
 import { info, warn, error } from './logger.js';
 import { createLogContext, createErrorContext } from './log-utils.js';
-import { z } from 'zod';
 
 const COMPONENT = 'ConfigService';
 

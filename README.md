@@ -89,7 +89,7 @@ DEBUG=true
 1. **Installation**
    ```bash
    git clone [repository-url]
-   cd kanebra
+   cd them
    npm install
    ```
 

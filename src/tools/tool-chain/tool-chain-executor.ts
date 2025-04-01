@@ -1,6 +1,7 @@
 import { ToolChainConfig, ToolInput } from './tool-chain-config.js';
 import { performance } from 'perf_hooks';
-import winston from 'winston';
+import { getLogger } from '../../utils/shared-logger.js';
+import type { Logger } from 'winston';
 
 export interface ToolExecutionResult {  
   success: boolean;
@@ -17,20 +18,10 @@ export interface ExecutionContext {
 }
 
 export class ToolChainExecutor {
-  private logger: winston.Logger;
+  private readonly logger: Logger;
 
   constructor() {
-    this.logger = winston.createLogger({
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-      ),
-      transports: [
-        new winston.transports.File({ filename: 'tool-chain-executor.log' }),
-        new winston.transports.Console()
-      ]
-    });
+    this.logger = getLogger('ToolChainExecutor');
   }
 
   async execute(
