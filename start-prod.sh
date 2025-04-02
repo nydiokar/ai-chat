@@ -28,8 +28,6 @@ export PM2_NAME=them-bot
 # Start the bot with PM2
 command pm2 start ecosystem.config.cjs --only them-bot --env production
 
-# Open logs in a new terminal
-gnome-terminal -- pm2 logs them-bot --raw --timestamp --lines 0 || \
-xterm -e "pm2 logs them-bot --raw --timestamp --lines 0" || \
-konsole -e "pm2 logs them-bot --raw --timestamp --lines 0" || \
+# Show logs in current terminal
+echo "Bot started successfully. Showing logs..."
 pm2 logs them-bot --raw --timestamp --lines 0 
