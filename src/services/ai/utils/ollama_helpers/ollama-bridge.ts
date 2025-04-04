@@ -4,9 +4,7 @@ import { ToolDefinition } from "../../../../tools/mcp/types/tools.js";
 import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../../types/ollama.js";
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
 import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
-import { ToolsHandler } from "../../../../tools/tools-handler.js";
 import { IToolManager } from "../../../../tools/mcp/interfaces/core.js";
-import { ToolResponse } from "../../../../tools/mcp/types/tools.js";
 
 export class OllamaBridge {
     private model: string;
@@ -73,7 +71,7 @@ export class OllamaBridge {
 
     private async getRelevantToolsFromPromptGenerator(message: string): Promise<ToolDefinition[]> {
         // Use the system prompt generator to analyze the request and get relevant tools
-        const systemPrompt = await this.promptGenerator.generatePrompt("", message);
+        const systemPrompt = await this.promptGenerator.generatePrompt(message);
         const toolNames = systemPrompt.match(/Tool: ([^\n]+)/g)?.map(m => m.substring(6)) || [];
         
         return toolNames
@@ -98,7 +96,7 @@ export class OllamaBridge {
         const relevantTools = await this.getRelevantToolsFromPromptGenerator(userMessage);
         
         // Get system prompt through the generator
-        const systemPrompt = await this.promptGenerator.generatePrompt("", userMessage);
+        const systemPrompt = await this.promptGenerator.generatePrompt(userMessage);
 
         const messages = request.messages;
         if (!messages.find(m => m.role === "system")) {

@@ -12,7 +12,7 @@ When using tools:
 
     constructor(private toolProvider: IToolManager) {}
 
-    async generatePrompt(systemPrompt: string = "", message: string = ""): Promise<string> {
+    async generatePrompt(systemPrompt: string = ""): Promise<string> {
         // Get current date and time information
         const now = new Date();
         const currentDate = now.toDateString();

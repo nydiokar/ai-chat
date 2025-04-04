@@ -18,7 +18,7 @@ export class MemoryRepository {
   private readonly _logger;
   private _memoryCache: NodeCache;
   private _performanceMetrics: MemoryPerformanceMetrics;
-  private readonly MAX_CACHE_SIZE = 1000;
+  private readonly MAX_CACHE_SIZE = 500;
 
   private constructor() {
     this._prisma = new PrismaClient();
@@ -26,8 +26,8 @@ export class MemoryRepository {
     
     // Setup memory cache
     this._memoryCache = new NodeCache({ 
-      stdTTL: 3600, // 1 hour default cache
-      checkperiod: 600 // Check for expired keys every 10 minutes
+      stdTTL: 1800, // 1 hour default cache
+      checkperiod: 300 // Check for expired keys every 5 minutes
     });
 
     // Initialize performance metrics
@@ -40,8 +40,8 @@ export class MemoryRepository {
 
     this._logger.info('Memory repository initialized', {
       cacheConfig: {
-        ttl: 3600,
-        checkPeriod: 600,
+        ttl: 1800,
+        checkPeriod: 300,
         maxSize: this.MAX_CACHE_SIZE
       }
     });

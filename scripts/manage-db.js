@@ -21,12 +21,18 @@ function copySchema() {
 
 function generateClient() {
     console.log('Generating Prisma Client...');
-    execSync('npx prisma generate', { stdio: 'inherit' });
+    const schemaPath = ENV === 'development' 
+        ? './prisma/schema.dev.prisma'
+        : './prisma/schema.prod.prisma';
+    execSync(`npx prisma generate --schema=${schemaPath}`, { stdio: 'inherit' });
 }
 
 function runMigrations() {
     console.log('Running database migrations...');
-    execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+    const schemaPath = ENV === 'development' 
+        ? './prisma/schema.dev.prisma'
+        : './prisma/schema.prod.prisma';
+    execSync(`npx prisma migrate deploy --schema=${schemaPath}`, { stdio: 'inherit' });
 }
 
 function main() {
