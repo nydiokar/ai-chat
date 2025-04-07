@@ -1,4 +1,4 @@
-import { Message, Response } from '../types/common.js';
+import { Input, Response } from '../types/common.js';
 import { ToolDefinition } from '../tools/mcp/types/tools.js';
 
 /**
@@ -13,7 +13,7 @@ export interface LLMProvider {
      */
     generateResponse(
         message: string, 
-        conversationHistory?: Message[],
+        conversationHistory?: Input[],
         tools?: ToolDefinition[]
     ): Promise<Response>;
 

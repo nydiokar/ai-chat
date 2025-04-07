@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { Message, Response } from '../types/common.js';
+import { Input, Response } from '../types/common.js';
 import { LLMProvider } from '../interfaces/llm-provider.js';
 import { MCPError, ErrorType } from '../types/errors.js';
 import { debug } from '../utils/logger.js';
@@ -9,7 +9,7 @@ import { BaseConfig } from '../utils/config.js';
 import { CacheService, CacheType } from '../services/cache/cache-service.js';
 import { 
     ChatCompletionMessageParam,
-    ChatCompletionTool,
+    ChatCompletionTool, 
     ChatCompletion,
     ChatCompletionToolMessageParam
 } from 'openai/resources/chat/completions.js';
@@ -41,7 +41,7 @@ export class OpenAIProvider implements LLMProvider {
 
     async generateResponse(
         message: string, 
-        conversationHistory?: Message[],
+        conversationHistory?: Input[],
         tools?: ToolDefinition[]
     ): Promise<Response> {
         validateInput(message);
@@ -124,7 +124,7 @@ export class OpenAIProvider implements LLMProvider {
 
     private convertToCompletionMessages(
         message: string,
-        history?: Message[]
+        history?: Input[]
     ): ChatCompletionMessageParam[] {
         const messages: ChatCompletionMessageParam[] = [];
 
@@ -136,7 +136,7 @@ export class OpenAIProvider implements LLMProvider {
         return messages;
     }
 
-    private convertToCompletionMessage(msg: Message): ChatCompletionMessageParam {
+    private convertToCompletionMessage(msg: Input): ChatCompletionMessageParam {
         if (msg.role === 'tool' && msg.tool_call_id) {
             return {
                 role: 'tool',

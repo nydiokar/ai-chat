@@ -1,6 +1,5 @@
-import { ToolDefinition } from '../../../../tools/mcp/types/tools.js';
-import { OllamaToolDefinition, OllamaToolCall } from '../../../../types/ollama.js';
-import { z } from 'zod';
+import { ToolDefinition } from '../../../tools/mcp/types/tools.js';
+import { OllamaToolDefinition, OllamaToolCall } from '../../../types/ollama.js';
 
 export class OllamaToolAdapter {
     static convertMCPToolToOllama(tool: ToolDefinition): OllamaToolDefinition {
@@ -26,33 +25,18 @@ export class OllamaToolAdapter {
         return tools.map(tool => this.convertMCPToolToOllama(tool));
     }
 
-    static validateToolCall(toolCall: OllamaToolCall, tools: ToolDefinition[]): boolean {
-        const tool = tools.find(t => t.name === toolCall.function.name);
-        if (!tool) {
-            console.error(`[OllamaToolAdapter] Tool not found: ${toolCall.function.name}`);
-            return false;
-        }
+    static validateToolCall(toolCall: OllamaToolCall, availableTools: ToolDefinition[]): boolean {
+        const tool = availableTools.find(t => t.name === toolCall.function.name);
+        if (!tool) return false;
 
         try {
-            // Ensure arguments are an object
-            const args = typeof toolCall.function.arguments === 'string' 
-                ? JSON.parse(toolCall.function.arguments) 
-                : toolCall.function.arguments;
-
-            // Use inputSchema directly for validation
-            const required = tool.inputSchema.required;
-            const missingFields = required.filter(field => !(field in args));
+            // Ensure arguments is an object
+            const args = toolCall.function.arguments;
             
-            if (missingFields.length > 0) {
-                console.error(`[OllamaToolAdapter] Missing required fields: ${missingFields.join(', ')}`);
-                return false;
-            }
-
-            // Store normalized arguments
-            toolCall.function.arguments = args;
-            return true;
-        } catch (error) {
-            console.error('[OllamaToolAdapter] Validation error:', error);
+            // Basic validation that all required parameters are present
+            const requiredParams = tool.inputSchema.required || [];
+            return requiredParams.every(param => args.hasOwnProperty(param));
+        } catch {
             return false;
         }
     }

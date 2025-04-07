@@ -6,9 +6,9 @@ import { ToolResponse } from "../tools/mcp/types/tools.js";
 export type MessageRole = "function" | "user" | "assistant" | "system" | "tool" | "developer";
 
 /**
- * A message in a conversation
+ * An input message in a conversation with the LLM
  */
-export interface Message {
+export interface Input {
     role: MessageRole;
     content: string;
     name?: string;

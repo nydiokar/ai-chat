@@ -6,7 +6,7 @@ const COMPONENT = 'ConfigService';
 
 // Define AI providers and their models
 export const AIProviders = {
-  OPENAI: 'gpt',
+  OPENAI: 'openai',
   ANTHROPIC: 'claude',
   OLLAMA: 'ollama'
 } as const;
@@ -188,9 +188,9 @@ export function validateEnvironment(): void {
   const required = ['DATABASE_URL'];
   
   // Check for model-specific API keys only if they're being used
-  const model = process.env.MODEL || 'gpt';
+  const model = process.env.MODEL || 'openai';
 
-  if (model === 'gpt') required.push('OPENAI_API_KEY');
+  if (model === 'openai') required.push('OPENAI_API_KEY');
   if (model === 'claude') required.push('ANTHROPIC_API_KEY');
   // Ollama runs locally, so we don't require API keys but can optionally set host
   if (model === 'ollama') {

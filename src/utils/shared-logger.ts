@@ -15,8 +15,8 @@ export function getLogger(component: string): Logger {
         return loggerCache.get(component)!;
     }
 
-    // Create a new logger instance that wraps the main logger
-    const componentLogger = Object.assign(Object.create(logger), {
+    // Create a new logger instance with component-specific methods
+    const componentLogger = {
         error: (message: any, ...args: any[]) => 
             logger.error(message, { component, ...(args[0] || {}) }),
         warn: (message: any, ...args: any[]) => 
@@ -30,10 +30,13 @@ export function getLogger(component: string): Logger {
         levels: logger.levels,
         level: logger.level,
         exitOnError: logger.exitOnError,
-        transports: logger.transports,
         silent: logger.silent,
-        format: logger.format
-    }) as Logger;
+        format: logger.format,
+        // Create a getter for transports to avoid direct property assignment
+        get transports() {
+            return logger.transports;
+        }
+    } as Logger;
 
     // Cache the logger instance
     loggerCache.set(component, componentLogger);

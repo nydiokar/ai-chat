@@ -1,8 +1,7 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message, REST, Routes } from 'discord.js';
 import { DatabaseService } from './db-service.js';
-import { AIModel, Message as DBMessage, Role } from '../types/index.js';
-import { AIService } from '../types/ai-service.js';
-import { AIServiceFactory } from './ai-service-factory.js';
+import { AIModel, Message as DBMessage, Role, Model } from '../types/index.js';
+import { AIFactory } from './ai-factory.js';
 import { defaultConfig } from '../utils/config.js';
 import { debug, error as logError } from '../utils/logger.js';
 import { IServerManager } from '../tools/mcp/interfaces/core.js';
@@ -15,17 +14,21 @@ import { taskCommands, handleTaskCommand } from '../tasks/commands/task-commands
 import { pulseCommand, handlePulseCommand } from '../features/pulse-mcp/commands/pulse-discord-command.js';
 import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
 import { PrismaClient } from '@prisma/client';
-import { startDashboard } from '../tools/dashboard/dashboard.js';
 import path from 'path';
 import fs from 'fs';
 import type { CacheConfig } from '../types/cache/base.js';
 import { createLogContext } from '../utils/log-utils.js';
+import { Agent } from '../interfaces/agent.js';
+import { Input } from '../types/common.js';
+import { MessageRole } from '../types/index.js';
+import { AIProviders } from '../utils/config.js';
+import { ReActAgent } from '../agents/react-agent.js';
 
 export class DiscordService {
     private client: Client;
     private db: DatabaseService;
     private static instances: Map<string, DiscordService> = new Map();
-    private aiServices: Map<string, AIService> = new Map();
+    private aiServices: Map<string, Agent> = new Map();
     private readonly contextRefreshInterval = 30 * 60 * 1000;
     private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
     private lastActivityTimestamps: Map<string, number> = new Map();
@@ -114,6 +117,26 @@ export class DiscordService {
             debug(`Processing message with bot mention: ${cleanContent.substring(0, 50)}...`);
         }
 
+        // Check for debug mode command
+        if (cleanContent.toLowerCase().startsWith('debug')) {
+            const args = cleanContent.split(' ');
+            if (args[1]?.toLowerCase() === 'on') {
+                const service = this.aiServices.get(message.channelId);
+                if (service && service instanceof ReActAgent) {
+                    service.setDebugMode(true);
+                    await message.reply('Debug mode enabled - showing full thought process');
+                }
+                return;
+            } else if (args[1]?.toLowerCase() === 'off') {
+                const service = this.aiServices.get(message.channelId);
+                if (service && service instanceof ReActAgent) {
+                    service.setDebugMode(false);
+                    await message.reply('Debug mode disabled - showing clean responses');
+                }
+                return;
+            }
+        }
+
         // Check if the message looks like a command attempt
         if (cleanContent.match(/^(task|ht|help|list|create|view|update|assign|delete|stats)/i)) {
             // Direct users to slash commands
@@ -190,7 +213,7 @@ export class DiscordService {
                     
                     // Create conversation and immediately verify it exists
                     const conversationId = await this.db.createConversation(
-                        defaultConfig.defaultModel,
+                        defaultConfig.openai.model as AIModel,  // Use the actual OpenAI model name
                         undefined,
                         undefined,
                         context
@@ -217,44 +240,75 @@ export class DiscordService {
                 throw new Error('No valid conversation available');
             }
 
-            let service = this.aiServices.get(conversation.id.toString());
-            if (!service) {
-                service = AIServiceFactory.create(conversation.model as AIModel);
+            let service: Agent;
+            const existingService = this.aiServices.get(conversation.id.toString());
+            if (!existingService) {
+                service = AIFactory.create(conversation.model as AIModel);
                 this.aiServices.set(conversation.id.toString(), service);
+            } else {
+                service = existingService;
             }
 
-            // Get messages for context
-            const messages = conversation.messages
+            // Get messages for LLM context
+            const llmMessages = conversation.messages
                 .slice(-defaultConfig.messageHandling.maxContextMessages)
-                .map((msg: DiscordCachedMessage) => ({
-                    id: msg.id,
+                .map((msg: DiscordCachedMessage): Input => ({
+                    role: msg.role as MessageRole,
                     content: msg.content,
-                    role: msg.role as keyof typeof Role,
-                    createdAt: msg.createdAt,
-                    conversationId: msg.conversationId,
-                    tokenCount: msg.tokenCount,
-                    discordUserId: msg.discordUserId,
-                    discordUsername: msg.discordUsername,
                     name: undefined,
                     tool_call_id: undefined
-                } as DBMessage));
+                }));
 
             // Use the cleaned content (without the bot mention) for processing
-            const response = await service.processMessage(cleanContent, messages);
+            const response = await service.processMessage(cleanContent, llmMessages);
 
             // Update database with explicit error handling
             try {
-                await this.db.addMessage(conversation.id, cleanContent, 'user', undefined, {
+                // Create database message format
+                const dbUserMessage: DiscordCachedMessage = {
+                    id: Date.now(),
+                    content: cleanContent,
+                    role: 'user' as MessageRole,
+                    createdAt: new Date(),
+                    conversationId: conversation.id,
+                    tokenCount: null,
+                    discordUserId: message.author.id,
+                    discordUsername: message.author.username,
+                    discordChannelId: message.channelId,
+                    discordGuildId: message.guild?.id || null,
+                    contextId: null,
+                    parentMessageId: null
+                };
+
+                const dbAssistantMessage: DiscordCachedMessage = {
+                    id: Date.now() + 1,
+                    content: response.content,
+                    role: 'assistant' as MessageRole,
+                    createdAt: new Date(),
+                    conversationId: conversation.id,
+                    tokenCount: null,
+                    discordUserId: null,
+                    discordUsername: null,
+                    discordChannelId: message.channelId,
+                    discordGuildId: message.guild?.id || null,
+                    contextId: null,
+                    parentMessageId: null
+                };
+
+                await this.db.addMessage(conversation.id, dbUserMessage.content, 'user' as MessageRole, undefined, {
                     userId: message.author.id,
                     username: message.author.username,
                     guildId: message.guild?.id,
                     channelId: message.channelId
                 });
 
-                await this.db.addMessage(conversation.id, response.content, 'assistant', undefined, {
+                await this.db.addMessage(conversation.id, dbAssistantMessage.content, 'assistant' as MessageRole, undefined, {
                     channelId: message.channelId,
                     guildId: message.guild?.id
                 });
+
+                // Update cache with new messages
+                conversation.messages.push(dbUserMessage, dbAssistantMessage);
             } catch (error) {
                 throw error;
             }
@@ -262,7 +316,7 @@ export class DiscordService {
             // Update cache with new messages and handle errors
             const newUserMessage: DiscordCachedMessage = {
                 content: cleanContent,
-                role: 'user',
+                role: 'user' as MessageRole,
                 createdAt: new Date(),
                 id: Date.now(),
                 conversationId: conversation.id,
@@ -277,7 +331,7 @@ export class DiscordService {
 
             const newAssistantMessage: DiscordCachedMessage = {
                 content: response.content,
-                role: 'assistant',
+                role: 'assistant' as MessageRole,
                 createdAt: new Date(),
                 id: Date.now() + 1,
                 conversationId: conversation.id,
@@ -377,8 +431,11 @@ export class DiscordService {
                 const conversation = await this.db.getConversation(conversationId);
                 if (!conversation || conversation.messages.length <= defaultConfig.messageHandling.maxContextMessages) return;
 
-                // Just summarize, don't reinitialize services
-                await this.summarizeConversation(conversation);
+                // Cast model to AIModel since we know it's valid from the database
+                await this.summarizeConversation({
+                    ...conversation,
+                    model: conversation.model as AIModel
+                });
             }
 
             // Schedule next check without full reinitialization
@@ -388,19 +445,39 @@ export class DiscordService {
         }
     }
 
-    private async summarizeConversation(conversation: any) {
-        const service = this.aiServices.get(conversation.id.toString());
-        if (!service) return;
+    private async summarizeConversation(conversation: { id: number; model: string; messages: DiscordCachedMessage[] }) {
+        try {
+            // Validate model
+            if (!Object.values(Model).includes(conversation.model as any)) {
+                debug(`Invalid model type: ${conversation.model}`);
+                return null;
+            }
 
-        const oldMessages = conversation.messages.slice(0, -defaultConfig.messageHandling.maxContextMessages);
-        const summary = await service.generateResponse(
-            "Please provide a brief summary of this conversation context.",
-            oldMessages
-        );
+            const service = this.aiServices.get(conversation.id.toString());
+            if (!service) {
+                debug(`No AI service found for conversation ${conversation.id}`);
+                return;
+            }
 
-        await this.db.updateConversationMetadata(conversation.id, {
-            summary: summary.content
-        });
+            // Convert cached messages to Input type
+            const messages: Input[] = conversation.messages.map(msg => ({
+                role: msg.role as MessageRole,
+                content: msg.content,
+                name: undefined,
+                tool_call_id: undefined
+            }));
+
+            // Request a summary using the agent
+            const response = await service.processMessage(
+                "Please provide a brief summary of the conversation context so far.",
+                messages
+            );
+
+            return response;
+        } catch (error) {
+            debug(`Error summarizing conversation: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        }
     }
 
     private scheduleNextContextCheck(contextKey: string, conversationId: number) {
@@ -421,171 +498,56 @@ export class DiscordService {
      * Start the Discord bot
      */
     public async start(): Promise<void> {
-        if (this.isInitialized) {
-            debug('Discord service is already initialized');
-            return;
-        }
-
-        const MAX_RETRIES = 3;
-        const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-
         try {
-            console.log('\n=== Discord Bot Initialization ===');
-            
-            console.log('\n1. Setting up event handlers...');
-            await this.setupEventHandlers();
-            console.log('   ✓ Event handlers configured');
+            if (this.isInitialized) {
+                debug('Discord service already initialized');
+                return;
+            }
 
-            console.log('\n2. Setting up database connection...');
-            await this.db.connect();
+            debug('Initializing Discord service...');
 
+            // Initialize MCP container
+            try {
+                this.mcpContainer = new MCPContainer(mcpConfig);
+                // Container is initialized in constructor
+                this.serverManager = this.mcpContainer.getServerManager();
+                debug('MCP container initialized');
 
-            console.log('\n3. Initializing cache service...');
+                // Initialize AIFactory with MCP container
+                await AIFactory.initialize(this.mcpContainer);
+                debug('AIFactory initialized with MCP container');
+            } catch (error) {
+                logError('Failed to initialize MCP container and AIFactory, continuing without it', createLogContext(
+                    'DiscordService',
+                    'start',
+                    { error: error instanceof Error ? error.message : String(error) }
+                ));
+            }
+
+            // Initialize cache
             await this.initializeCache();
 
+            // Set up event handlers
+            this.setupEventHandlers();
 
-            // Initialize MCP if enabled
-            if (defaultConfig.discord.mcp.enabled) {
-                console.log('\n4. Initializing MCP...');
-                
-                // Create and configure MCP container
-                this.mcpContainer = new MCPContainer(mcpConfig);
-                this.serverManager = this.mcpContainer.getServerManager();
-                console.log('  ✓ MCP container created');
+            // Login to Discord
+            await this.client.login(this.token);
+            debug('Logged in to Discord');
 
-                // Set up server manager event listeners for better monitoring
-                this.serverManager.on('toolsChanged', (event) => {
-                    console.log(`[DiscordService] Tools changed for server ${event.id}`);
-                });
-                
-                this.serverManager.on('serverStarted', (event) => {
-                    console.log(`[DiscordService] Server started: ${event.id}`);
-                });
-                
-                this.serverManager.on('serverStopped', (event) => {
-                    console.log(`[DiscordService] Server stopped: ${event.id}`);
-                });
-                
-                this.serverManager.on('server.error', (error) => {
-                    console.error(`[DiscordService] Server error: ${error.source}`, error.error);
-                });
-
-                // Get and initialize the MCP client using the first available server
-                const servers = Object.values(mcpConfig.mcpServers);
-                if (servers.length === 0) {
-                    throw new Error('No MCP servers configured');
-                }
-
-                try {
-                    // Initialize MCP client
-                    const mcpClient = this.mcpContainer.getMCPClient(servers[0].id);
-                    await mcpClient.initialize();
-                    console.log('  ✓ MCP client connected');
-
-                    // Start all configured servers
-                    console.log('\n5. Starting MCP servers...');
-                    let successCount = 0;
-                    const totalServers = Object.keys(mcpConfig.mcpServers).length;
-                    
-                    for (const [serverId, config] of Object.entries(mcpConfig.mcpServers)) {
-                        try {
-                            await this.initServer(serverId, config);
-                            console.log(`  ✓ Started ${serverId}`);
-                            successCount++;
-                        } catch (error) {
-                            console.error(`  ✗ Failed to start ${serverId}:`, error);
-                        }
-                    }
-                    console.log(`\nServers started: ${successCount}/${totalServers}`);
-
-                    // Initialize AIServiceFactory with MCP container
-                    console.log('\n6. Initializing AI Service Factory...');
-                    try {
-                        await AIServiceFactory.initialize(this.mcpContainer);
-                        console.log('  ✓ AI Service Factory initialized');
-                    } catch (error) {
-                        console.error('  ✗ Failed to initialize AI Service Factory:', error);
-                        // Don't throw here, we'll continue with degraded functionality
-                    }
-
-                } catch (mcpError) {
-                    console.error('  ✗ Failed to initialize MCP:', mcpError);
-                    // Initialize AIServiceFactory without MCP container for fallback functionality
-                    console.log('\n6. Initializing AI Service Factory without MCP...');
-                    try {
-                        await AIServiceFactory.initialize(mcpConfig);
-                        console.log('  ✓ AI Service Factory initialized in fallback mode');
-                    } catch (error) {
-                        console.error('  ✗ Failed to initialize AI Service Factory in fallback mode:', error);
-                    }
-                }
-
-                // Initialize the MCP dashboard if enabled
-                if (process.env.MCP_DASHBOARD_ENABLED === 'true') {
-                    const dashboardPort = parseInt(process.env.MCP_DASHBOARD_PORT || '8080', 10);
-                    console.log(`\nStarting MCP Dashboard on port ${dashboardPort}...`);
-                    
-                    try {
-                        // Start the dashboard with the server manager
-                        const dashboard = startDashboard(this.serverManager, dashboardPort);
-                        console.log(`MCP Dashboard available at http://localhost:${dashboardPort}/`);
-                    } catch (error) {
-                        console.error('Error starting MCP Dashboard:', error);
-                    }
-                }
-            } else {
-                // If MCP is disabled, adjust step numbering and messaging
-                console.log('\n4. Initializing AI Service Factory...');
-                try {
-                    await AIServiceFactory.initialize(mcpConfig);
-                    console.log('  ✓ AI Service Factory initialized (MCP tools will be loaded if configured)');
-                } catch (error) {
-                    console.error('  ✗ Failed to initialize AI Service Factory:', error);
-                }
-            }
-
-            // Login to Discord with retry logic
-            console.log('\n5. Logging in to Discord...');
-            let retryCount = 0;
-            let lastError;
-
-            while (retryCount < MAX_RETRIES) {
-                try {
-                    await this.client.login(this.token);
-                    this.isInitialized = true;
-                    console.log('  ✓ Successfully logged in');
-                    break;
-                } catch (error) {
-                    lastError = error;
-                    retryCount++;
-                    
-                    if (retryCount === MAX_RETRIES) {
-                        console.error(`\n❌ Failed to login after ${MAX_RETRIES} attempts. Stopping bot.`);
-                        throw error;
-                    }
-
-                    const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount - 1);
-                    console.log(`Login attempt ${retryCount} failed. Retrying in ${delay/1000} seconds...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-            
             // Register slash commands
-            if (this.isInitialized) {
-                console.log('\n6. Setting up slash commands...');
-                try {
-                    await this.registerSlashCommands();
-                } catch (error) {
-                    console.error('  ✗ Failed to setup slash commands:', error);
-                }
-                
-                console.log('\n=== Initialization Complete ===\n');
-            }
-            
+            await this.registerSlashCommands();
+            debug('Slash commands registered');
+
+            this.isInitialized = true;
+            debug('Discord service initialized');
         } catch (error) {
-            console.error('\n❌ Failed to start Discord client:', error);
-            await this.stop();
-            throw error;
+            const err = error instanceof Error ? error : new Error(String(error));
+            logError('Failed to start Discord service', createLogContext(
+                'DiscordService',
+                'start',
+                { error: err.message }
+            ));
+            throw err;
         }
     }
 
@@ -689,6 +651,10 @@ export class DiscordService {
                 await service.cleanup();
             }
             this.aiServices.clear();
+
+            // Cleanup AIFactory
+            AIFactory.cleanup();
+            debug('AIFactory cleaned up');
 
             // Cleanup MCP servers
             if (this.serverManager) {
@@ -820,32 +786,5 @@ export class DiscordService {
      */
     getMCPContainer(): MCPContainer | undefined {
         return this.mcpContainer;
-    }
-
-    private async initServer(serverId: string, config: any): Promise<void> {
-        try {
-            console.log(`[DiscordService] Initializing server ${serverId}...`);
-            
-            // First register the server with its config
-            await this.serverManager?.registerServer(serverId, config);
-            
-            // Check if server is properly registered and in the correct state
-            const server = this.serverManager?.getServer(serverId);
-            if (!server) {
-                throw new Error(`Server ${serverId} was not properly registered`);
-            }
-            
-            console.log(`[DiscordService] Server registered: ${serverId}, state: ${server.state}`);
-            
-            // Server is already started by registerServer, but we can validate its state
-            if (server.state !== 'RUNNING') {
-                console.warn(`[DiscordService] Server ${serverId} is not running (state: ${server.state})`);
-            } else {
-                console.log(`[DiscordService] Server started: ${serverId}`);
-            }
-        } catch (error) {
-            console.error(`[DiscordService] Failed to initialize server ${serverId}:`, error);
-            throw error;
-        }
     }
 }

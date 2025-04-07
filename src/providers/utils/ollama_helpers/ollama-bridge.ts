@@ -1,19 +1,17 @@
 import ollama, { ChatRequest } from 'ollama';
-import { IMCPClient } from "../../../../tools/mcp/interfaces/core.js";
-import { ToolDefinition } from "../../../../tools/mcp/types/tools.js";
-import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../../types/ollama.js";
+import { IMCPClient } from "../../../tools/mcp/interfaces/core.js";
+import { ToolDefinition } from "../../../tools/mcp/types/tools.js";
+import { OllamaMessage, OllamaToolCall, OllamaChatRequest, OllamaResponse, OllamaRole, OllamaToolDefinition } from "../../../types/ollama.js";
 import { OllamaToolAdapter } from "./ollama-tool-adapter.js";
-import { SystemPromptGenerator } from "../../../../system-prompt-generator.js";
-import { ToolsHandler } from "../../../../tools/tools-handler.js";
-import { IToolManager } from "../../../../tools/mcp/interfaces/core.js";
-import { ToolResponse } from "../../../../tools/mcp/types/tools.js";
+import { ReActPromptGenerator } from "../../../prompt/react-prompt-generator.js";
+import { IToolManager } from "../../../tools/mcp/interfaces/core.js";
 
 export class OllamaBridge {
     private model: string;
     private messages: OllamaMessage[] = [];
     private availableTools: Map<string, ToolDefinition> = new Map();
     private convertedTools: Map<string, OllamaToolDefinition> = new Map();
-    private promptGenerator: SystemPromptGenerator;
+    private promptGenerator: ReActPromptGenerator;
 
     constructor(
         model: string,
@@ -22,7 +20,7 @@ export class OllamaBridge {
         toolsHandler: IToolManager
     ) {
         this.model = model;
-        this.promptGenerator = new SystemPromptGenerator(toolsHandler);
+        this.promptGenerator = new ReActPromptGenerator();
     }
 
     private convertTool(tool: ToolDefinition): OllamaToolDefinition {
@@ -42,6 +40,7 @@ export class OllamaBridge {
     }
 
     public async updateAvailableTools(tools: ToolDefinition[]): Promise<void> {
+        this.availableTools = new Map(tools.map(tool => [tool.name, tool]));
         this.convertedTools.clear();
         for (const tool of tools) {
             const converted = this.convertTool(tool);
@@ -72,23 +71,16 @@ export class OllamaBridge {
     }
 
     private async getRelevantToolsFromPromptGenerator(message: string): Promise<ToolDefinition[]> {
-        // Use the system prompt generator to analyze the request and get relevant tools
-        const systemPrompt = await this.promptGenerator.generatePrompt("", message);
-        const toolNames = systemPrompt.match(/Tool: ([^\n]+)/g)?.map(m => m.substring(6)) || [];
-        
-        return toolNames
-            .map(name => this.availableTools.get(name))
-            .filter((tool): tool is ToolDefinition => !!tool);
+        // Get all available tools since ReActPromptGenerator will handle tool selection
+        return Array.from(this.availableTools.values());
     }
 
     private getConvertedTool(tool: ToolDefinition): OllamaToolDefinition {
-        let converted = this.convertedTools.get(tool.name);
+        const converted = this.convertedTools.get(tool.name);
         if (!converted) {
-            converted = OllamaToolAdapter.convertMCPToolToOllama(tool);
-            this.convertedTools.set(tool.name, converted);
-            if (process.env.DEBUG) {
-                console.log(`[OllamaBridge] Converted tool: ${tool.name}`);
-            }
+            const newConverted = this.convertTool(tool);
+            this.convertedTools.set(tool.name, newConverted);
+            return newConverted;
         }
         return converted;
     }
@@ -97,8 +89,8 @@ export class OllamaBridge {
         const userMessage = request.messages[request.messages.length - 1].content;
         const relevantTools = await this.getRelevantToolsFromPromptGenerator(userMessage);
         
-        // Get system prompt through the generator
-        const systemPrompt = await this.promptGenerator.generatePrompt("", userMessage);
+        // Get ReAct formatted prompt
+        const systemPrompt = await this.promptGenerator.generatePrompt(userMessage, relevantTools);
 
         const messages = request.messages;
         if (!messages.find(m => m.role === "system")) {

@@ -8,7 +8,14 @@ export enum Role {
 }
 
 export const Model = {
-  gpt: 'gpt',
+  // OpenAI models
+  'gpt-4-0125-preview': 'gpt-4-0125-preview',
+  'gpt-3.5-turbo-0125': 'gpt-3.5-turbo-0125',
+  'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
+  'gpt-4o-mini-2024-07-18': 'gpt-4o-mini-2024-07-18',
+  'gpt-4o-2024-08-06': 'gpt-4o-2024-08-06',
+  // Provider types
+  openai: 'openai',
   claude: 'claude',
   ollama: 'ollama'
 } as const;
@@ -87,7 +94,6 @@ export interface ConversationStats {
 
 
 // Re-export from other modules
-export * from './ai-service.js';
 export * from './errors.js';
 export * from './task.js';
 export * from './prompts.js';
@@ -95,4 +101,4 @@ export * from './ollama.js';
 export * from './discord.js';
 export * from './cleanable.js';
 export * from "./memory.js"
-
+export * from "./common.js"

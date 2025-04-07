@@ -23,7 +23,7 @@ const colors: Record<LogLevel, string> = {
 };
 
 const componentColors: Record<string, string> = {
-  'OpenAIService': 'magenta',
+  'OpenAIProvider': 'magenta',
   'DiscordBot': 'green',
   'Database': 'blue',
   'Cache': 'yellow',
