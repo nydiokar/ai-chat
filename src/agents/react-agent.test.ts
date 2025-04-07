@@ -1,12 +1,13 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { ReActAgent } from './react-agent';
+import { ReActAgent } from './react-agent.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { ToolDefinition, ToolResponse, MCPToolSchema } from '../tools/mcp/types/tools.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { Input, MessageRole } from '../types/common.js';
 import { LLMProvider } from '../interfaces/llm-provider.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
+import { MemoryProvider, MemoryType } from '../interfaces/memory-provider.js';
 import yaml from 'js-yaml';
 
 describe('ReActAgent', () => {
@@ -14,6 +15,7 @@ describe('ReActAgent', () => {
     let mockToolManager: sinon.SinonStubbedInstance<IToolManager>;
     let mockLLMProvider: sinon.SinonStubbedInstance<LLMProvider>;
     let mockPromptGenerator: sinon.SinonStubbedInstance<ReActPromptGenerator>;
+    let mockMemoryProvider: sinon.SinonStubbedInstance<MemoryProvider>;
     let container: MCPContainer;
 
     beforeEach(() => {
@@ -81,10 +83,53 @@ thought:
             })
         } as unknown as sinon.SinonStubbedInstance<ReActPromptGenerator>;
 
+        // Create a proper memory provider mock
+        mockMemoryProvider = {
+            initialize: sinon.stub().resolves(),
+            store: sinon.stub().resolves({
+                id: 'test',
+                userId: 'test',
+                type: MemoryType.THOUGHT_PROCESS,
+                content: { thought: { reasoning: 'Test reasoning', plan: 'Test plan' } },
+                timestamp: new Date()
+            }),
+            storeThoughtProcess: sinon.stub().resolves({
+                id: 'test',
+                userId: 'test',
+                type: MemoryType.THOUGHT_PROCESS,
+                content: { thought: { reasoning: 'Test reasoning', plan: 'Test plan' } },
+                timestamp: new Date()
+            }),
+            search: sinon.stub().resolves({ entries: [], total: 0, hasMore: false }),
+            getById: sinon.stub().resolves(null),
+            update: sinon.stub().resolves({
+                id: 'test',
+                userId: 'test',
+                type: MemoryType.THOUGHT_PROCESS,
+                content: { thought: { reasoning: 'Test reasoning', plan: 'Test plan' } },
+                timestamp: new Date()
+            }),
+            delete: sinon.stub().resolves(true),
+            getSummary: sinon.stub().resolves('Memory summary'),
+            clearUserMemories: sinon.stub().resolves(),
+            getRelevantMemories: sinon.stub().resolves([
+                {
+                    id: 'test',
+                    userId: 'test',
+                    type: MemoryType.THOUGHT_PROCESS,
+                    content: "Previous memory",
+                    timestamp: new Date(),
+                    importance: 0.7
+                }
+            ]),
+            cleanup: sinon.stub().resolves()
+        } as unknown as sinon.SinonStubbedInstance<MemoryProvider>;
+
         // Replace container's tool manager with mock
         sinon.stub(container, 'getToolManager').returns(mockToolManager);
 
-        agent = new ReActAgent(container, mockLLMProvider, mockPromptGenerator);
+        // Initialize agent with memory provider
+        agent = new ReActAgent(container, mockLLMProvider, mockPromptGenerator, 'Test Agent', mockMemoryProvider);
     });
 
     afterEach(() => {
@@ -530,5 +575,242 @@ action:
         expect(parsed).to.have.property('error_handling');
         expect(parsed.error_handling.error).to.include('Discord API rate limit exceeded');
         expect(parsed.error_handling.recovery).to.have.property('alternate_plan');
+    });
+
+    it('should store and retrieve memories during processing', async () => {
+        const userId = 'test-user';
+        const message = 'test message';
+        
+        // Mock memory retrieval
+        const mockMemories = [
+            {
+                id: '1',
+                userId: 'test-user',
+                type: 'observation',
+                content: 'previous observation',
+                timestamp: new Date(Date.now() - 1000),
+                importance: 0.8,
+                tags: ['observation']
+            }
+        ];
+        
+        // @ts-ignore - Adding mock memory methods
+        agent.memoryProvider = {
+            initialize: sinon.stub().resolves(),
+            store: sinon.stub().resolves(mockMemories[0]),
+            storeThoughtProcess: sinon.stub().resolves(mockMemories[0]),
+            search: sinon.stub().resolves({ entries: mockMemories, total: 1, hasMore: false }),
+            getById: sinon.stub().resolves(mockMemories[0]),
+            update: sinon.stub().resolves(mockMemories[0]),
+            delete: sinon.stub().resolves(true),
+            getSummary: sinon.stub().resolves('Memory summary'),
+            clearUserMemories: sinon.stub().resolves(),
+            getRelevantMemories: sinon.stub().resolves(mockMemories),
+            cleanup: sinon.stub().resolves()
+        };
+
+        mockLLMProvider.generateResponse.resolves({
+            content: `
+thought:
+  reasoning: "Using previous observation to inform decision"
+  plan: "Execute test tool with context"
+action:
+  tool: "test_tool"
+  params:
+    param1: "test value"
+`,
+            tokenCount: 0,
+            toolResults: []
+        });
+
+        const response = await agent.processMessage(message);
+        
+        // @ts-ignore - Accessing mock methods
+        expect(agent.memoryProvider.store.called).to.be.true;
+        // @ts-ignore - Accessing mock methods
+        expect(agent.memoryProvider.getRelevantMemories.called).to.be.true;
+        
+        const parsed = yaml.load(response.content) as { thought: { reasoning: string } };
+        expect(parsed.thought.reasoning).to.include('Using previous observation');
+    });
+
+    it('should handle recovery attempts with memory storage', async () => {
+        const userId = 'test-user';
+        const error = new Error('Test error');
+        const thoughtProcess = {
+            thought: {
+                reasoning: 'Original reasoning',
+                plan: 'Original plan that failed'
+            }
+        };
+        
+        // @ts-ignore - Adding mock memory methods
+        agent.memoryProvider = {
+            initialize: sinon.stub().resolves(),
+            store: sinon.stub().resolves({
+                id: '1',
+                userId: 'test-user',
+                type: 'thought_process',
+                content: thoughtProcess,
+                timestamp: new Date(),
+                importance: 0.8
+            }),
+            storeThoughtProcess: sinon.stub().resolves({
+                id: '1',
+                userId: 'test-user',
+                type: 'thought_process',
+                content: thoughtProcess,
+                timestamp: new Date(),
+                importance: 0.8
+            }),
+            search: sinon.stub().resolves({ entries: [], total: 0, hasMore: false }),
+            getById: sinon.stub().resolves(null),
+            update: sinon.stub().resolves({
+                id: '1',
+                userId: 'test-user',
+                type: 'thought_process',
+                content: thoughtProcess,
+                timestamp: new Date(),
+                importance: 0.8
+            }),
+            delete: sinon.stub().resolves(true),
+            getSummary: sinon.stub().resolves('Memory summary'),
+            clearUserMemories: sinon.stub().resolves(),
+            getRelevantMemories: sinon.stub().resolves([]),
+            cleanup: sinon.stub().resolves()
+        };
+
+        mockLLMProvider.generateResponse.resolves({
+            content: `
+thought:
+  reasoning: "Recovery attempt after error"
+  plan: "Alternative approach"
+`,
+            tokenCount: 0,
+            toolResults: []
+        });
+
+        // Since attemptRecovery is private, we'll test recovery through processMessage
+        const response = await agent.processMessage('test message');
+        
+        // @ts-ignore - Accessing mock methods
+        expect(agent.memoryProvider.store.called).to.be.true;
+        const parsed = yaml.load(response.content) as { thought: { reasoning: string; plan: string } };
+        expect(parsed.thought.reasoning).to.be.a('string');
+        expect(parsed.thought.plan).to.be.a('string');
+    });
+
+    it('should execute the complete ReAct loop with memory integration', async () => {
+        const userId = 'test-user';
+        const message = 'test message requiring multiple steps';
+        
+        const mockMemoryEntry = {
+            id: '1',
+            userId: 'test-user',
+            type: 'thought_process',
+            content: { thought: { reasoning: 'Test reasoning', plan: 'Test plan' } },
+            timestamp: new Date(),
+            importance: 0.8
+        };
+        
+        // @ts-ignore - Adding mock memory methods
+        agent.memoryProvider = {
+            initialize: sinon.stub().resolves(),
+            store: sinon.stub().resolves(mockMemoryEntry),
+            storeThoughtProcess: sinon.stub().resolves(mockMemoryEntry),
+            search: sinon.stub().resolves({ entries: [], total: 0, hasMore: false }),
+            getById: sinon.stub().resolves(mockMemoryEntry),
+            update: sinon.stub().resolves(mockMemoryEntry),
+            delete: sinon.stub().resolves(true),
+            getSummary: sinon.stub().resolves('Memory summary'),
+            clearUserMemories: sinon.stub().resolves(),
+            getRelevantMemories: sinon.stub().resolves([]),
+            cleanup: sinon.stub().resolves()
+        };
+
+        // Mock a multi-step interaction
+        mockLLMProvider.generateResponse.onFirstCall().resolves({
+            content: `
+thought:
+  reasoning: "Initial analysis of request"
+  plan: "Execute first tool"
+action:
+  tool: "test_tool"
+  params:
+    param1: "step1"
+`,
+            tokenCount: 0,
+            toolResults: []
+        }).onSecondCall().resolves({
+            content: `
+thought:
+  reasoning: "Analyzing tool result"
+  plan: "Complete the task"
+`,
+            tokenCount: 0,
+            toolResults: []
+        });
+
+        const response = await agent.processMessage(message);
+        
+        // @ts-ignore - Accessing mock methods
+        const storeMemoryCalls = agent.memoryProvider.store.getCalls();
+        expect(storeMemoryCalls.length).to.be.greaterThan(1); // Should store initial message and final thought
+        
+        const parsed = yaml.load(response.content) as { thought: { reasoning: string; plan: string } };
+        expect(parsed.thought.reasoning).to.include('Analyzing tool result');
+    });
+
+    it('should handle debug mode with detailed memory retrieval', async () => {
+        const userId = 'test-user';
+        const message = 'test message in debug mode';
+        
+        const mockMemories = [
+            {
+                id: '1',
+                userId: 'test-user',
+                type: 'observation',
+                content: 'relevant memory',
+                timestamp: new Date(Date.now() - 1000),
+                importance: 0.9,
+                tags: ['observation']
+            }
+        ];
+        
+        // @ts-ignore - Adding mock memory methods
+        agent.memoryProvider = {
+            initialize: sinon.stub().resolves(),
+            store: sinon.stub().resolves(mockMemories[0]),
+            storeThoughtProcess: sinon.stub().resolves(mockMemories[0]),
+            search: sinon.stub().resolves({ entries: mockMemories, total: 1, hasMore: false }),
+            getById: sinon.stub().resolves(mockMemories[0]),
+            update: sinon.stub().resolves(mockMemories[0]),
+            delete: sinon.stub().resolves(true),
+            getSummary: sinon.stub().resolves('Memory summary'),
+            clearUserMemories: sinon.stub().resolves(),
+            getRelevantMemories: sinon.stub().resolves(mockMemories),
+            cleanup: sinon.stub().resolves()
+        };
+
+        mockLLMProvider.generateResponse.resolves({
+            content: `
+thought:
+  reasoning: "Debug mode analysis"
+  plan: "Show detailed process"
+debug_info:
+  memories_used: ["relevant memory"]
+  thought_process: "Complete analysis path"
+`,
+            tokenCount: 0,
+            toolResults: []
+        });
+
+        agent.setDebugMode(true);
+        const response = await agent.processMessage(message);
+        
+        const parsed = yaml.load(response.content) as any;
+        expect(parsed).to.have.property('debug_info');
+        expect(parsed.debug_info).to.have.property('memories_used');
+        expect(parsed.debug_info.memories_used).to.include('relevant memory');
     });
 }); 

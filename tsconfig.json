@@ -18,12 +18,11 @@
   "include": [
     "src/**/*",
     "src/**/*.json",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "src/**/*.test.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "src/**/*.test.ts",
-    "src/tests/**/*"
+    "dist"
   ]
 }
