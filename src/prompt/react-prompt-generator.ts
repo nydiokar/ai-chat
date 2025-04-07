@@ -49,7 +49,7 @@ error_handling:
   error: "Description of what went wrong"
   recovery:
     log_error: "Error during tool execution"
-    alternate_plan: "Provide direct response without tools"
+    alternate_plan: "Provide direct response without tools or suggest an alternative approach"
 
 If you've gathered enough information:
 observation:
@@ -75,7 +75,7 @@ error_handling:
   error: "Weather API returned no data"
   recovery:
     log_error: "Error during tool execution"
-    alternate_plan: "Provide direct response without tools"
+    alternate_plan: "Provide direct response without tools or suggest an alternative approach"
 
 Available tools:
 ${toolList}${conversationContext}`;
@@ -110,7 +110,7 @@ error_handling:
   error: "Description of what went wrong"
   recovery:
     log_error: "Error during tool execution"
-    alternate_plan: "Provide direct response without tools"
+    alternate_plan: "Provide direct response without tools or suggest an alternative approach"
 
 When you receive tool results:
 observation:
@@ -120,37 +120,38 @@ For next steps:
 next_step:
   plan: "Your next action or 'Finish with the answer'"
 
-Example response for "What's the weather in New York?":
+Example response for "What's the weather like?":
 
 thought:
-  reasoning: "The user wants to know the current weather in New York. I need to use a weather tool to get this information."
-  plan: "Use the weather tool to check conditions in New York"
+  reasoning: "The user wants to know the current weather. I need to use a weather tool to get this information."
+  plan: "Use the weather tool to check current conditions"
 
 action:
   tool: "weather_api"
-  purpose: "To get current weather in New York"
+  purpose: "Fetch current weather data for accurate reporting"
   params:
-    location: "New York"
+    location: "Current location"
 
 If the tool succeeds:
 observation:
   result: "72°F and partly cloudy"
 
 next_step:
-  plan: "Finish with the answer"
+  plan: "Summarize weather data in a user-friendly format with relevant details"
 
 If the tool fails:
 error_handling:
   error: "Weather API returned no data"
   recovery:
     log_error: "Error during tool execution"
-    alternate_plan: "Suggest checking a weather website directly"
+    alternate_plan: "Provide direct response without tools or suggest an alternative approach"
 
 IMPORTANT: Always handle errors gracefully. If a tool fails or returns unexpected data:
 1. Include an error_handling section in your response
 2. Provide a clear error message
 3. Include a recovery plan that doesn't rely on the failed tool
-4. Store error information for debugging
+4. Consider suggesting an alternative approach when appropriate
+5. Store error information for debugging
 
 Available tools:
 ${toolList}${conversationContext}

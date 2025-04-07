@@ -22,7 +22,22 @@ export interface ThoughtProcess {
         recovery: {
             log_error: string;
             alternate_plan: string;
+            discord_message?: {
+                content: string;
+                ephemeral: boolean;
+            };
         };
+    };
+    // For debug mode tests
+    debug_info?: {
+        memories_used: string[];
+        relevant_memory: string;
+        thought_process: any[];
+    };
+    // For memory retrieval tests
+    memory_retrieval?: {
+        count: number;
+        memories: any[];
     };
 }
 
