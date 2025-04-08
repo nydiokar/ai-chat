@@ -23,4 +23,6 @@ mcp-repos/
 .env.development
 cache/
 schema.prisma
-clinerules.txt
+.clinerules
+scripts/
+.cursor/

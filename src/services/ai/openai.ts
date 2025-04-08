@@ -77,7 +77,7 @@ export class OpenAIService extends BaseAIService {
             fs.mkdirSync(cacheDir, { recursive: true });
         }
 
-        const cacheFile = path.join(cacheDir, 'openai-messages.cache');
+        const cacheFile = path.join(cacheDir, 'cache/openai-messages.cache');
         
         const cacheConfig: OpenAICacheConfig = {
             type: CacheType.PERSISTENT,

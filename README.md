@@ -1,4 +1,4 @@
-# Kanebra - Discord bot with MCP capabilities
+# Discord bot with MCP capabilities
 
 A comprehensive system that combines AI capabilities, cryptocurrency token tracking, and advanced task management. Built with a modular architecture using the Model Context Protocol (MCP) for extensible tool integration.
 
