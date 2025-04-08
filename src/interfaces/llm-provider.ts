@@ -18,6 +18,23 @@ export interface LLMProvider {
     ): Promise<Response>;
 
     /**
+     * Optional method to get a final response after tool execution
+     * @param originalMessage The original user message
+     * @param toolResults Results from executed tools
+     * @param conversationHistory Optional conversation history
+     */
+    getFinalResponse?(
+        originalMessage: string,
+        toolResults: {
+            toolName: string;
+            toolCallId: string;
+            result: string;
+            success: boolean;
+        }[],
+        conversationHistory?: Input[]
+    ): Promise<Response>;
+
+    /**
      * Get the model identifier
      */
     getModel(): string;
