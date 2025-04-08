@@ -5,254 +5,309 @@ import { Input, Response } from "../types/common.js";
 import { ReActPromptGenerator } from "../prompt/react-prompt-generator.js";
 import { MCPContainer } from "../tools/mcp/di/container.js";
 import { getLogger } from '../utils/shared-logger.js';
-import { OpenAIProvider } from '../providers/openai.js';
 import yaml from 'js-yaml';
 import { v4 as uuid } from 'uuid';
+import { IToolManager } from "../tools/mcp/interfaces/core.js";
+import { MemoryType } from "../interfaces/memory-provider.js";
+import { MemoryProvider } from "../interfaces/memory-provider.js";
+import type { Logger } from 'winston';
 
+// Implement the ReAct thought process interfaces based on documentation
+interface ReActThought {
+    thought?: string;
+    reasoning?: string;
+    plan?: string;
+}
+
+interface ReActAction {
+    tool: string;
+    purpose?: string;
+    params: Record<string, any>;
+}
+
+interface ReActObservation {
+    result: string | any;
+}
+
+interface ReActNextStep {
+    plan?: string;
+}
+
+/**
+ * Complete definition of a ReAct workflow step
+ */
+interface ReActStep {
+    thought?: ReActThought;
+    action?: ReActAction;
+    observation?: ReActObservation;
+    next_step?: ReActNextStep;
+}
+
+/**
+ * ReAct Agent that supports both direct responses and reasoning with tools
+ * This implementation includes two processing modes:
+ * 1. Simple mode for direct tool usage
+ * 2. ReAct mode for complex queries requiring multi-step reasoning
+ */
 export class ReActAgent implements Agent {
-    private readonly logger = getLogger('ReActAgent');
+    private readonly DEFAULT_MAX_STEPS = 5;
+    private readonly logger: Logger;
     public readonly id = uuid();
     public readonly name: string;
 
     constructor(
-        private readonly container: MCPContainer,
+        container: MCPContainer, // kept for compatibility with the old structure
         private readonly llmProvider: LLMProvider,
+        private readonly memoryProvider: MemoryProvider,
+        private readonly toolManager: IToolManager,
         private readonly promptGenerator: ReActPromptGenerator,
         name?: string
     ) {
-        this.name = name ? `ReAct Agent: ${name}` : "ReAct Agent";
+        this.logger = getLogger('ReActAgent');
+        this.name = name || "ReAct Agent";
         this.logger.info('ReAct Agent initialized', { agentId: this.id, agentName: this.name });
     }
 
-    private isSimpleQuery(input: string): boolean {
-        // Detect simple queries that shouldn't use tools
-        const simplePatterns = [
-            /^hi+\s*$/i,
-            /^hello+\s*$/i,
-            /^hey+\s*$/i,
-            /^greetings/i,
-            /^how are you/i,
-            /^what's up/i,
-            /^good (morning|afternoon|evening)/i,
-            /^thanks/i,
-            /^thank you/i
-        ];
+    /**
+     * Process a message using either simple mode or ReAct reasoning
+     * @param message User's input message
+     * @param conversationHistory Previous conversation history
+     * @returns Response with content and any tool results
+     */
+    async processMessage(message: string, conversationHistory?: Input[]): Promise<Response> {
+        // Determine if we should use ReAct mode
+        const useReactMode = this.isComplexQuery(message);
         
-        return simplePatterns.some(pattern => pattern.test(input.trim()));
+        if (useReactMode) {
+            this.logger.debug('Using ReAct mode for processing', { messageLength: message.length });
+            return this.processWithReact(message, conversationHistory || []);
+        } else {
+            this.logger.debug('Using simple mode for processing', { messageLength: message.length });
+            return this.processSimple(message, conversationHistory || []);
+        }
     }
 
-    async processMessage(input: string, history?: Input[]): Promise<Response> {
-        // For very simple queries, bypass tool handling entirely
-        if (this.isSimpleQuery(input)) {
-            this.logger.info('Simple query detected, bypassing tool handling', { 
-                input: input.substring(0, 50) 
-            });
+    /**
+     * Simple direct approach - just a basic function call
+     */
+    private async processSimple(message: string, history: Input[]): Promise<Response> {
+        try {
+            // Get tools
+            const tools = await this.toolManager.getAvailableTools();
             
-            // Generate a simple response prompt
-            const simplePrompt = `You are a friendly AI assistant having a conversation.
-Respond naturally to the user without using any tools.
-
-Query: ${input}`;
+            // Generate simple prompt
+            const systemPrompt = await this.promptGenerator.generateSimplePrompt?.() || 
+                                 await this.promptGenerator.generatePrompt(message, tools, history);
             
-            // Get response without tools
-            return await this.llmProvider.generateResponse(simplePrompt, history);
-        }
-        
-        // Get available tools for normal processing
-        const tools = await this.container.getToolManager().getAvailableTools();
-        
-        // Generate initial prompt
-        const prompt = await this.promptGenerator.generatePrompt(input, tools, history);
-        
-        // Get initial response
-        let response = await this.llmProvider.generateResponse(prompt, history, tools);
-        
-        // If no tool calls, return directly
-        if (!response.toolResults || response.toolResults.length === 0) {
-            return response;
-        }
-        
-        // Process tool calls from metadata
-        const results: ToolResponse[] = [];
-        const toolCallResults = [];
-        
-        for (const toolResult of response.toolResults) {
-            const toolName = toolResult.metadata?.toolName || '';
-            const toolCallId = toolResult.metadata?.toolCallId || '';
-            const args = toolResult.metadata?.arguments || '{}';
+            // Set the system prompt on the provider
+            this.llmProvider.setSystemPrompt(systemPrompt);
             
-            // Add detailed logging using the proper logger
-            this.logger.info('Tool call details', {
-                toolName,
-                toolCallId,
-                args,
-                responseContent: response.content
-            });
-            
-            const tool = await this.container.getToolManager().getToolByName(toolName);
-            
-            // Log additional info about the tool
-            this.logger.info('Tool lookup result', {
-                toolFound: !!tool,
-                serverID: tool?.server?.id || 'none'
-            });
-            
-            if (!tool) {
-                const errorResult = {
-                    success: false,
-                    data: '',
-                    error: `Tool ${toolName} not found`
-                };
-                results.push(errorResult);
-                toolCallResults.push({
-                    toolName,
-                    toolCallId,
-                    result: errorResult.error,
-                    success: false
-                });
-                continue;
-            }
-
-            try {
-                const parsedArgs = JSON.parse(args);
-                const result = await this.container.getToolManager().executeTool(toolName, parsedArgs);
-                results.push(result);
-                
-                // Add to tool call results for final response
-                toolCallResults.push({
-                    toolName,
-                    toolCallId,
-                    result: typeof result.data === 'string' ? result.data : JSON.stringify(result.data),
-                    success: result.success
-                });
-            } catch (error) {
-                const errorResult = {
-                    success: false,
-                    data: '',
-                    error: `Error executing tool: ${error}`
-                };
-                results.push(errorResult);
-                toolCallResults.push({
-                    toolName,
-                    toolCallId,
-                    result: `Error executing tool: ${error}`,
-                    success: false
-                });
-            }
-        }
-
-        // Get final response from provider with tool results, if it supports the method
-        let finalResponse: Response;
-        
-        if (this.llmProvider instanceof OpenAIProvider && toolCallResults.length > 0) {
-            try {
-                finalResponse = await this.llmProvider.getFinalResponse(input, toolCallResults, history);
-                
-                // Check if we still got tool calls in the final response (unexpected)
-                if (finalResponse.toolResults && finalResponse.toolResults.length > 0) {
-                    this.logger.warn('Got unexpected tool calls in final response, ignoring them', {
-                        toolCount: finalResponse.toolResults.length
-                    });
-                    // Ignore the tool calls, only use the content
-                }
-                
-                // Combine the responses
-                return {
-                    content: finalResponse.content,
-                    tokenCount: (response.tokenCount || 0) + (finalResponse.tokenCount || 0),
-                    toolResults: results
-                };
-            } catch (error) {
-                this.logger.error('Error getting final response', { error });
-                // Fall back to our standard response formatting
-            }
-        }
-        
-        // If we can't get a final response, format the tool results as content
-        let enhancedContent = response.content;
-        
-        if (results.length > 0) {
-            // Check if content is generic/default
-            const isGenericContent = 
-                response.content.includes('I need to use a tool') || 
-                response.content.length === 0;
-            
-            if (isGenericContent) {
-                const successfulResults = results.filter(r => r.success);
-                if (successfulResults.length > 0) {
-                    // Create a response based on the tool results
-                    enhancedContent = this.formatToolResultsAsContent(successfulResults);
-                }
-            } else {
-                // If content already has something meaningful, just append the tool results
-                if (results.some(r => r.success && r.data)) {
-                    enhancedContent += this.formatToolResultsAsSupplement(results);
-                }
-            }
-        }
-
-        // Return final response
-        return {
-            content: enhancedContent,
-            tokenCount: response.tokenCount,
-            toolResults: results
-        };
-    }
-
-    private formatToolResultsAsContent(results: ToolResponse[]): string {
-        if (results.length === 0) return '';
-        
-        // For a single result, format it nicely
-        if (results.length === 1) {
-            return results[0].data.toString();
-        }
-        
-        // For multiple results, format as a list
-        return results.map(r => r.data).join('\n\n');
-    }
-    
-    private formatToolResultsAsSupplement(results: ToolResponse[]): string {
-        const successfulResults = results.filter(r => r.success && r.data);
-        if (successfulResults.length === 0) return '';
-        
-        return '\n\n' + successfulResults.map(r => r.data).join('\n');
-    }
-
-    async executeTool(tool: ToolDefinition | string, args: Record<string, unknown>): Promise<ToolResponse> {
-        const toolName = typeof tool === 'string' ? tool : tool.name;
-        const toolDef = typeof tool === 'string' ? 
-            await this.container.getToolManager().getToolByName(tool) :
-            tool;
-
-        if (!toolDef) {
+            // Generate response directly
+            return await this.llmProvider.generateResponse(message, history, tools);
+        } catch (error) {
+            this.logger.error('Error in simple processing', { error });
             return {
-                success: false,
-                data: `Tool ${toolName} not found`,
-                error: 'Tool not found'
+                content: "I encountered an error processing your request.",
+                tokenCount: null,
+                toolResults: []
             };
         }
+    }
+
+    /**
+     * ReAct approach for complex queries
+     * This implementation handles a single reasoning step and tool execution
+     */
+    private async processWithReact(message: string, history: Input[]): Promise<Response> {
+        // Create session ID for tracking this interaction
+        const sessionId = uuid();
+        const userId = history.length > 0 ? `user-${history[0].content.substring(0, 10)}` : 'anonymous';
         
         try {
-            // Use the container's toolManager to execute tool
-            return await this.container.getToolManager().executeTool(toolName, args);
-        } catch (error) {
+            // Get tools
+            const tools = await this.toolManager.getAvailableTools();
+            
+            // Generate ReAct prompt
+            const systemPrompt = await this.promptGenerator.generateReActPrompt?.() ||
+                                 await this.promptGenerator.generatePrompt(message, tools, history);
+            
+            // Set the system prompt on the provider
+            this.llmProvider.setSystemPrompt(systemPrompt);
+            
+            // Start first reasoning step
+            this.logger.debug('Starting ReAct reasoning', { sessionId });
+            
+            // Generate initial response with tools enabled
+            const initialResponse = await this.llmProvider.generateResponse(message, history, tools);
+            
+            // Store in memory
+            await this.memoryProvider.store({
+                userId,
+                type: MemoryType.CONVERSATION,
+                content: {
+                    input: message,
+                    response: initialResponse.content
+                },
+                metadata: { sessionId, step: 0 }
+            });
+            
+            // If no tool calls, return the response directly
+            if (!initialResponse.toolResults || initialResponse.toolResults.length === 0) {
+                return initialResponse;
+            }
+            
+            // Process the first tool call
+            const toolResult = initialResponse.toolResults[0];
+            const toolName = toolResult.metadata?.toolName || '';
+            const toolArgs = toolResult.metadata?.arguments 
+                ? JSON.parse(toolResult.metadata.arguments) 
+                : {};
+            
+            this.logger.debug('Executing tool call', { 
+                tool: toolName,
+                sessionId 
+            });
+            
+            // Execute the tool
+            const result = await this.toolManager.executeTool(toolName, toolArgs);
+            
+            // Store tool result
+            await this.memoryProvider.store({
+                userId,
+                type: MemoryType.TOOL_USAGE,
+                content: result,
+                metadata: { sessionId, step: 0, toolName }
+            });
+            
+            // Extract reasoning from the initial response if possible
+            const reasoning = this.extractReasoning(initialResponse.content);
+            
+            // Generate final response based on tool result
+            let finalPrompt: string;
+            
+            if (this.promptGenerator.generateFollowUpPrompt) {
+                finalPrompt = await this.promptGenerator.generateFollowUpPrompt(
+                    message,
+                    reasoning,
+                    { name: toolName, parameters: toolArgs },
+                    result
+                );
+            } else {
+                // Fallback if the method is not implemented
+                finalPrompt = `Original request: ${message}\n\n` +
+                             `The tool ${toolName} returned these results:\n` +
+                             `${JSON.stringify(result, null, 2)}\n\n` +
+                             `Based on these results, please provide a helpful final response to the user.`;
+            }
+            
+            // Set system prompt to a simpler version for the final response
+            this.llmProvider.setSystemPrompt(
+                await this.promptGenerator.generateSimplePrompt?.() || 
+                await this.promptGenerator.generatePrompt(message, [], history)
+            );
+            
+            // Get final response without tools
+            const finalResponse = await this.llmProvider.generateResponse(finalPrompt, []);
+            
+            // Store final response
+            await this.memoryProvider.store({
+                userId,
+                type: MemoryType.CONVERSATION,
+                content: finalResponse.content,
+                metadata: { sessionId, isFinal: true }
+            });
+            
+            // Combine the tool results
             return {
+                content: finalResponse.content,
+                tokenCount: (initialResponse.tokenCount || 0) + (finalResponse.tokenCount || 0),
+                toolResults: [result]
+            };
+        } catch (error) {
+            this.logger.error('Error in ReAct processing', { error, sessionId });
+            return {
+                content: "I encountered an error processing your request.",
+                tokenCount: null,
+                toolResults: []
+            };
+        }
+    }
+    
+    /**
+     * Determine if a query is complex enough to warrant ReAct mode
+     */
+    private isComplexQuery(message: string): boolean {
+        // Simple heuristic - improve as needed
+        const complexPatterns = [
+            /search|find|research/i,
+            /explain|analyze|compare/i,
+            /github|repository|issue/i,
+            /\?.*\?/i, // Multiple questions
+            /step.*by.*step/i,
+            /create.*plan/i
+        ];
+        
+        return message.length > 100 || 
+            complexPatterns.some(pattern => pattern.test(message));
+    }
+    
+    /**
+     * Extract reasoning from a response
+     */
+    private extractReasoning(response: string): string {
+        // Try to find YAML blocks with reasoning
+        const yamlMatch = response.match(/```(?:yaml)?\s*([\s\S]*?)```/);
+        if (yamlMatch) {
+            const yamlContent = yamlMatch[1];
+            const reasoningMatch = yamlContent.match(/thought:[\s\S]*?reasoning:\s*"([^"]+)"/);
+            if (reasoningMatch && reasoningMatch[1]) {
+                return reasoningMatch[1];
+            }
+        }
+        
+        // If no structured reasoning found, return a portion of the response
+        return response.substring(0, 200) + (response.length > 200 ? '...' : '');
+    }
+
+    /**
+     * Execute a tool directly - required by Agent interface
+     */
+    async executeTool(tool: ToolDefinition, args: Record<string, unknown>): Promise<ToolResponse> {
+        try {
+            return await this.toolManager.executeTool(tool.name, args);
+        } catch (error) {
+            this.logger.error('Tool execution error', { 
+                tool: tool.name, 
+                error 
+            });
+            
+            return { 
                 success: false,
-                data: String(error),
-                error: 'Tool execution failed'
+                data: null,
+                error: error instanceof Error ? error.message : String(error)
             };
         }
     }
 
+    /**
+     * Clean up resources - required by Agent interface
+     */
     async cleanup(): Promise<void> {
-        // Nothing to clean up in this simplified version
+        // Nothing to clean up in this implementation
     }
 
+    /**
+     * Enable/disable debug mode - required by Agent interface
+     */
     setDebugMode(enabled: boolean): void {
-        // Debug mode not needed in simplified version
+        // Debug mode not implemented in this version
     }
 
+    /**
+     * Get the last thought process - required by Agent interface
+     */
     getLastThoughtProcess(): ThoughtProcess | null {
-        return null; // Not tracking thought process in simplified version
+        // Not tracking thought process in this version
+        return null;
     }
 }

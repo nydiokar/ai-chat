@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { ContextScoringService } from '../../../services/memory/context-scoring.service.js';
+import { ContextScoringService } from '../../../services/performance/context-scoring.service.js';
 import { ConversationContext, ConversationMessage } from '../../../types/memory.js';
 
 describe('ContextScoringService', () => {

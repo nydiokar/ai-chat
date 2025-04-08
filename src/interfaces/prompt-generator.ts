@@ -17,4 +17,31 @@ export interface PromptGenerator {
     tools: ToolDefinition[],
     history?: Input[]
   ): Promise<string>;
+  
+  /**
+   * Generate a simple prompt for direct interactions without reasoning
+   * @returns Promise resolving to a simple prompt string
+   */
+  generateSimplePrompt?(): Promise<string>;
+  
+  /**
+   * Generate a ReAct-specific prompt that encourages reasoning
+   * @returns Promise resolving to a ReAct formatted prompt string
+   */
+  generateReActPrompt?(): Promise<string>;
+  
+  /**
+   * Generate a follow-up prompt after tool execution
+   * @param originalMessage Original user query
+   * @param reasoning Extracted reasoning from initial response
+   * @param toolCall Tool call information
+   * @param toolResult Result from tool execution
+   * @returns Promise resolving to a follow-up prompt string
+   */
+  generateFollowUpPrompt?(
+    originalMessage: string,
+    reasoning: string,
+    toolCall: {name: string, parameters: any},
+    toolResult: any
+  ): Promise<string>;
 } 

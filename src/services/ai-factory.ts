@@ -9,6 +9,7 @@ import { createLogContext, createErrorContext } from '../utils/log-utils.js';
 import { mcpConfig } from '../mcp_config.js';
 import { defaultConfig } from '../utils/config.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
+import { MemoryProvider, MemoryType } from '../interfaces/memory-provider.js';
 
 export class AIFactory {
     private static container: MCPContainer | null = null;
@@ -102,7 +103,7 @@ export class AIFactory {
     /**
      * Create an agent with optional model and name
      */
-    static create(model?: string, agentName?: string): Agent {
+    static create(model?: string, agentName?: string, memoryProvider?: MemoryProvider): Agent {
         if (!this.container || !this.toolManager) {
             throw new MCPError(
                 'AIFactory not initialized',
@@ -144,10 +145,20 @@ export class AIFactory {
             // Create prompt generator
             const promptGenerator = new ReActPromptGenerator();
             
+            // If a memory provider wasn't passed in, throw an error
+            if (!memoryProvider) {
+                throw new MCPError(
+                    'Memory provider is required',
+                    ErrorType.INITIALIZATION_ERROR
+                );
+            }
+            
             // Create and return agent
             return new ReActAgent(
                 this.container,
                 provider,
+                memoryProvider,
+                this.toolManager,
                 promptGenerator,
                 agentName // Pass custom name if provided
             ) as Agent;

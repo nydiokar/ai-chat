@@ -11,8 +11,10 @@ import {
     ChatCompletionMessageParam,
     ChatCompletionTool, 
     ChatCompletion,
-    ChatCompletionToolMessageParam
+    ChatCompletionToolMessageParam,
+    ChatCompletionMessageToolCall,
 } from 'openai/resources/chat/completions.js';
+import { FunctionDefinition } from 'openai/resources/shared.js';
 import { ToolDefinition } from '../tools/mcp/types/tools.js';
 
 export class OpenAIProvider implements LLMProvider {
@@ -22,10 +24,11 @@ export class OpenAIProvider implements LLMProvider {
     private systemPrompt: string = '';
     private messageCache: CacheService;
 
-    constructor(config: BaseConfig) {
+    constructor(private readonly config: BaseConfig) {
         this.client = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
-            maxRetries: config.openai.maxRetries || 3
+            maxRetries: config.openai.maxRetries,
+            timeout: config.openai.timeout
         });
         this.model = config.openai.model;
         this.temperature = config.openai.temperature;
@@ -35,7 +38,7 @@ export class OpenAIProvider implements LLMProvider {
             type: CacheType.PERSISTENT,
             namespace: 'openai-messages',
             ttl: 3600, // 1 hour
-            filename: 'openai-cache.json'
+            filename: 'cache/openai-cache.json'
         });
     }
 
@@ -70,7 +73,7 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             // Convert conversation history to OpenAI format
-            const messages = this.convertToCompletionMessages(message, conversationHistory);
+            const messages: ChatCompletionMessageParam[] = this.convertToCompletionMessages(message, conversationHistory);
             
             // Add system prompt if set
             if (this.systemPrompt) {
@@ -140,10 +143,10 @@ export class OpenAIProvider implements LLMProvider {
                 tokenCount: completion.usage?.total_tokens ?? null,
                 toolResults
             };
-
-            // Cache and return the response
+            
             await this.messageCache.set(cacheKey, response);
             return response;
+            
         } catch (err) {
             debug('Error generating response', createLogContext(
                 'OpenAIProvider',
@@ -155,12 +158,6 @@ export class OpenAIProvider implements LLMProvider {
                 throw err;
             }
 
-            // Handle rate limiting
-            if (err instanceof OpenAI.RateLimitError) {
-                throw MCPError.rateLimitExceeded(this.model);
-            }
-
-            // Handle API errors
             throw MCPError.apiError(this.model, err);
         }
     }
@@ -186,7 +183,7 @@ export class OpenAIProvider implements LLMProvider {
             ));
 
             // Convert conversation history to OpenAI format
-            const messages = this.convertToCompletionMessages(originalMessage, conversationHistory);
+            const messages: ChatCompletionMessageParam[] = this.convertToCompletionMessages(originalMessage, conversationHistory);
             
             // Add system prompt if set
             if (this.systemPrompt) {
@@ -194,28 +191,31 @@ export class OpenAIProvider implements LLMProvider {
             }
             
             // Add assistant's tool calls
+            const toolCalls: ChatCompletionMessageToolCall[] = toolResults.map(result => ({
+                id: result.toolCallId,
+                type: 'function',
+                function: {
+                    name: this.sanitizeToolName(result.toolName),
+                    arguments: '{}'  // Arguments are simplified here
+                }
+            }));
+
             const assistantMessage: ChatCompletionMessageParam = {
                 role: 'assistant',
                 content: null,
-                tool_calls: toolResults.map(result => ({
-                    id: result.toolCallId,
-                    type: 'function',
-                    function: {
-                        name: result.toolName,
-                        arguments: '{}'  // Arguments are simplified here
-                    }
-                }))
+                tool_calls: toolCalls
             };
             
             messages.push(assistantMessage);
 
             // Add tool results
             for (const result of toolResults) {
-                messages.push({
+                const toolMessage: ChatCompletionToolMessageParam = {
                     role: 'tool',
                     tool_call_id: result.toolCallId,
                     content: result.success ? result.result : `Error: ${result.result}`
-                } as ChatCompletionToolMessageParam);
+                };
+                messages.push(toolMessage);
             }
 
             // Get final completion with tool results
@@ -258,6 +258,7 @@ export class OpenAIProvider implements LLMProvider {
         this.systemPrompt = prompt;
     }
 
+    // Implement LLMProvider interface methods
     getModel(): string {
         return this.model;
     }
@@ -272,7 +273,7 @@ export class OpenAIProvider implements LLMProvider {
     ): ChatCompletionMessageParam[] {
         const messages: ChatCompletionMessageParam[] = [];
 
-        if (history) {
+        if (history && history.length > 0) {
             messages.push(...history.map(msg => this.convertToCompletionMessage(msg)));
         }
 
@@ -288,11 +289,52 @@ export class OpenAIProvider implements LLMProvider {
                 tool_call_id: msg.tool_call_id
             } as ChatCompletionToolMessageParam;
         }
-        return {
-            role: msg.role as any,
-            content: msg.content,
-            name: msg.name
-        };
+        
+        // Handle developer role by mapping to user for OpenAI
+        if (msg.role === 'developer') {
+            return {
+                role: 'user',
+                content: msg.content,
+                ...(msg.name ? { name: msg.name } : {})
+            };
+        }
+        
+        // Handle different roles properly based on their requirements
+        switch (msg.role) {
+            case 'system':
+                return {
+                    role: 'system',
+                    content: msg.content,
+                    ...(msg.name ? { name: msg.name } : {})
+                };
+            case 'user':
+                return {
+                    role: 'user',
+                    content: msg.content,
+                    ...(msg.name ? { name: msg.name } : {})
+                };
+            case 'assistant':
+                return {
+                    role: 'assistant',
+                    content: msg.content,
+                    ...(msg.name ? { name: msg.name } : {})
+                };
+            case 'function':
+                if (!msg.name) {
+                    throw new Error('Function messages must have a name');
+                }
+                return {
+                    role: 'function',
+                    name: msg.name,
+                    content: msg.content
+                };
+            default:
+                // Fallback for unknown roles
+                return {
+                    role: 'user',
+                    content: msg.content
+                };
+        }
     }
 
     private async createCompletionWithToolChoice(
@@ -300,18 +342,22 @@ export class OpenAIProvider implements LLMProvider {
         tools?: ToolDefinition[]
     ): Promise<ChatCompletion> {
         // Format tools for OpenAI function calling
-        const formattedTools: ChatCompletionTool[] | undefined = tools?.map(tool => ({
-            type: 'function',
-            function: {
+        const formattedTools: ChatCompletionTool[] | undefined = tools?.map(tool => {
+            const functionDefinition: FunctionDefinition = {
                 name: this.sanitizeToolName(tool.name),
                 description: tool.description,
                 parameters: {
                     type: 'object',
                     properties: tool.inputSchema.properties,
-                    required: tool.inputSchema.required
+                    required: tool.inputSchema.required || []
                 }
-            }
-        }));
+            };
+            
+            return {
+                type: 'function',
+                function: functionDefinition
+            };
+        });
 
         const hasTools = formattedTools && formattedTools.length > 0;
 
@@ -323,8 +369,9 @@ export class OpenAIProvider implements LLMProvider {
             temperature: this.temperature
         });
     }
-
+    
     private sanitizeToolName(name: string): string {
-        return name.replace(/[-\s]/g, '_').toLowerCase();
+        // Remove any characters that might cause issues with OpenAI function calling
+        return name.replace(/[^\w\d_-]/g, '_');
     }
 } 

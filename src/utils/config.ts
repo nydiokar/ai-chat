@@ -134,6 +134,7 @@ export interface BaseConfig {
     model: string;
     temperature: number;
     maxRetries: number;
+    timeout?: number;  // Timeout in milliseconds for API requests
   };
   discord: {
     enabled: boolean;
@@ -167,7 +168,8 @@ export const defaultConfig: BaseConfig = {
   openai: {
     model: getOpenAIModel(getAIProvider()),
     temperature: Number(process.env.OPENAI_TEMPERATURE) || 0.7,
-    maxRetries: Number(process.env.OPENAI_MAX_RETRIES) || 3
+    maxRetries: Number(process.env.OPENAI_MAX_RETRIES) || 3,
+    timeout: Number(process.env.OPENAI_TIMEOUT) || 60000  // Default 60s timeout
   },
   discord: {
     enabled: process.env.DISCORD_ENABLED === 'true',

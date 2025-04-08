@@ -4,6 +4,8 @@ import { inject, injectable } from 'inversify';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
 import { debug } from '../../../utils/logger.js';
+import { getLogger } from '../../../utils/shared-logger.js';
+import { createLogContext, createErrorContext } from '../../../utils/log-utils.js';
 
 @injectable()
 export class BaseToolManager implements IToolManager {
@@ -13,6 +15,7 @@ export class BaseToolManager implements IToolManager {
     protected serverConfigs: Map<string, ServerConfig>;
     protected readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
     private lastCacheRefresh: number = 0;
+    protected readonly logger = getLogger('ToolManager');
 
     constructor(
         @inject('ClientsMap') clientsMap: Map<string, string>, 
@@ -65,16 +68,27 @@ export class BaseToolManager implements IToolManager {
     }
 
     public async executeTool(name: string, args: any): Promise<ToolResponse> {
-        console.log(`Executing tool: ${name}`);
+        this.logger.info('Tool execution requested', createLogContext(
+            'ToolManager',
+            'executeTool',
+            {
+                toolName: name,
+                args: JSON.stringify(args)
+            }
+        ));
         
         const tool = await this.getToolByName(name);
         if (!tool) {
-            const error = `Tool ${name} not found`;
-            console.error(error);
+            const errorMsg = `Tool ${name} not found`;
+            this.logger.warn('Tool not found', createLogContext(
+                'ToolManager',
+                'executeTool',
+                { toolName: name }
+            ));
             return {
                 success: false,
                 data: null,
-                error
+                error: errorMsg
             };
         }
 
@@ -82,10 +96,39 @@ export class BaseToolManager implements IToolManager {
         const handler = this.handlers.get(name);
         if (handler) {
             try {
-                return handler(args);
+                this.logger.debug('Executing local handler', createLogContext(
+                    'ToolManager',
+                    'executeTool',
+                    { 
+                        toolName: name,
+                        handlerType: 'local'
+                    }
+                ));
+                
+                const result = await handler(args);
+                
+                this.logger.info('Local handler execution completed', createLogContext(
+                    'ToolManager',
+                    'executeTool',
+                    { 
+                        toolName: name,
+                        success: result.success
+                    }
+                ));
+                
+                return result;
             } catch (error) {
                 const errorMsg = `Error executing local handler for ${name}: ${error instanceof Error ? error.message : String(error)}`;
-                console.error(errorMsg);
+                
+                this.logger.error('Local handler execution failed', createErrorContext(
+                    'ToolManager',
+                    'executeTool',
+                    'System',
+                    'HANDLER_EXECUTION_ERROR',
+                    error,
+                    { toolName: name }
+                ));
+                
                 return {
                     success: false,
                     data: null,
@@ -97,25 +140,90 @@ export class BaseToolManager implements IToolManager {
         // Get the appropriate client for this tool
         const client = this.clientsMap.get(tool.server?.id || '');
         if (!client) {
-            const error = `No client found for server ${tool.server?.id}`;
-            console.error(error);
+            const errorMsg = `No client found for server ${tool.server?.id}`;
+            
+            this.logger.error('No client for server', createErrorContext(
+                'ToolManager',
+                'executeTool',
+                'System',
+                'CLIENT_NOT_FOUND',
+                new Error(errorMsg),
+                { 
+                    toolName: name,
+                    serverId: tool.server?.id || 'unknown'
+                }
+            ));
+            
             return {
                 success: false,
                 data: null,
-                error
+                error: errorMsg
             };
         }
         
         // Execute with the client
         try {
-            return client.callTool(name, args);
+            this.logger.debug('Calling remote tool', createLogContext(
+                'ToolManager',
+                'executeTool',
+                { 
+                    toolName: name,
+                    serverId: tool.server?.id || 'unknown'
+                }
+            ));
+            
+            const result = await client.callTool(name, args);
+            
+            this.logger.info('Remote tool execution completed', createLogContext(
+                'ToolManager',
+                'executeTool',
+                { 
+                    toolName: name,
+                    serverId: tool.server?.id || 'unknown',
+                    success: result.success
+                }
+            ));
+            
+            // If the result wasn't successful but doesn't have an error field,
+            // add one to ensure consistent error handling
+            if (!result.success && !result.error) {
+                result.error = `Tool execution failed without specific error`;
+                this.logger.warn('Tool returned unsuccessful result without error details', createLogContext(
+                    'ToolManager',
+                    'executeTool',
+                    { 
+                        toolName: name,
+                        serverId: tool.server?.id || 'unknown'
+                    }
+                ));
+            }
+            
+            return result;
         } catch (error) {
             const errorMsg = `Error calling remote tool ${name}: ${error instanceof Error ? error.message : String(error)}`;
-            console.error(errorMsg);
+            
+            this.logger.error('Remote tool execution failed', createErrorContext(
+                'ToolManager',
+                'executeTool',
+                'MCP',
+                'TOOL_EXECUTION_ERROR',
+                error,
+                { 
+                    toolName: name,
+                    serverId: tool.server?.id || 'unknown',
+                    args: JSON.stringify(args)
+                }
+            ));
+            
             return {
                 success: false,
                 data: null,
-                error: errorMsg
+                error: errorMsg,
+                // Add original error for better debugging
+                metadata: {
+                    originalError: error instanceof Error ? error.message : String(error),
+                    errorType: error instanceof Error ? error.name : 'Unknown'
+                }
             };
         }
     }

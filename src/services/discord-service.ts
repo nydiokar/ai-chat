@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message, REST, Routes } from 'discord.js';
 import { DatabaseService } from './db-service.js';
-import { AIModel, Message as DBMessage, Role, Model } from '../types/index.js';
+import { AIModel, MessageRole, Message as DBMessage, Role, Model } from '../types/index.js';
 import { AIFactory } from './ai-factory.js';
 import { defaultConfig } from '../utils/config.js';
 import { debug, error as logError } from '../utils/logger.js';
@@ -10,7 +10,7 @@ import { mcpConfig } from '../mcp_config.js';
 import { CacheService, CacheType } from './cache/cache-service.js';
 import { DiscordContext, DiscordCachedMessage, DiscordCachedConversation } from '../types/discord.js';
 import { hotTokensCommands, handleHotTokensCommand } from '../features/hot-tokens/commands/hot-tokens-commands.js';
-import { taskCommands, handleTaskCommand } from '../tasks/commands/task-commands.js';
+import { taskCommands, handleTaskCommand } from '../features/tasks/commands/task-commands.js';
 import { pulseCommand, handlePulseCommand } from '../features/pulse-mcp/commands/pulse-discord-command.js';
 import { HotTokensService } from '../features/hot-tokens/services/hot-tokens-service.js';
 import { PrismaClient } from '@prisma/client';
@@ -20,9 +20,8 @@ import type { CacheConfig } from '../types/cache/base.js';
 import { createLogContext } from '../utils/log-utils.js';
 import { Agent } from '../interfaces/agent.js';
 import { Input } from '../types/common.js';
-import { MessageRole } from '../types/index.js';
-import { AIProviders } from '../utils/config.js';
 import { ReActAgent } from '../agents/react-agent.js';
+import { MemoryFactory } from '../memory/memory-factory.js';
 
 export class DiscordService {
     private client: Client;
@@ -243,7 +242,12 @@ export class DiscordService {
             let service: Agent;
             const existingService = this.aiServices.get(conversation.id.toString());
             if (!existingService) {
-                service = AIFactory.create(conversation.model as AIModel);
+                // Create a memory provider using the MemoryFactory
+                const memoryFactory = MemoryFactory.getInstance();
+                const memoryProvider = await memoryFactory.getProvider();
+                
+                // Create the agent with the memory provider
+                service = AIFactory.create(conversation.model as AIModel, undefined, memoryProvider);
                 this.aiServices.set(conversation.id.toString(), service);
             } else {
                 service = existingService;

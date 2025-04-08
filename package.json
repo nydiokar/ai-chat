@@ -1,6 +1,6 @@
 {
   "name": "them",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -36,7 +36,8 @@
     "db:generate:dev": "cross-env NODE_ENV=development node scripts/manage-db.js generate",
     "db:generate:prod": "cross-env NODE_ENV=production node scripts/manage-db.js generate",
     "db:migrate:dev": "cross-env NODE_ENV=development node scripts/manage-db.js migrate",
-    "db:migrate:prod": "cross-env NODE_ENV=production node scripts/manage-db.js migrate"
+    "db:migrate:prod": "cross-env NODE_ENV=production node scripts/manage-db.js migrate",
+    "diagnose:github": "node scripts/diagnose-github.js"
   },
   "bin": {
     "them": "./dist/index.js",
