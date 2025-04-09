@@ -1,6 +1,6 @@
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
-import { TaskVisualizationService } from '../../tasks/task-visualization.service.js';
+import { TaskVisualizationService } from '../../features/tasks/task-visualization.service.js';
 import { DependencyType, TaskPriority, TaskStatus, TaskWithRelations } from '../../types/task.js';
 
 describe('TaskVisualizationService', () => {

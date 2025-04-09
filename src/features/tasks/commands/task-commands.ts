@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { TaskManager } from '../task-manager.js';
-import { TaskStatus, TaskPriority } from '../../types/task.js';
+import { TaskStatus, TaskPriority } from '../../../types/task.js';
 import { PrismaClient } from '@prisma/client';
 
 export const taskCommands = new SlashCommandBuilder()
@@ -269,16 +269,16 @@ export async function handleTaskCommand(interaction: ChatInputCommandInteraction
                 } else {
                     // Filter by status if provided
                     const createdTasks = status 
-                        ? tasks.created.filter(task => task.status === status)
+                        ? tasks.created.filter((task: any) => task.status === status)
                         : tasks.created;
                         
                     const assignedTasks = status
-                        ? tasks.assigned.filter(task => task.status === status)
+                        ? tasks.assigned.filter((task: any) => task.status === status)
                         : tasks.assigned;
                     
                     if (createdTasks.length > 0) {
                         response += '✨ **Created by you:**\n\n';
-                        createdTasks.forEach(task => {
+                        createdTasks.forEach((task: any) => {
                             const statusEmoji = getStatusEmoji(task.status);
                             const priorityEmoji = getPriorityEmoji(task.priority);
                             
@@ -304,7 +304,7 @@ export async function handleTaskCommand(interaction: ChatInputCommandInteraction
                     
                     if (assignedTasks.length > 0) {
                         response += '📋 **Assigned to you:**\n\n';
-                        assignedTasks.forEach(task => {
+                        assignedTasks.forEach((task: any) => {
                             const statusEmoji = getStatusEmoji(task.status);
                             const priorityEmoji = getPriorityEmoji(task.priority);
                             
@@ -346,7 +346,7 @@ export async function handleTaskCommand(interaction: ChatInputCommandInteraction
             }
             
             case 'stats': {
-                const performanceMonitoring = await import('../../services/performance/performance-monitoring.service.js');
+                const performanceMonitoring = await import('../../../services/performance/performance-monitoring.service.js');
                 const metrics = await performanceMonitoring.PerformanceMonitoringService.getInstance().generatePerformanceDashboard();
                 const taskMetrics = metrics.taskMetrics;
 

@@ -10,10 +10,17 @@ import { mcpConfig } from '../mcp_config.js';
 import { defaultConfig } from '../utils/config.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { MemoryProvider, MemoryType } from '../interfaces/memory-provider.js';
+import { AgentFactory } from '../agents/agent-factory.js';
 
+/**
+ * Main application factory for creating AI agents with proper configuration.
+ * This factory handles initialization, configuration, and dependency creation.
+ * It is the recommended entry point for creating agents in the application.
+ */
 export class AIFactory {
     private static container: MCPContainer | null = null;
     private static toolManager: IToolManager | null = null;
+    private static agentInstance: Agent | null = null;
     
     /**
      * Initialize the factory with MCP configuration
@@ -101,9 +108,11 @@ export class AIFactory {
     }
 
     /**
-     * Create an agent with optional model and name
+     * Create an agent with optional model and name.
+     * This is the main entry point for creating agents in the application.
+     * It handles all necessary configuration and dependency creation.
      */
-    static create(model?: string, agentName?: string, memoryProvider?: MemoryProvider): Agent {
+    static async create(model?: string, agentName?: string, memoryProvider?: MemoryProvider): Promise<Agent> {
         if (!this.container || !this.toolManager) {
             throw new MCPError(
                 'AIFactory not initialized',
@@ -112,6 +121,11 @@ export class AIFactory {
         }
         
         try {
+            // If we already have an agent instance, return it
+            if (this.agentInstance) {
+                return this.agentInstance;
+            }
+
             // Log creation attempt
             info('Creating agent', createLogContext(
                 'AIFactory',
@@ -143,7 +157,7 @@ export class AIFactory {
             const provider = new OpenAIProvider(config);
             
             // Create prompt generator
-            const promptGenerator = new ReActPromptGenerator();
+            const promptGenerator = new ReActPromptGenerator(this.toolManager);
             
             // If a memory provider wasn't passed in, throw an error
             if (!memoryProvider) {
@@ -153,15 +167,17 @@ export class AIFactory {
                 );
             }
             
-            // Create and return agent
-            return new ReActAgent(
+            // Create agent using AgentFactory to maintain singleton pattern
+            this.agentInstance = await AgentFactory.createReActAgent(
                 this.container,
                 provider,
                 memoryProvider,
                 this.toolManager,
                 promptGenerator,
-                agentName // Pass custom name if provided
-            ) as Agent;
+                agentName
+            );
+
+            return this.agentInstance;
         } catch (err) {
             // Handle errors
             error('Failed to create agent', createErrorContext(
@@ -181,11 +197,15 @@ export class AIFactory {
     }
 
     /**
-     * Clean up factory resources
+     * Clean up resources and reset the factory state
      */
     static cleanup(): void {
         this.container = null;
         this.toolManager = null;
+        if (this.agentInstance) {
+            this.agentInstance.cleanup();
+            this.agentInstance = null;
+        }
         
         debug('AIFactory cleaned up', createLogContext(
             'AIFactory',

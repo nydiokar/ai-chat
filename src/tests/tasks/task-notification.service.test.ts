@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { TaskNotificationService } from '../../tasks/task-notification.service.js';
+import { TaskNotificationService } from '../../features/tasks/task-notification.service.js';
 import { NotificationService } from '../../services/notification.service.js';
 import { TaskWithRelations, TaskStatus, TaskPriority, DependencyType } from '../../types/task.js';
 import { PrismaClient } from '@prisma/client';

@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { RecurrencePatternService } from '../../tasks/recurrence-pattern.service.js';
+import { RecurrencePatternService } from '../../features/tasks/recurrence-pattern.service.js';
 import { RecurrencePattern, RecurrenceType } from '../../types/task.js';
 
 describe('RecurrencePatternService', () => {

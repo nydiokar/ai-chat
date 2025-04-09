@@ -1,5 +1,5 @@
 import { RecurrencePatternService } from './recurrence-pattern.service.js';
-import { TaskRepository } from '../tasks/task-repository.js';
+import { TaskRepository } from './task-repository.js';
 import { 
   RecurrencePattern, 
   TaskWithRelations, 
@@ -7,7 +7,7 @@ import {
   TaskStatus, 
   TaskHistoryEntry,
   TaskHistoryAction 
-} from '../types/task.js';
+} from '../../types/task.js';
 
 
 /**

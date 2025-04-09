@@ -40,7 +40,8 @@ const servers: Record<string, any> = {
         env: {
             BRAVE_API_KEY: process.env.BRAVE_API_KEY
         }
-    }
+    },
+    
 };
 
 // Filter only explicitly disabled servers

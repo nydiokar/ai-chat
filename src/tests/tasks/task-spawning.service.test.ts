@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { TaskSpawningService } from '../../tasks/task-spawning.service.js';
-import { TaskRepository } from '../../tasks/task-repository.js';
-import { RecurrencePatternService } from '../../tasks/recurrence-pattern.service.js';
+import { TaskSpawningService } from '../../features/tasks/task-spawning.service.js';
+import { TaskRepository } from '../../features/tasks/task-repository.js';
+import { RecurrencePatternService } from '../../features/tasks/recurrence-pattern.service.js';
 import { 
   TaskWithRelations, 
   RecurrencePattern, 

@@ -339,6 +339,6 @@ describe('ToolChainExecutor', function() {
     expect(result.data[0]).to.deep.equal({ step: 1 });
 
     // Verify metadata
-    expect(result.metadata?.toolName).to.equal('error'); // The failing tool's name
+    expect(result.metadata?.toolName).to.equal('error');
   });
 });

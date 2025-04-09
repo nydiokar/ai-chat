@@ -1,6 +1,5 @@
 import { TaskRepository } from '../tasks/task-repository.js';
-
-import { debug } from '../utils/logger.js';
+import { debug } from '../../utils/logger.js';
 import {
   CreateTaskDTO,
   UpdateTaskDTO,
@@ -10,7 +9,7 @@ import {
   TaskListResult,
   UserTasks,
   TaskHistoryAction,
-} from '../types/task.js';
+} from '../../types/task.js';
 
 export class TaskManagerError extends Error {
   constructor(message: string, public cause?: Error) {

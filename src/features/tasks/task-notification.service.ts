@@ -1,5 +1,5 @@
-import { TaskStatus, TaskWithRelations } from '../types/task.js';
-import { NotificationService } from '../services/notification.service.js';
+import { TaskStatus, TaskWithRelations } from '../../types/task.js';
+import { NotificationService } from '../../services/notification.service.js';
 import { PrismaClient } from '@prisma/client';
 
 /**

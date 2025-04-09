@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
-import { DatabaseError } from '../services/db-service.js';
-import { debug } from '../utils/logger.js';
+import { DatabaseError } from '../../services/db-service.js';
+import { debug } from '../../utils/logger.js';
 import { 
   CreateTaskDTO, 
   UpdateTaskDTO,
@@ -9,7 +9,7 @@ import {
   TaskWithRelations,
   TaskFilters,
   TaskHistoryEntry
-} from '../types/task.js';
+} from '../../types/task.js';
 
 const PrismaTaskStatus = TaskStatus;
 const PrismaTaskPriority = TaskPriority;

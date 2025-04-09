@@ -70,25 +70,14 @@ export class ReActAgent implements Agent {
 
     /**
      * Process a message using either simple mode or ReAct reasoning
-     * @param message User's input message
-     * @param conversationHistory Previous conversation history
-     * @returns Response with content and any tool results
      */
     async processMessage(message: string, conversationHistory?: Input[]): Promise<Response> {
-        // Determine if we should use ReAct mode
-        const useReactMode = this.isComplexQuery(message);
-        
-        if (useReactMode) {
-            this.logger.debug('Using ReAct mode for processing', { messageLength: message.length });
-            return this.processWithReact(message, conversationHistory || []);
-        } else {
-            this.logger.debug('Using simple mode for processing', { messageLength: message.length });
-            return this.processSimple(message, conversationHistory || []);
-        }
+        this.logger.debug('Processing message in simple mode', { messageLength: message.length });
+        return this.processSimple(message, conversationHistory || []);
     }
 
     /**
-     * Simple direct approach - just a basic function call
+     * Simple direct approach - handles both direct responses and single tool executions
      */
     private async processSimple(message: string, history: Input[]): Promise<Response> {
         try {
@@ -96,14 +85,52 @@ export class ReActAgent implements Agent {
             const tools = await this.toolManager.getAvailableTools();
             
             // Generate simple prompt
-            const systemPrompt = await this.promptGenerator.generateSimplePrompt?.() || 
-                                 await this.promptGenerator.generatePrompt(message, tools, history);
-            
-            // Set the system prompt on the provider
+            const systemPrompt = await this.promptGenerator.generateSimplePrompt();
             this.llmProvider.setSystemPrompt(systemPrompt);
             
-            // Generate response directly
-            return await this.llmProvider.generateResponse(message, history, tools);
+            // Generate response with tools enabled
+            const response = await this.llmProvider.generateResponse(message, history, tools);
+            this.logger.debug('Generated response', { 
+                hasToolResults: response.toolResults?.length > 0 
+            });
+
+            // If no tool calls, return the response directly
+            if (!response.toolResults || response.toolResults.length === 0) {
+                return response;
+            }
+
+            // Handle tool execution
+            const toolCall = response.toolResults[0];
+            const toolName = toolCall.metadata?.toolName;
+            const toolArgs = toolCall.metadata?.arguments ? JSON.parse(toolCall.metadata.arguments) : {};
+
+            this.logger.debug('Executing tool', { toolName, args: toolArgs });
+            
+            // Execute the tool
+            const result = await this.toolManager.executeTool(toolName, toolArgs);
+            
+            // Store the result in memory
+            await this.memoryProvider.store({
+                userId: 'system',
+                type: MemoryType.TOOL_USAGE,
+                content: result,
+                metadata: { toolName }
+            });
+
+            // Generate final response based on tool result
+            const finalPrompt = `Original request: ${message}\n\nThe tool ${toolName} returned these results:\n${JSON.stringify(result.data || result, null, 2)}\n\nBased on these results, please provide a helpful final response to the user.`;
+            
+            this.logger.debug('Generating final response with tool results', { finalPrompt });
+            
+            // Get final response without tools
+            const finalResponse = await this.llmProvider.generateResponse(finalPrompt, []);
+
+            // Return combined response with tool results
+            return {
+                content: finalResponse.content,
+                tokenCount: (response.tokenCount || 0) + (finalResponse.tokenCount || 0),
+                toolResults: [result]
+            };
         } catch (error) {
             this.logger.error('Error in simple processing', { error });
             return {
@@ -128,8 +155,7 @@ export class ReActAgent implements Agent {
             const tools = await this.toolManager.getAvailableTools();
             
             // Generate ReAct prompt
-            const systemPrompt = await this.promptGenerator.generateReActPrompt?.() ||
-                                 await this.promptGenerator.generatePrompt(message, tools, history);
+            const systemPrompt = await this.promptGenerator.generateSimplePrompt();
             
             // Set the system prompt on the provider
             this.llmProvider.setSystemPrompt(systemPrompt);
@@ -163,13 +189,12 @@ export class ReActAgent implements Agent {
                 ? JSON.parse(toolResult.metadata.arguments) 
                 : {};
             
-            this.logger.debug('Executing tool call', { 
-                tool: toolName,
-                sessionId 
-            });
+            this.logger.debug('Executing tool call', { tool: toolName, sessionId });
             
             // Execute the tool
             const result = await this.toolManager.executeTool(toolName, toolArgs);
+            
+            this.logger.debug('Tool execution result', { result });
             
             // Store tool result
             await this.memoryProvider.store({
@@ -183,31 +208,20 @@ export class ReActAgent implements Agent {
             const reasoning = this.extractReasoning(initialResponse.content);
             
             // Generate final response based on tool result
-            let finalPrompt: string;
+            let finalPrompt = `Original request: ${message}\n\n` +
+                            `The tool ${toolName} returned these results:\n` +
+                            `${JSON.stringify(result, null, 2)}\n\n` +
+                            `Based on these results, please provide a helpful final response to the user.`;
             
-            if (this.promptGenerator.generateFollowUpPrompt) {
-                finalPrompt = await this.promptGenerator.generateFollowUpPrompt(
-                    message,
-                    reasoning,
-                    { name: toolName, parameters: toolArgs },
-                    result
-                );
-            } else {
-                // Fallback if the method is not implemented
-                finalPrompt = `Original request: ${message}\n\n` +
-                             `The tool ${toolName} returned these results:\n` +
-                             `${JSON.stringify(result, null, 2)}\n\n` +
-                             `Based on these results, please provide a helpful final response to the user.`;
-            }
+            this.logger.debug('Final prompt for response generation', { finalPrompt });
             
             // Set system prompt to a simpler version for the final response
-            this.llmProvider.setSystemPrompt(
-                await this.promptGenerator.generateSimplePrompt?.() || 
-                await this.promptGenerator.generatePrompt(message, [], history)
-            );
+            this.llmProvider.setSystemPrompt(await this.promptGenerator.generateSimplePrompt());
             
             // Get final response without tools
             const finalResponse = await this.llmProvider.generateResponse(finalPrompt, []);
+            
+            this.logger.debug('Final response content', { content: finalResponse.content });
             
             // Store final response
             await this.memoryProvider.store({

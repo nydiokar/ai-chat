@@ -27,7 +27,7 @@ export class DiscordService {
     private client: Client;
     private db: DatabaseService;
     private static instances: Map<string, DiscordService> = new Map();
-    private aiServices: Map<string, Agent> = new Map();
+    private agent: Agent | null = null;
     private readonly contextRefreshInterval = 30 * 60 * 1000;
     private contextSummaryTasks: Map<string, NodeJS.Timeout> = new Map();
     private lastActivityTimestamps: Map<string, number> = new Map();
@@ -88,6 +88,18 @@ export class DiscordService {
         }
     }
 
+    private async getAgent(): Promise<Agent> {
+        if (!this.agent) {
+            // Create a memory provider using the MemoryFactory
+            const memoryFactory = MemoryFactory.getInstance();
+            const memoryProvider = await memoryFactory.getProvider();
+            
+            // Create the agent with the memory provider
+            this.agent = await AIFactory.create(defaultConfig.openai.model as AIModel, undefined, memoryProvider);
+        }
+        return this.agent;
+    }
+
     private async handleMessage(message: Message): Promise<void> {
         if (message.author.bot) return;
 
@@ -120,14 +132,14 @@ export class DiscordService {
         if (cleanContent.toLowerCase().startsWith('debug')) {
             const args = cleanContent.split(' ');
             if (args[1]?.toLowerCase() === 'on') {
-                const service = this.aiServices.get(message.channelId);
+                const service = await this.getAgent();
                 if (service && service instanceof ReActAgent) {
                     service.setDebugMode(true);
                     await message.reply('Debug mode enabled - showing full thought process');
                 }
                 return;
             } else if (args[1]?.toLowerCase() === 'off') {
-                const service = this.aiServices.get(message.channelId);
+                const service = await this.getAgent();
                 if (service && service instanceof ReActAgent) {
                     service.setDebugMode(false);
                     await message.reply('Debug mode disabled - showing clean responses');
@@ -239,19 +251,8 @@ export class DiscordService {
                 throw new Error('No valid conversation available');
             }
 
-            let service: Agent;
-            const existingService = this.aiServices.get(conversation.id.toString());
-            if (!existingService) {
-                // Create a memory provider using the MemoryFactory
-                const memoryFactory = MemoryFactory.getInstance();
-                const memoryProvider = await memoryFactory.getProvider();
-                
-                // Create the agent with the memory provider
-                service = AIFactory.create(conversation.model as AIModel, undefined, memoryProvider);
-                this.aiServices.set(conversation.id.toString(), service);
-            } else {
-                service = existingService;
-            }
+            // Get the agent instance
+            const service = await this.getAgent();
 
             // Get messages for LLM context
             const llmMessages = conversation.messages
@@ -457,11 +458,7 @@ export class DiscordService {
                 return null;
             }
 
-            const service = this.aiServices.get(conversation.id.toString());
-            if (!service) {
-                debug(`No AI service found for conversation ${conversation.id}`);
-                return;
-            }
+            const service = await this.getAgent();
 
             // Convert cached messages to Input type
             const messages: Input[] = conversation.messages.map(msg => ({
@@ -651,10 +648,8 @@ export class DiscordService {
             this.lastActivityTimestamps.clear();
 
             // Cleanup AI services
-            for (const service of this.aiServices.values()) {
-                await service.cleanup();
-            }
-            this.aiServices.clear();
+            await this.agent?.cleanup();
+            this.agent = null;
 
             // Cleanup AIFactory
             AIFactory.cleanup();

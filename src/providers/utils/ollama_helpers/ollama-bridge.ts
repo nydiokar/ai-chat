@@ -17,10 +17,10 @@ export class OllamaBridge {
         model: string,
         private endpoint: string,
         private clients: Map<string, IMCPClient>,
-        toolsHandler: IToolManager
+        private toolManager: IToolManager
     ) {
         this.model = model;
-        this.promptGenerator = new ReActPromptGenerator();
+        this.promptGenerator = new ReActPromptGenerator(this.toolManager);
     }
 
     private convertTool(tool: ToolDefinition): OllamaToolDefinition {

@@ -20,7 +20,7 @@
     "test:watch": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha --watch",
     "test:coverage": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" c8 mocha",
     "test:unit": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/**/*.test.ts\"",
-    "test:react": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/agents/react-agent.test.ts\" \"src/prompt/react-prompt-generator.test.ts\"",
+    "test:react": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/tests/react-agent.test.ts\"",
     "test:tokens": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/features/hot-tokens/services/hot-tokens-service.test.ts\"",
     "test:mcp": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/tools/mcp/**/*.test.ts\"",
     "test:mcp:schema": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" mocha \"src/tools/mcp/types/tools.test.ts\"",

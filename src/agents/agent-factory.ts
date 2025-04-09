@@ -7,30 +7,37 @@ import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 
 /**
- * Factory for creating agent instances
+ * Low-level factory for creating agent instances with specific dependencies.
+ * This factory is primarily used for testing and internal use.
+ * For application-level agent creation, use AIFactory instead.
  */
 export class AgentFactory {
+  private static reActAgentInstance: Agent | null = null;
+
   /**
-   * Create a ReAct agent with the necessary dependencies
+   * Create a ReAct agent with the necessary dependencies.
+   * This is a low-level factory method that expects all dependencies to be provided.
+   * For application use, prefer AIFactory.create() which handles configuration and initialization.
    */
   static async createReActAgent(
     container: MCPContainer,
     llmProvider: LLMProvider,
     memoryProvider: MemoryProvider,
     toolManager: IToolManager,
+    promptGenerator: ReActPromptGenerator,
     name?: string
   ): Promise<Agent> {
-    // Create prompt generator
-    const promptGenerator = new ReActPromptGenerator();
-    
-    // Create and return the agent
-    return new ReActAgent(
-      container,
-      llmProvider,
-      memoryProvider,
-      toolManager,
-      promptGenerator,
-      name
-    );
+    if (!this.reActAgentInstance) {
+      // Create and store the agent instance
+      this.reActAgentInstance = new ReActAgent(
+        container,
+        llmProvider,
+        memoryProvider,
+        toolManager,
+        promptGenerator,
+        name
+      );
+    }
+    return this.reActAgentInstance;
   }
 } 

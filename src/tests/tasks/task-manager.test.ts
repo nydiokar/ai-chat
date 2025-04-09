@@ -1,8 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { expect } from 'chai';
-import { TaskManager } from '../../tasks/task-manager.js';
+import { TaskManager } from '../../features/tasks/task-manager.js';
 import { TaskStatus, TaskPriority, CreateTaskDTO } from '../../types/task.js';
-import { TaskManagerError } from '../../tasks/task-manager.js';
+import { TaskManagerError } from '../../features/tasks/task-manager.js';
 
 describe('TaskManager Integration Tests', () => {
   let taskManager: TaskManager;
