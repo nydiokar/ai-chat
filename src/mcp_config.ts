@@ -29,7 +29,6 @@ const servers: Record<string, any> = {
         ],
         env: {
             GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN,
-            PWD: projectRoot
         }
     },
     "brave-search": {
