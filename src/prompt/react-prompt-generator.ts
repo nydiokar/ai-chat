@@ -53,21 +53,38 @@ When using tools:
      * Standard prompt generation method required by PromptGenerator interface
      */
     async generatePrompt(input: string, tools: ToolDefinition[], history?: Input[]): Promise<string> {
-        const basePrompt = await this.generateSimplePrompt();
-        
-        if (tools.length === 0) {
-            return basePrompt + `\n\nUser query: ${input}`;
+        // Get current date and time information
+        const now = new Date();
+        const currentDate = now.toDateString();
+        const currentTime = now.toTimeString().split(' ')[0];
+        const currentYear = now.getFullYear();
+        const currentMonth = now.toLocaleString('default', { month: 'long' });
+        const currentDay = now.getDate();
+
+        const promptParts = [
+            this.defaultIdentity,
+            
+            // Add current date/time information
+            `Current date: ${currentDate}`,
+            `Current time: ${currentTime}`,
+            `Current year: ${currentYear}`,
+            `Current month: ${currentMonth}`,
+            `Current day: ${currentDay}`
+        ];
+
+        if (tools.length > 0) {
+            const toolsList = tools.map(tool => `${tool.name}: ${tool.description}`).join('\n');
+            promptParts.push(`Available tools:\n${toolsList}`);
         }
-        
-        let prompt = `${basePrompt}\n\nAvailable tools:\n${this.formatTools(tools)}\n\n`;
-        
+
         if (history && history.length > 0) {
-            prompt += `Conversation history:\n${history.map(h => `${h.role}: ${h.content}`).join('\n')}\n\n`;
+            const historyText = history.map(h => `${h.role}: ${h.content}`).join('\n');
+            promptParts.push(`Conversation history:\n${historyText}`);
         }
-        
-        prompt += `User query: ${input}`;
-        
-        return prompt;
+
+        promptParts.push(`User query: ${input}`);
+
+        return promptParts.join('\n\n');
     }
 
     /**

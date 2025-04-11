@@ -53,20 +53,6 @@ const servers: Record<string, any> = {
             "@modelcontextprotocol/server-sequential-thinking"
         ]
     },
-    "filesystem": {
-        id: "filesystem",
-        name: "Local Filesystem",
-        command: "npx",
-        args: [
-            "-y",
-            "@modelcontextprotocol/server-filesystem"
-        ],
-        env: {
-            PWD: projectRoot,
-            LOCAL_ROOT: projectRoot + "/data",  // Specify a dedicated data directory
-            ALLOW_WRITE: "true"                 // Explicitly allow write operations
-        }
-    },
     "youtube-transcript": {
         id: "youtube-transcript",
         name: "YouTube Transcript",
@@ -76,7 +62,6 @@ const servers: Record<string, any> = {
             "@kimtaeyoon83/mcp-server-youtube-transcript"
         ]
     }
-
 };
 
 // Filter only explicitly disabled servers

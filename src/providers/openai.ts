@@ -272,12 +272,17 @@ export class OpenAIProvider implements LLMProvider {
         history?: Input[]
     ): ChatCompletionMessageParam[] {
         const messages: ChatCompletionMessageParam[] = [];
-
+        
+        // System prompt is added by the caller, so we don't need to handle it here
+        
+        // Add history first
         if (history && history.length > 0) {
             messages.push(...history.map(msg => this.convertToCompletionMessage(msg)));
         }
 
+        // Add the current message last
         messages.push({ role: 'user', content: message });
+        
         return messages;
     }
 
@@ -342,14 +347,22 @@ export class OpenAIProvider implements LLMProvider {
         tools?: ToolDefinition[]
     ): Promise<ChatCompletion> {
         // Format tools for OpenAI function calling
-        const formattedTools: ChatCompletionTool[] | undefined = tools?.map(tool => {
+        const formattedTools: ChatCompletionTool[] = tools?.map(tool => {
+            if (!tool.inputSchema?.properties) {
+                debug('Tool missing input schema', createLogContext(
+                    'OpenAIProvider',
+                    'createCompletionWithToolChoice',
+                    { toolName: tool.name }
+                ));
+            }
+
             const functionDefinition: FunctionDefinition = {
                 name: this.sanitizeToolName(tool.name),
                 description: tool.description,
                 parameters: {
                     type: 'object',
-                    properties: tool.inputSchema.properties,
-                    required: tool.inputSchema.required || []
+                    properties: tool.inputSchema?.properties || {},
+                    required: tool.inputSchema?.required || []
                 }
             };
             
@@ -357,15 +370,13 @@ export class OpenAIProvider implements LLMProvider {
                 type: 'function',
                 function: functionDefinition
             };
-        });
-
-        const hasTools = formattedTools && formattedTools.length > 0;
+        }) || [];
 
         return await this.client.chat.completions.create({
             model: this.model,
             messages,
-            tools: hasTools ? formattedTools : undefined,
-            tool_choice: hasTools ? 'auto' : undefined,
+            tools: formattedTools.length > 0 ? formattedTools : undefined,
+            tool_choice: formattedTools.length > 0 ? 'auto' : undefined,
             temperature: this.temperature
         });
     }

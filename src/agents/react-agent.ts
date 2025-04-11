@@ -7,7 +7,6 @@ import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import Logger from '../utils/shared-logger.js';
-import yaml from 'js-yaml';
 import { ToolDefinition, ToolResponse } from '../tools/mcp/types/tools.js';
 
 // Implement the ReAct thought process interfaces based on documentation
@@ -110,8 +109,80 @@ export class ReActAgent implements Agent {
             const prompt = await this.promptGenerator.generatePrompt(message, tools, history);
             await this.llmProvider.setSystemPrompt(prompt);
             
-            // Get response
-            return await this.llmProvider.generateResponse(message);
+            // Get initial response with potential tool calls
+            const initialResponse = await this.llmProvider.generateResponse(message, history, tools);
+            
+            // If no tool calls, return the response directly
+            if (!initialResponse.toolResults?.length) {
+                return initialResponse;
+            }
+
+            // Execute tools and collect results
+            const toolExecutionResults = await Promise.all(
+                initialResponse.toolResults.map(async toolResult => {
+                    if (!toolResult.metadata?.toolName || !toolResult.metadata?.toolCallId) {
+                        return {
+                            toolName: 'unknown',
+                            toolCallId: 'unknown',
+                            result: 'Invalid tool metadata',
+                            success: false
+                        };
+                    }
+
+                    const tool = await this.toolManager.getToolByName(toolResult.metadata.toolName);
+                    if (!tool) {
+                        return {
+                            toolName: toolResult.metadata.toolName,
+                            toolCallId: toolResult.metadata.toolCallId,
+                            result: `Tool ${toolResult.metadata.toolName} not found`,
+                            success: false
+                        };
+                    }
+
+                    try {
+                        const args = toolResult.metadata.arguments ? 
+                            JSON.parse(toolResult.metadata.arguments) : {};
+                        const result = await this.executeTool(tool, args);
+                        return {
+                            toolName: tool.name,
+                            toolCallId: toolResult.metadata.toolCallId,
+                            result: JSON.stringify(result.data),
+                            success: result.success
+                        };
+                    } catch (error) {
+                        this.logger.error('Tool execution failed', { 
+                            toolName: tool.name, 
+                            error 
+                        });
+                        return {
+                            toolName: tool.name,
+                            toolCallId: toolResult.metadata.toolCallId,
+                            result: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                            success: false
+                        };
+                    }
+                })
+            );
+
+            // Check if getFinalResponse is available
+            if (!this.llmProvider.getFinalResponse) {
+                this.logger.warn('getFinalResponse not available, returning initial response');
+                return {
+                    ...initialResponse,
+                    content: 'Tool execution completed but final response generation not available.',
+                    toolResults: toolExecutionResults.map(r => ({
+                        success: r.success,
+                        data: r.result,
+                        error: r.success ? undefined : r.result
+                    }))
+                };
+            }
+
+            return await this.llmProvider.getFinalResponse(
+                message,
+                toolExecutionResults,
+                history
+            );
         } catch (error) {
             this.logger.error('Error in simple mode', { error });
             throw error;
@@ -130,7 +201,7 @@ export class ReActAgent implements Agent {
         const prompt = await this.promptGenerator.generatePrompt(message, tools, history);
         await this.llmProvider.setSystemPrompt(prompt);
         
-        let response = await this.llmProvider.generateResponse(message);
+        let response = await this.llmProvider.generateResponse(message, history, tools);
         
         // If there are tool results in the context, include them in the response
         const toolResults = this.currentContext.toolResults;
