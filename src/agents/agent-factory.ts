@@ -34,8 +34,7 @@ export class AgentFactory {
         llmProvider,
         memoryProvider,
         toolManager,
-        promptGenerator,
-        name
+        promptGenerator
       );
     }
     return this.reActAgentInstance;

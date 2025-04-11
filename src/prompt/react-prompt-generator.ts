@@ -54,18 +54,20 @@ When using tools:
      */
     async generatePrompt(input: string, tools: ToolDefinition[], history?: Input[]): Promise<string> {
         const basePrompt = await this.generateSimplePrompt();
-        const relevantTools = await this.getTools(input);
         
-        if (relevantTools.length === 0) {
+        if (tools.length === 0) {
             return basePrompt + `\n\nUser query: ${input}`;
         }
         
-        return `${basePrompt}
-
-Available tools:
-${this.formatTools(relevantTools)}
-
-User query: ${input}`;
+        let prompt = `${basePrompt}\n\nAvailable tools:\n${this.formatTools(tools)}\n\n`;
+        
+        if (history && history.length > 0) {
+            prompt += `Conversation history:\n${history.map(h => `${h.role}: ${h.content}`).join('\n')}\n\n`;
+        }
+        
+        prompt += `User query: ${input}`;
+        
+        return prompt;
     }
 
     /**
