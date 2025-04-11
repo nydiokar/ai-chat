@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { MemoryRepository } from './memory-repository.js';
-import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../types/memory.js';
+import { MemoryRepository } from '../services/performance/memory-repository.js';
+import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../types/memory.js';
 import { Message } from '@prisma/client';
 
 describe('MemoryRepository', () => {

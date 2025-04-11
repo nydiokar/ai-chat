@@ -1,11 +1,10 @@
 import { expect } from 'chai';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import sinon from 'sinon';
-import { BaseMCPClient } from '../../base/base-mcp-client.js';
-import { ServerConfig } from '../../types/server.js';
-import { MCPError } from '../../types/errors.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { BaseMCPClient } from '../../../tools/mcp/base/base-mcp-client.js';
+import { ServerConfig } from '../../../tools/mcp/types/server.js';
+import { MCPError } from '../../../tools/mcp/types/errors.js';
+
 
 describe('BaseMCPClient', () => {
     let mcpClient: BaseMCPClient;

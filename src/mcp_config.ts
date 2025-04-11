@@ -1,7 +1,9 @@
 import { MCPConfig } from "./tools/mcp/di/container.js";
 import dotenv from 'dotenv';
-
 import { warn } from './utils/logger.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Load environment variables based on DOTENV_CONFIG_PATH or NODE_ENV
 const envPath = process.env.DOTENV_CONFIG_PATH || (process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development');
@@ -12,7 +14,6 @@ if (result.error) {
     console.error(`Error loading environment from ${envPath}:`, result.error);
 }
 
-const nodePath = process.execPath;
 const projectRoot = process.cwd();
 
 // Server configurations
@@ -21,9 +22,10 @@ const servers: Record<string, any> = {
     "github": {
         id: "github",
         name: "GitHub Tools",
-        command: nodePath,
+        command: "npx",
         args: [
-            "node_modules/@modelcontextprotocol/server-github/dist/index.js"
+            "-y",
+            "@modelcontextprotocol/server-github"
         ],
         env: {
             GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN,
@@ -33,15 +35,48 @@ const servers: Record<string, any> = {
     "brave-search": {
         id: "brave-search",
         name: "Brave Search",
-        command: nodePath,
+        command: "npx",
         args: [
-            "node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"
+            "-y",
+            "@modelcontextprotocol/server-brave-search"
         ],
         env: {
             BRAVE_API_KEY: process.env.BRAVE_API_KEY
         }
     },
-    
+    "sequential-thinking": {
+        id: "sequential-thinking",
+        name: "Sequential Thinking",
+        command: "npx",
+        args: [
+            "-y",
+            "@modelcontextprotocol/server-sequential-thinking"
+        ]
+    },
+    "filesystem": {
+        id: "filesystem",
+        name: "Local Filesystem",
+        command: "npx",
+        args: [
+            "-y",
+            "@modelcontextprotocol/server-filesystem"
+        ],
+        env: {
+            PWD: projectRoot,
+            LOCAL_ROOT: projectRoot + "/data",  // Specify a dedicated data directory
+            ALLOW_WRITE: "true"                 // Explicitly allow write operations
+        }
+    },
+    "youtube-transcript": {
+        id: "youtube-transcript",
+        name: "YouTube Transcript",
+        command: "npx",
+        args: [
+            "-y",
+            "@kimtaeyoon83/mcp-server-youtube-transcript"
+        ]
+    }
+
 };
 
 // Filter only explicitly disabled servers

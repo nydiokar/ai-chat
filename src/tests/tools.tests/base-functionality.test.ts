@@ -1,11 +1,11 @@
 import { expect } from 'chai';
-import { MCPContainer } from '../di/container.js';
-import { IMCPClient, IToolManager, IServerManager } from '../interfaces/core.js';
-import { BaseMCPClient } from '../base/base-mcp-client.js';
-import { BaseToolManager } from '../base/base-tool-manager.js';
-import { BaseServerManager } from '../base/base-server-manager.js';
-import { ServerState } from '../types/server.js';
-import { mcpConfig } from '../../../mcp_config.js';
+import { MCPContainer } from '../../tools/mcp/di/container.js';
+import { IMCPClient, IToolManager, IServerManager } from '../../tools/mcp/interfaces/core.js';
+import { BaseMCPClient } from '../../tools/mcp/base/base-mcp-client.js';
+import { BaseToolManager } from '../../tools/mcp/base/base-tool-manager.js';
+import { BaseServerManager } from '../../tools/mcp/base/base-server-manager.js';
+import { ServerState } from '../../tools/mcp/types/server.js';
+import mcpConfig from '../../mcp_config.js';
 import sinon from 'sinon';
 
 describe('MCP Base Functionality Tests', () => {
@@ -85,7 +85,7 @@ describe('MCP Base Functionality Tests', () => {
             const tools = await toolManager.getAvailableTools();
             
             expect(tools).to.have.length.greaterThan(0);
-            expect(tools.some(t => t.name === testTool.name)).to.be.true;
+            expect(tools.some((t: { name: string }) => t.name === testTool.name)).to.be.true;
         });
 
         it('should execute registered tools', async () => {
