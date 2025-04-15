@@ -1,10 +1,12 @@
-import { Agent } from '../interfaces/agent.js';
+import { Agent } from '../interfaces/base-agent.js';
 import { ReActAgent } from './react-agent.js';
 import { LLMProvider } from '../interfaces/llm-provider.js';
 import { MemoryProvider } from '../interfaces/memory-provider.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
+import { ToolChainExecutor } from '../tools/tool-chain/tool-chain-executor.js';
+import { ReActEngine } from './react-engine.js';
 
 /**
  * Low-level factory for creating agent instances with specific dependencies.
@@ -13,6 +15,7 @@ import { MCPContainer } from '../tools/mcp/di/container.js';
  */
 export class AgentFactory {
   private static reActAgentInstance: Agent | null = null;
+  private static reActEngineInstance: ReActEngine | null = null;
 
   /**
    * Create a ReAct agent with the necessary dependencies.
@@ -28,13 +31,23 @@ export class AgentFactory {
     name?: string
   ): Promise<Agent> {
     if (!this.reActAgentInstance) {
-      // Create and store the agent instance
+      // Get or create the tool chain executor
+      const toolChainExecutor = new ToolChainExecutor();
+      
+      // Create the ReActEngine if it doesn't exist already
+      if (!this.reActEngineInstance) {
+        this.reActEngineInstance = new ReActEngine(
+          memoryProvider,
+          llmProvider,
+          toolManager,
+          toolChainExecutor,
+          promptGenerator
+        );
+      }
+      
+      // Create the ReActAgent using the engine
       this.reActAgentInstance = new ReActAgent(
-        container,
-        llmProvider,
-        memoryProvider,
-        toolManager,
-        promptGenerator,
+        this.reActEngineInstance,
         name
       );
     }

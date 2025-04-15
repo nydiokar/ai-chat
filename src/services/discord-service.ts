@@ -18,7 +18,7 @@ import path from 'path';
 import fs from 'fs';
 import type { CacheConfig } from '../types/cache/base.js';
 import { createLogContext } from '../utils/log-utils.js';
-import { Agent } from '../interfaces/agent.js';
+import { Agent } from '../interfaces/base-agent.js';
 import { Input } from '../types/common.js';
 import { ReActAgent } from '../agents/react-agent.js';
 import { MemoryFactory } from '../memory/memory-factory.js';

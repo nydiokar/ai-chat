@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { ThoughtProcess } from '../interfaces/agent.js';
+import { ReasoningStep } from '../interfaces/react-types.js';
 import {
   MemoryEntry,
   MemoryProvider,
@@ -36,15 +36,19 @@ export class InMemoryProvider implements MemoryProvider {
     return fullEntry;
   }
 
+  /**
+   * Store a reasoning step in memory
+   * This is the preferred method to store reasoning steps during the ReAct process
+   */
   async storeThoughtProcess(
-    thoughtProcess: ThoughtProcess, 
+    reasoningStep: ReasoningStep, 
     userId: string, 
     metadata?: Record<string, any>
   ): Promise<MemoryEntry> {
     return this.store({
       userId,
       type: MemoryType.THOUGHT_PROCESS,
-      content: thoughtProcess,
+      content: reasoningStep,
       metadata,
       tags: ['thought_process'],
       importance: metadata?.importance || 0.5

@@ -1,4 +1,5 @@
-import { ThoughtProcess } from './agent.js';
+import { ThoughtProcess } from './base-agent.js';
+import { ReasoningStep } from './react-types.js';
 
 /**
  * Memory entry structure for storing agent memories
@@ -71,9 +72,10 @@ export interface MemoryProvider {
   store(entry: Omit<MemoryEntry, 'id' | 'timestamp'>): Promise<MemoryEntry>;
   
   /**
-   * Store a thought process in memory
+   * Store a reasoning step in memory
+   * This is the preferred method to store reasoning steps during the ReAct process
    */
-  storeThoughtProcess(thoughtProcess: ThoughtProcess, userId: string, metadata?: Record<string, any>): Promise<MemoryEntry>;
+  storeThoughtProcess(reasoningStep: ReasoningStep, userId: string, metadata?: Record<string, any>): Promise<MemoryEntry>;
   
   /**
    * Retrieve memories based on search criteria

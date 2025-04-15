@@ -7,12 +7,12 @@
  * Usage: ts-node -r tsconfig-paths/register src/features/pulse-mcp/tests/test-github-installation.ts
  */
 
-import { PulseMCPServer } from '../services/pulse-api-service.js';
-import { GitRepoLoader } from '../services/git-repo-loader.js';
-import { installFromGitHub } from '../commands/pulse-dynamic-loader.js';
-import mcpConfig from '../../../mcp_config.js';
-import { MCPContainer } from '../../../tools/mcp/di/container.js';
-import { ServerState } from '../../../tools/mcp/types/server.js';
+import { PulseMCPServer } from '../features/pulse-mcp/services/pulse-api-service.js';
+import { GitRepoLoader } from '../features/pulse-mcp/services/git-repo-loader.js';
+import { installFromGitHub } from '../features/pulse-mcp/commands/pulse-dynamic-loader.js';
+import mcpConfig from '../mcp_config.js';
+import { MCPContainer } from '../tools/mcp/di/container.js';
+import { ServerState } from '../tools/mcp/types/server.js';
 import path from 'path';
 import fs from 'fs/promises';
 

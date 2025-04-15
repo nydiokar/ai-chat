@@ -1,4 +1,4 @@
-import { Agent } from '../interfaces/agent.js';
+import { Agent } from '../interfaces/base-agent.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { ReActAgent } from '../agents/react-agent.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';

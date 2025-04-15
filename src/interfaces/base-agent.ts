@@ -1,34 +1,10 @@
 import { Input, Response } from '../types/common.js';
 import { ToolDefinition, ToolResponse } from '../tools/mcp/types/tools.js';
+import { ReasoningStep } from './react-types.js';
 
-export interface ThoughtProcess {
-    thought: {
-        reasoning: string;
-        plan: string;
-    };
-    action?: {
-        tool: string;
-        purpose: string;
-        params: Record<string, unknown>;
-    };
-    observation?: {
-        result: string;
-    };
-    next_step?: {
-        plan: string;
-    };
-    error_handling?: {
-        error: string;
-        recovery: {
-            log_error: string;
-            alternate_plan: string;
-            discord_message?: {
-                content: string;
-                ephemeral: boolean;
-            };
-        };
-    };
-}
+// Re-export ReasoningStep as ThoughtProcess for backward compatibility
+// This allows existing code to still work while we transition to the new interface
+export type ThoughtProcess = ReasoningStep;
 
 /**
  * Interface for reasoning agents that use LLM providers
@@ -63,5 +39,10 @@ export interface Agent {
 
     // Debug mode methods
     setDebugMode(enabled: boolean): void;
-    getLastThoughtProcess(): ThoughtProcess | null;
+    
+    /**
+     * Get the last reasoning step
+     * This provides insight into the agent's reasoning process for debugging
+     */
+    getLastThoughtProcess(): ReasoningStep | null;
 } 

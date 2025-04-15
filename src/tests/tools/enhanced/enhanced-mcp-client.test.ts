@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import { describe, it, beforeEach, afterEach } from 'mocha';
 import sinon from 'sinon';
-import { EnhancedMCPClient } from '../../enhanced/enhanced-mcp-client.js';
-import { ServerConfig } from '../../types/server.js';
+import { EnhancedMCPClient } from '../../../tools/mcp/enhanced/enhanced-mcp-client.js';
+import { ServerConfig } from '../../../tools/mcp/types/server.js';
 
 describe('EnhancedMCPClient', () => {
     let mcpClient: EnhancedMCPClient;

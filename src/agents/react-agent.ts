@@ -1,246 +1,99 @@
 import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
-import { Agent, ThoughtProcess } from "../interfaces/agent.js";
-import { LLMProvider } from "../interfaces/llm-provider.js";
+import { Agent } from "../interfaces/base-agent.js";
 import { Input, Response } from "../types/common.js";
-import { ReActPromptGenerator } from "../prompt/react-prompt-generator.js";
-import { MCPContainer } from "../tools/mcp/di/container.js";
-import { getLogger } from '../utils/shared-logger.js';
-import yaml from 'js-yaml';
-import { v4 as uuid } from 'uuid';
-import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import { MemoryType } from "../interfaces/memory-provider.js";
-import { MemoryProvider } from "../interfaces/memory-provider.js";
+import { getLogger } from '../utils/shared-logger.js';
+import { v4 as uuidv4 } from 'uuid';
+import { ReasoningStep } from '../interfaces/react-types.js';
+import { ReActEngine } from './react-engine.js';
 import type { Logger } from 'winston';
-
-// Implement the ReAct thought process interfaces based on documentation
-interface ReActThought {
-    thought?: string;
-    reasoning?: string;
-    plan?: string;
-}
-
-interface ReActAction {
-    tool: string;
-    purpose?: string;
-    params: Record<string, any>;
-}
-
-interface ReActObservation {
-    result: string | any;
-}
-
-interface ReActNextStep {
-    plan?: string;
-}
+import { MCPContainer } from "../tools/mcp/di/container.js";
 
 /**
- * Complete definition of a ReAct workflow step
- */
-interface ReActStep {
-    thought?: ReActThought;
-    action?: ReActAction;
-    observation?: ReActObservation;
-    next_step?: ReActNextStep;
-}
-
-/**
- * ReAct Agent that supports both direct responses and reasoning with tools
- * This implementation includes two processing modes:
- * 1. Simple mode for direct tool usage
- * 2. ReAct mode for complex queries requiring multi-step reasoning
+ * ReAct Agent that implements the Agent interface
+ * A lightweight wrapper around the ReActEngine that handles the ReAct reasoning pattern
  */
 export class ReActAgent implements Agent {
-    private readonly DEFAULT_MAX_STEPS = 5;
+    readonly id: string;
+    readonly name: string;
+    
     private readonly logger: Logger;
-    public readonly id = uuid();
-    public readonly name: string;
-
+    private readonly engine: ReActEngine;
+    private debugMode: boolean = false;
+    private lastReasoningStep: ReasoningStep | null = null;
+    private userId: string = 'default-user'; // Default user ID
+    
+    /**
+     * Create a new ReActAgent
+     * @param engine The ReAct engine that will handle the reasoning process
+     * @param name Optional name for the agent (defaults to "ReAct Agent")
+     */
     constructor(
-        container: MCPContainer, // kept for compatibility with the old structure
-        private readonly llmProvider: LLMProvider,
-        private readonly memoryProvider: MemoryProvider,
-        private readonly toolManager: IToolManager,
-        private readonly promptGenerator: ReActPromptGenerator,
-        name?: string
+        engine: ReActEngine,
+        name: string = "ReAct Agent"
     ) {
-        this.logger = getLogger('ReActAgent');
-        this.name = name || "ReAct Agent";
-        this.logger.info('ReAct Agent initialized', { agentId: this.id, agentName: this.name });
+        this.id = uuidv4();
+        this.name = name;
+        this.logger = getLogger(`ReActAgent:${name}`);
+        this.engine = engine;
+        
+        this.logger.info('ReAct Agent initialized', {
+            agentId: this.id,
+            name: this.name
+        });
     }
-
+    
     /**
-     * Process a message using either simple mode or ReAct reasoning
+     * Set the user ID for this agent session
+     * Useful for memory persistence and per-user customization
      */
-    async processMessage(message: string, conversationHistory?: Input[]): Promise<Response> {
-        this.logger.debug('Processing message in simple mode', { messageLength: message.length });
-        return this.processSimple(message, conversationHistory || []);
-    }
-
-    /**
-     * Simple direct approach - handles both direct responses and single tool executions
-     */
-    private async processSimple(message: string, history: Input[]): Promise<Response> {
-        try {
-            // Get tools
-            const tools = await this.toolManager.getAvailableTools();
-            
-            // Generate simple prompt
-            const systemPrompt = await this.promptGenerator.generateSimplePrompt();
-            this.llmProvider.setSystemPrompt(systemPrompt);
-            
-            // Generate response with tools enabled
-            const response = await this.llmProvider.generateResponse(message, history, tools);
-            this.logger.debug('Generated response', { 
-                hasToolResults: response.toolResults?.length > 0 
-            });
-
-            // If no tool calls, return the response directly
-            if (!response.toolResults || response.toolResults.length === 0) {
-                return response;
-            }
-
-            // Handle tool execution
-            const toolCall = response.toolResults[0];
-            const toolName = toolCall.metadata?.toolName;
-            const toolArgs = toolCall.metadata?.arguments ? JSON.parse(toolCall.metadata.arguments) : {};
-
-            this.logger.debug('Executing tool', { toolName, args: toolArgs });
-            
-            // Execute the tool
-            const result = await this.toolManager.executeTool(toolName, toolArgs);
-            
-            // Store the result in memory
-            await this.memoryProvider.store({
-                userId: 'system',
-                type: MemoryType.TOOL_USAGE,
-                content: result,
-                metadata: { toolName }
-            });
-
-            // Generate final response based on tool result
-            const finalPrompt = `Original request: ${message}\n\nThe tool ${toolName} returned these results:\n${JSON.stringify(result.data || result, null, 2)}\n\nBased on these results, please provide a helpful final response to the user.`;
-            
-            this.logger.debug('Generating final response with tool results', { finalPrompt });
-            
-            // Get final response without tools
-            const finalResponse = await this.llmProvider.generateResponse(finalPrompt, []);
-
-            // Return combined response with tool results
-            return {
-                content: finalResponse.content,
-                tokenCount: (response.tokenCount || 0) + (finalResponse.tokenCount || 0),
-                toolResults: [result]
-            };
-        } catch (error) {
-            this.logger.error('Error in simple processing', { error });
-            return {
-                content: "I encountered an error processing your request.",
-                tokenCount: null,
-                toolResults: []
-            };
+    setUserId(userId: string): void {
+        if (userId && userId.trim()) {
+            this.userId = userId.trim();
         }
     }
-
+    
     /**
-     * ReAct approach for complex queries
-     * This implementation handles a single reasoning step and tool execution
+     * Process a user message using ReAct reasoning
+     * Delegates the actual processing to the ReActEngine
      */
-    private async processWithReact(message: string, history: Input[]): Promise<Response> {
-        // Create session ID for tracking this interaction
-        const sessionId = uuid();
-        const userId = history.length > 0 ? `user-${history[0].content.substring(0, 10)}` : 'anonymous';
+    async processMessage(message: string, conversationHistory: Input[] = []): Promise<Response> {
+        this.logger.info('Processing message with ReAct agent', { 
+            message,
+            userId: this.userId,
+            historyLength: conversationHistory.length
+        });
+        
+        // Clear context before processing new message
+        this.clearContext();
         
         try {
-            // Get tools
-            const tools = await this.toolManager.getAvailableTools();
+            // Delegate processing to the ReActEngine
+            const finalAnswer = await this.engine.process(message, this.userId);
             
-            // Generate ReAct prompt
-            const systemPrompt = await this.promptGenerator.generateSimplePrompt();
-            
-            // Set the system prompt on the provider
-            this.llmProvider.setSystemPrompt(systemPrompt);
-            
-            // Start first reasoning step
-            this.logger.debug('Starting ReAct reasoning', { sessionId });
-            
-            // Generate initial response with tools enabled
-            const initialResponse = await this.llmProvider.generateResponse(message, history, tools);
-            
-            // Store in memory
-            await this.memoryProvider.store({
-                userId,
-                type: MemoryType.CONVERSATION,
-                content: {
-                    input: message,
-                    response: initialResponse.content
-                },
-                metadata: { sessionId, step: 0 }
-            });
-            
-            // If no tool calls, return the response directly
-            if (!initialResponse.toolResults || initialResponse.toolResults.length === 0) {
-                return initialResponse;
+            // After processing, update the last reasoning step for debugging
+            try {
+                const lastStep = await this.engine.getLastReasoningStep(this.userId);
+                if (lastStep) {
+                    this.lastReasoningStep = lastStep;
+                }
+            } catch (error) {
+                this.logger.warn('Failed to retrieve last reasoning step', { 
+                    error: error instanceof Error ? error.message : String(error) 
+                });
             }
             
-            // Process the first tool call
-            const toolResult = initialResponse.toolResults[0];
-            const toolName = toolResult.metadata?.toolName || '';
-            const toolArgs = toolResult.metadata?.arguments 
-                ? JSON.parse(toolResult.metadata.arguments) 
-                : {};
-            
-            this.logger.debug('Executing tool call', { tool: toolName, sessionId });
-            
-            // Execute the tool
-            const result = await this.toolManager.executeTool(toolName, toolArgs);
-            
-            this.logger.debug('Tool execution result', { result });
-            
-            // Store tool result
-            await this.memoryProvider.store({
-                userId,
-                type: MemoryType.TOOL_USAGE,
-                content: result,
-                metadata: { sessionId, step: 0, toolName }
-            });
-            
-            // Extract reasoning from the initial response if possible
-            const reasoning = this.extractReasoning(initialResponse.content);
-            
-            // Generate final response based on tool result
-            let finalPrompt = `Original request: ${message}\n\n` +
-                            `The tool ${toolName} returned these results:\n` +
-                            `${JSON.stringify(result, null, 2)}\n\n` +
-                            `Based on these results, please provide a helpful final response to the user.`;
-            
-            this.logger.debug('Final prompt for response generation', { finalPrompt });
-            
-            // Set system prompt to a simpler version for the final response
-            this.llmProvider.setSystemPrompt(await this.promptGenerator.generateSimplePrompt());
-            
-            // Get final response without tools
-            const finalResponse = await this.llmProvider.generateResponse(finalPrompt, []);
-            
-            this.logger.debug('Final response content', { content: finalResponse.content });
-            
-            // Store final response
-            await this.memoryProvider.store({
-                userId,
-                type: MemoryType.CONVERSATION,
-                content: finalResponse.content,
-                metadata: { sessionId, isFinal: true }
-            });
-            
-            // Combine the tool results
             return {
-                content: finalResponse.content,
-                tokenCount: (initialResponse.tokenCount || 0) + (finalResponse.tokenCount || 0),
-                toolResults: [result]
+                content: finalAnswer,
+                tokenCount: null, // We don't track tokens in this implementation
+                toolResults: []
             };
         } catch (error) {
-            this.logger.error('Error in ReAct processing', { error, sessionId });
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.logger.error('Error processing message with ReAct agent', { error: errorMsg });
+            
             return {
-                content: "I encountered an error processing your request.",
+                content: "I'm sorry, I encountered an error while processing your request. Could you please try again or rephrase your request?",
                 tokenCount: null,
                 toolResults: []
             };
@@ -248,80 +101,64 @@ export class ReActAgent implements Agent {
     }
     
     /**
-     * Determine if a query is complex enough to warrant ReAct mode
-     */
-    private isComplexQuery(message: string): boolean {
-        // Simple heuristic - improve as needed
-        const complexPatterns = [
-            /search|find|research/i,
-            /explain|analyze|compare/i,
-            /github|repository|issue/i,
-            /\?.*\?/i, // Multiple questions
-            /step.*by.*step/i,
-            /create.*plan/i
-        ];
-        
-        return message.length > 100 || 
-            complexPatterns.some(pattern => pattern.test(message));
-    }
-    
-    /**
-     * Extract reasoning from a response
-     */
-    private extractReasoning(response: string): string {
-        // Try to find YAML blocks with reasoning
-        const yamlMatch = response.match(/```(?:yaml)?\s*([\s\S]*?)```/);
-        if (yamlMatch) {
-            const yamlContent = yamlMatch[1];
-            const reasoningMatch = yamlContent.match(/thought:[\s\S]*?reasoning:\s*"([^"]+)"/);
-            if (reasoningMatch && reasoningMatch[1]) {
-                return reasoningMatch[1];
-            }
-        }
-        
-        // If no structured reasoning found, return a portion of the response
-        return response.substring(0, 200) + (response.length > 200 ? '...' : '');
-    }
-
-    /**
-     * Execute a tool directly - required by Agent interface
+     * Execute a tool directly
+     * Delegates to the engine's tool execution functionality
      */
     async executeTool(tool: ToolDefinition, args: Record<string, unknown>): Promise<ToolResponse> {
+        this.logger.info('Executing tool directly', { tool: tool.name, args });
+        
         try {
-            return await this.toolManager.executeTool(tool.name, args);
-        } catch (error) {
-            this.logger.error('Tool execution error', { 
-                tool: tool.name, 
-                error 
-            });
+            // Delegate tool execution to the engine
+            const result = await this.engine.executeToolDirectly(tool.name, args);
             
-            return { 
+            return {
+                success: true,
+                data: result,
+                metadata: {
+                    toolName: tool.name
+                }
+            };
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.logger.error('Error executing tool', { tool: tool.name, error: errorMsg });
+            
+            return {
                 success: false,
                 data: null,
-                error: error instanceof Error ? error.message : String(error)
+                error: errorMsg
             };
         }
     }
-
+    
     /**
-     * Clean up resources - required by Agent interface
+     * Clear any contextual state
+     * Called before processing a new message to ensure a clean state
+     */
+    private clearContext(): void {
+        this.lastReasoningStep = null;
+    }
+    
+    /**
+     * Clean up resources used by the agent
      */
     async cleanup(): Promise<void> {
-        // Nothing to clean up in this implementation
+        // Nothing specific to clean up
+        this.logger.debug('Cleaning up ReAct agent resources');
     }
-
+    
     /**
-     * Enable/disable debug mode - required by Agent interface
+     * Set debug mode
      */
     setDebugMode(enabled: boolean): void {
-        // Debug mode not implemented in this version
+        this.debugMode = enabled;
+        this.logger.info('Debug mode set', { enabled });
     }
-
+    
     /**
-     * Get the last thought process - required by Agent interface
+     * Get the last reasoning step for debugging
+     * Direct access to the ReasoningStep without conversion
      */
-    getLastThoughtProcess(): ThoughtProcess | null {
-        // Not tracking thought process in this version
-        return null;
+    getLastThoughtProcess(): ReasoningStep | null {
+        return this.lastReasoningStep;
     }
 }
