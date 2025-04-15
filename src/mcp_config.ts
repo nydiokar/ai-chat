@@ -1,9 +1,7 @@
 import { MCPConfig } from "./tools/mcp/di/container.js";
 import dotenv from 'dotenv';
 import { warn } from './utils/logger.js';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
+
 
 // Load environment variables based on DOTENV_CONFIG_PATH or NODE_ENV
 const envPath = process.env.DOTENV_CONFIG_PATH || (process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development');
@@ -14,7 +12,6 @@ if (result.error) {
     console.error(`Error loading environment from ${envPath}:`, result.error);
 }
 
-const projectRoot = process.cwd();
 
 // Server configurations
 const servers: Record<string, any> = {
