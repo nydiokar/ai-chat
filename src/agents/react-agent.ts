@@ -1,13 +1,11 @@
 import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
 import { Agent } from "../interfaces/base-agent.js";
 import { Input, Response } from "../types/common.js";
-import { MemoryType } from "../interfaces/memory-provider.js";
 import { getLogger } from '../utils/shared-logger.js';
 import { v4 as uuidv4 } from 'uuid';
 import { ReasoningStep } from '../interfaces/react-types.js';
 import { ReActEngine } from './react-engine.js';
 import type { Logger } from 'winston';
-import { MCPContainer } from "../tools/mcp/di/container.js";
 
 /**
  * ReAct Agent that implements the Agent interface
@@ -67,6 +65,17 @@ export class ReActAgent implements Agent {
         // Clear context before processing new message
         this.clearContext();
         
+        // Check for simple greetings and respond directly without using the ReAct engine
+        if (this.isSimpleGreeting(message)) {
+            this.logger.info('Simple greeting detected, responding directly');
+            
+            return {
+                content: `Hello! I'm an AI assistant. How can I help you today?`,
+                tokenCount: null,
+                toolResults: []
+            };
+        }
+        
         try {
             // Delegate processing to the ReActEngine
             const finalAnswer = await this.engine.process(message, this.userId);
@@ -98,6 +107,31 @@ export class ReActAgent implements Agent {
                 toolResults: []
             };
         }
+    }
+    
+    /**
+     * Check if a message is a simple greeting
+     * @param message The message to check
+     * @returns True if the message is a simple greeting
+     */
+    private isSimpleGreeting(message: string): boolean {
+        const simpleGreetings = ['hi', 'hello', 'hey', 'greetings', 'howdy', 'hi there', 'hello there'];
+        const normalizedMessage = message.toLowerCase().trim();
+        
+        // Direct match
+        if (simpleGreetings.includes(normalizedMessage)) {
+            return true;
+        }
+        
+        // Starts with greeting
+        for (const greeting of simpleGreetings) {
+            if (normalizedMessage.startsWith(`${greeting} `)) {
+                // If it starts with a greeting but is longer than 20 chars, it's probably not just a simple greeting
+                return normalizedMessage.length < 20;
+            }
+        }
+        
+        return false;
     }
     
     /**

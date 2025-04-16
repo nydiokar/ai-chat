@@ -169,3 +169,50 @@ For detailed documentation, please refer to the `/docs` directory:
 
 ## License
 
+## Logging Options
+
+### Environment Variables for Logging
+
+To control the verbosity of logs, especially when using the OpenAI API, you can set the following environment variables:
+
+- `DISABLE_OPENAI_VERBOSE_LOGS=true` - Disables all detailed logs from OpenAI API requests and responses
+- `REACT_VERBOSE_LOGGING=true` - Enables detailed logging for the ReAct reasoning process
+- `NODE_ENV=production` - Sets more conservative logging levels in production environments
+
+### Enhanced Logging with CLI
+
+For a cleaner, more useful debugging experience with the CLI, use the new clean CLI mode:
+
+```bash
+# Use the clean CLI mode
+npm run cli:react:clean
+
+# Or manually set environment variables
+DISABLE_OPENAI_VERBOSE_LOGS=true REACT_VERBOSE_LOGGING=true npm run cli:react
+```
+
+This mode will:
+1. Disable noisy OpenAI API debug logs
+2. Enable detailed, formatted logging of:
+   - Prompts being sent to the model
+   - Responses received from the model
+   - Tool calls and their results
+   - Reasoning steps and conclusions
+3. Format the output to focus on the important information
+
+For detailed examples and more configuration options, see the [Logging Documentation](/docs/logging.md).
+
+### Log Filtering
+
+The logger automatically filters out noisy HTTP headers and other extraneous information from the logs. This includes:
+
+- HTTP headers
+- Authorization tokens
+- Rate limit information
+- OpenAI API metadata
+
+If you're still seeing too many logs, you can:
+
+1. Set `DISABLE_OPENAI_VERBOSE_LOGS=true` to disable OpenAI request/response logging
+2. Adjust the log level by setting `LOG_LEVEL=info` (default is debug in development)
+

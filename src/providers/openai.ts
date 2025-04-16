@@ -2,7 +2,7 @@ import { OpenAI } from 'openai';
 import { Input, Response } from '../types/common.js';
 import { LLMProvider } from '../interfaces/llm-provider.js';
 import { MCPError, ErrorType } from '../types/errors.js';
-import { debug } from '../utils/logger.js';
+import { debug, info } from '../utils/logger.js';
 import { createLogContext } from '../utils/log-utils.js';
 import { validateInput } from '../utils/ai-utils.js';
 import { BaseConfig } from '../utils/config.js';
@@ -17,6 +17,20 @@ import {
 import { FunctionDefinition } from 'openai/resources/shared.js';
 import { ToolDefinition } from '../tools/mcp/types/tools.js';
 
+// Check if OpenAI verbose logging is disabled
+const DISABLE_OPENAI_VERBOSE_LOGS = process.env.DISABLE_OPENAI_VERBOSE_LOGS !== 'false';
+
+// Helper function to conditionally log OpenAI-related messages
+const logOpenAI = (message: string, context: any) => {
+    if (DISABLE_OPENAI_VERBOSE_LOGS) return;
+    debug(message, createLogContext('OpenAIProvider', context.operation, context));
+};
+
+// Helper to print user-friendly summaries of important operations
+const logOperation = (message: string, context: any) => {
+    info(message, createLogContext('OpenAIProvider', context.operation, context));
+};
+
 export class OpenAIProvider implements LLMProvider {
     private client: OpenAI;
     private model: string;
@@ -25,11 +39,52 @@ export class OpenAIProvider implements LLMProvider {
     private messageCache: CacheService;
 
     constructor(private readonly config: BaseConfig) {
-        this.client = new OpenAI({
+        // Disable OpenAI's built-in debug logs completely
+        // Don't use the internal logger property as it's not part of the official API
+        const openaiConfig = {
             apiKey: process.env.OPENAI_API_KEY,
             maxRetries: config.openai.maxRetries,
-            timeout: config.openai.timeout
-        });
+            timeout: config.openai.timeout,
+            dangerouslyAllowBrowser: true,
+            defaultHeaders: { 'OpenAI-Debug': 'false' },
+            defaultQuery: { 'debug': 'false' }
+        };
+        
+        // Create our own wrapper to intercept OpenAI client logging
+        this.client = new OpenAI(openaiConfig);
+        
+        // Disable console logging from OpenAI client if possible
+        if (typeof globalThis !== 'undefined' && globalThis.console) {
+            // Store original methods
+            const originalConsoleLog = console.log;
+            const originalConsoleError = console.error;
+            
+            // Filter out OpenAI SDK logs
+            console.log = (...args) => {
+                if (DISABLE_OPENAI_VERBOSE_LOGS && 
+                    args.length > 0 && 
+                    typeof args[0] === 'string' && 
+                    (args[0].includes('OpenAI') || args[0].includes('api.openai.com'))) {
+                    return; // Skip OpenAI logs
+                }
+                return originalConsoleLog.apply(console, args);
+            };
+            
+            console.error = (...args) => {
+                if (args.length > 0 && typeof args[0] === 'string') {
+                    if (args[0].includes('OpenAI API Error:')) {
+                        // Still log API errors but in a cleaner format
+                        return originalConsoleError.apply(console, [`OpenAI API Error: ${args[1] || ''}`]);
+                    }
+                    if (DISABLE_OPENAI_VERBOSE_LOGS && 
+                        (args[0].includes('OpenAI') || args[0].includes('api.openai.com'))) {
+                        return; // Skip verbose OpenAI logs
+                    }
+                }
+                return originalConsoleError.apply(console, args);
+            };
+        }
+        
         this.model = config.openai.model;
         this.temperature = config.openai.temperature;
         
@@ -50,25 +105,22 @@ export class OpenAIProvider implements LLMProvider {
         validateInput(message);
 
         try {
-            debug('Generating response', createLogContext(
-                'OpenAIProvider',
-                'generateResponse',
-                { 
-                    model: this.model,
-                    hasTools: !!tools?.length,
-                    messageLength: message.length
-                }
-            ));
+            logOpenAI('Generating response', {
+                operation: 'generateResponse',
+                model: this.model,
+                hasTools: !!tools?.length,
+                messageLength: message.length
+            });
 
             // Try to get from cache first
             const cacheKey = `${message}_${conversationHistory?.length || 0}_${this.systemPrompt}_${tools?.length || 0}`;
             const cachedResponse = await this.messageCache.get(cacheKey);
             if (cachedResponse) {
-                debug('Using cached response', createLogContext(
-                    'OpenAIProvider',
-                    'generateResponse',
-                    { cached: true, messageLength: message.length }
-                ));
+                logOpenAI('Using cached response', {
+                    operation: 'generateResponse',
+                    cached: true,
+                    messageLength: message.length
+                });
                 return cachedResponse as Response;
             }
 
@@ -80,15 +132,14 @@ export class OpenAIProvider implements LLMProvider {
                 messages.unshift({ role: 'system', content: this.systemPrompt });
             }
 
-            // Log the request
-            debug('Sending request to OpenAI', createLogContext(
-                'OpenAIProvider',
-                'generateResponse',
-                { 
-                    messageCount: messages.length,
-                    toolCount: tools?.length || 0
-                }
-            ));
+            // Log the user-friendly request summary
+            logOperation('Sending to OpenAI', {
+                operation: 'generateResponse',
+                promptFirstLine: message.split('\n')[0].substring(0, 50) + (message.length > 50 ? '...' : ''),
+                numMessages: messages.length,
+                hasTools: !!tools?.length,
+                toolCount: tools?.length || 0
+            });
 
             // Initial completion to get tool calls
             const completion = await this.createCompletionWithToolChoice(messages, tools);
@@ -101,17 +152,21 @@ export class OpenAIProvider implements LLMProvider {
                 );
             }
 
-            // Log response details
-            debug('Received response from OpenAI', createLogContext(
-                'OpenAIProvider',
-                'generateResponse',
-                { 
-                    hasContent: !!choice.content,
-                    hasToolCalls: !!choice.tool_calls?.length,
-                    tokenCount: completion.usage?.total_tokens,
-                    finishReason: completion.choices[0]?.finish_reason
-                }
-            ));
+            // Log detailed response information that's actually useful
+            const hasToolCalls = !!choice.tool_calls?.length;
+            const toolNames = hasToolCalls 
+                ? choice.tool_calls?.map(tc => tc.function.name).join(', ') || ''
+                : '';
+                
+            logOperation('Response received', {
+                operation: 'generateResponse',
+                contentLength: choice.content?.length || 0,
+                hasToolCalls,
+                toolCount: choice.tool_calls?.length || 0,
+                toolNames,
+                tokenCount: completion.usage?.total_tokens,
+                finishReason: completion.choices[0]?.finish_reason
+            });
 
             // If no tool calls, return the content directly
             if (!choice.tool_calls || choice.tool_calls.length === 0) {
@@ -126,7 +181,7 @@ export class OpenAIProvider implements LLMProvider {
             }
 
             // Extract tool call information for the agent to execute
-            const toolResults = choice.tool_calls.map(toolCall => ({
+            const toolResults = choice.tool_calls?.map(toolCall => ({
                 success: false, // Will be set to true after execution
                 data: '',       // Will be filled after execution
                 error: '',      // Will be filled if execution fails
@@ -135,7 +190,7 @@ export class OpenAIProvider implements LLMProvider {
                     arguments: toolCall.function.arguments,
                     toolCallId: toolCall.id
                 }
-            }));
+            })) || [];
 
             // Create response with tool calls for the agent to execute
             const response: Response = {
@@ -148,11 +203,10 @@ export class OpenAIProvider implements LLMProvider {
             return response;
             
         } catch (err) {
-            debug('Error generating response', createLogContext(
-                'OpenAIProvider',
-                'generateResponse',
-                { error: err instanceof Error ? err.message : String(err) }
-            ));
+            logOpenAI('Error generating response', {
+                operation: 'generateResponse',
+                error: err instanceof Error ? err.message : String(err)
+            });
 
             if (err instanceof MCPError) {
                 throw err;
@@ -173,14 +227,11 @@ export class OpenAIProvider implements LLMProvider {
         conversationHistory?: Input[]
     ): Promise<Response> {
         try {
-            debug('Getting final response after tool execution', createLogContext(
-                'OpenAIProvider',
-                'getFinalResponse',
-                { 
-                    model: this.model,
-                    toolResultCount: toolResults.length
-                }
-            ));
+            logOpenAI('Getting final response after tool execution', {
+                operation: 'getFinalResponse',
+                model: this.model,
+                toolResultCount: toolResults.length
+            });
 
             // Convert conversation history to OpenAI format
             const messages: ChatCompletionMessageParam[] = this.convertToCompletionMessages(originalMessage, conversationHistory);
@@ -240,11 +291,10 @@ export class OpenAIProvider implements LLMProvider {
                 toolResults: []
             };
         } catch (err) {
-            debug('Error getting final response', createLogContext(
-                'OpenAIProvider',
-                'getFinalResponse',
-                { error: err instanceof Error ? err.message : String(err) }
-            ));
+            logOpenAI('Error getting final response', {
+                operation: 'getFinalResponse',
+                error: err instanceof Error ? err.message : String(err)
+            });
 
             if (err instanceof MCPError) {
                 throw err;
@@ -346,37 +396,58 @@ export class OpenAIProvider implements LLMProvider {
         messages: ChatCompletionMessageParam[],
         tools?: ToolDefinition[]
     ): Promise<ChatCompletion> {
-        // Format tools for OpenAI function calling
-        const formattedTools: ChatCompletionTool[] = tools?.map(tool => {
+        if (!tools || tools.length === 0) {
+            logOpenAI('Creating completion without tools', {
+                operation: 'createCompletionWithToolChoice',
+                model: this.model,
+                messageCount: messages.length
+            });
+            
+            return await this.client.chat.completions.create({
+                model: this.model,
+                messages,
+                temperature: this.temperature
+            });
+        }
+        
+        logOpenAI('Creating completion with tools', {
+            operation: 'createCompletionWithToolChoice',
+            model: this.model,
+            toolCount: tools.length,
+            messageCount: messages.length
+        });
+        
+        const formattedTools: ChatCompletionTool[] = tools.map(tool => {
             if (!tool.inputSchema?.properties) {
-                debug('Tool missing input schema', createLogContext(
-                    'OpenAIProvider',
-                    'createCompletionWithToolChoice',
-                    { toolName: tool.name }
-                ));
+                logOpenAI('Tool missing input schema', {
+                    operation: 'createCompletionWithToolChoice',
+                    toolName: tool.name
+                });
             }
-
-            const functionDefinition: FunctionDefinition = {
-                name: this.sanitizeToolName(tool.name),
-                description: tool.description,
-                parameters: {
-                    type: 'object',
-                    properties: tool.inputSchema?.properties || {},
-                    required: tool.inputSchema?.required || []
-                }
+            
+            // Convert MCPToolSchema to FunctionParameters
+            const parameters: FunctionDefinition['parameters'] = {
+                type: 'object',
+                properties: tool.inputSchema?.properties || {},
+                required: tool.inputSchema?.required || []
             };
             
             return {
                 type: 'function',
-                function: functionDefinition
+                function: {
+                    name: this.sanitizeToolName(tool.name),
+                    description: tool.description || '',
+                    parameters
+                }
             };
-        }) || [];
-
+        });
+        
+        // Create a completion with the option to use tools
         return await this.client.chat.completions.create({
             model: this.model,
             messages,
-            tools: formattedTools.length > 0 ? formattedTools : undefined,
-            tool_choice: formattedTools.length > 0 ? 'auto' : undefined,
+            tools: formattedTools,
+            tool_choice: 'auto',
             temperature: this.temperature
         });
     }

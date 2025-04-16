@@ -4,6 +4,8 @@ import { ReActAgent } from '../agents/react-agent.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { AgentFactory } from '../agents/agent-factory.js';
+import { ReActEngine } from '../agents/react-engine.js';
+import { ToolChainExecutor } from '../tools/tool-chain/tool-chain-executor.js';
 import sinon from 'sinon';
 
 describe('ReActAgent', () => {
@@ -68,14 +70,25 @@ describe('ReActAgent', () => {
       generateFollowUpPrompt: sinon.stub().resolves('Follow-up prompt')
     };
 
-    // Create agent with mocked logger
-    agent = new ReActAgent(
-      mockContainer as unknown as MCPContainer,
-      mockLLMProvider,
+    // Create ReActEngine first
+    const mockToolChainExecutor = {
+      execute: sinon.stub().resolves({ success: true, data: 'Test result' }),
+      logger: mockLogger,
+      executeTool: sinon.stub().resolves({ success: true, data: 'Test result' }),
+      prepareToolInput: sinon.stub().resolves({}),
+      shouldAbortChain: sinon.stub().returns(false)
+    } as unknown as ToolChainExecutor;
+
+    const reactEngine = new ReActEngine(
       mockMemoryProvider,
+      mockLLMProvider,
       mockToolManager,
+      mockToolChainExecutor,
       mockPromptGenerator as unknown as ReActPromptGenerator
     );
+
+    // Create agent with ReActEngine
+    agent = new ReActAgent(reactEngine);
     
     // @ts-ignore - Replace the logger with our mock
     agent.logger = mockLogger;

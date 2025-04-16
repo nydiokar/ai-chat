@@ -54,7 +54,8 @@ const simplifyObject = (obj: any): any => {
     return {
       content: obj.choices[0].message.content,
       tokens: obj.usage?.total_tokens || 'unknown',
-      model: obj.model
+      model: obj.model,
+      finish_reason: obj.choices[0].finish_reason
     };
   }
 
@@ -88,25 +89,96 @@ const simplifyObject = (obj: any): any => {
     return `Model: ${obj.model || 'unknown'}, Env: ${obj.environment || 'unknown'}`;
   }
 
+  // Recursively clean objects
+  const isHeaderObject = (o: any) => 
+    o && typeof o === 'object' && 
+    (o.headers || o.authorization || o.cookie || 
+     (Object.keys(o).some(k => 
+       k.toLowerCase().includes('header') || 
+       k.toLowerCase().includes('cookie') || 
+       k.toLowerCase().includes('token') || 
+       k.toLowerCase().includes('auth')
+    )));
+
+  // Handle HTTP response objects
+  if (obj.status && obj.headers && obj.request) {
+    return {
+      status: obj.status,
+      statusText: obj.statusText,
+      url: obj.request?.url || 'unknown',
+      method: obj.request?.method || 'unknown',
+      size: typeof obj.data === 'string' ? `${Math.round(obj.data.length / 1024)}KB` : 'unknown'
+    };
+  }
+
   // Remove noisy fields
   const cleaned = { ...obj };
-  delete cleaned.stack;
-  delete cleaned.config;
-  delete cleaned.headers;
-  delete cleaned.authorization;
-  delete cleaned['set-cookie'];
+  
+  // Always remove these fields
+  const fieldsToDelete = [
+    'stack', 'config', 'headers', 'authorization', 'set-cookie', 
+    'cookie', 'Authorization', 'response', 'request'
+  ];
+  
+  fieldsToDelete.forEach(field => {
+    delete cleaned[field];
+  });
+  
+  // Recursively clean nested objects
+  Object.keys(cleaned).forEach(key => {
+    if (cleaned[key] && typeof cleaned[key] === 'object') {
+      if (isHeaderObject(cleaned[key])) {
+        // If it's a header-related object, simplify drastically or remove
+        cleaned[key] = { _type: 'headers_object_removed' };
+      } else {
+        // Otherwise recursively clean it
+        cleaned[key] = simplifyObject(cleaned[key]);
+      }
+    }
+  });
   
   return cleaned;
 };
 
 // Filter out noisy debug logs
 const filterNoisyLogs = winston.format((info) => {
-  // Only filter out HTTP headers and rate limit info
-  if (typeof info.message === 'string' && 
-     (info.message.includes('x-ratelimit') ||
-      info.message.includes('content-type-options'))) {
-    return false;
+  // Filter out all header-related logs
+  if (typeof info.message === 'string') {
+    // Filter HTTP headers and API-related metadata
+    if (info.message.includes('x-ratelimit') ||
+        info.message.includes('content-type') ||
+        info.message.includes('content-length') ||
+        info.message.includes('openai-') ||
+        info.message.includes('x-request-id') ||
+        info.message.includes('authorization') ||
+        info.message.includes('user-agent') ||
+        info.message.includes('x-frame-options') ||
+        info.message.includes('connection') ||
+        info.message.includes('access-control') ||
+        info.message.includes('cloudflare')) {
+      return false;
+    }
   }
+  
+  // Filter out objects with header properties
+  if (typeof info.message === 'object' && info.message !== null) {
+    const objStr = JSON.stringify(info.message).toLowerCase();
+    if (objStr.includes('headers') || 
+        objStr.includes('ratelimit') || 
+        objStr.includes('content-type') ||
+        objStr.includes('authorization')) {
+      // Either completely filter out or aggressively clean
+      if (objStr.length > 500) { // If it's a large response, just filter it out
+        return false;
+      } else {
+        // For smaller objects, clean them
+        const cleaned = { ...info };
+        cleaned.message = simplifyObject(info.message);
+        return cleaned;
+      }
+    }
+  }
+  
   return info;
 });
 
