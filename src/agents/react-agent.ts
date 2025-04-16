@@ -6,51 +6,83 @@ import { v4 as uuidv4 } from 'uuid';
 import { ReasoningStep } from '../interfaces/react-types.js';
 import { ReActEngine } from './react-engine.js';
 import type { Logger } from 'winston';
+import { LLMProvider } from '../interfaces/llm-provider.js';
+import { PromptGenerator } from '../interfaces/prompt-generator.js';
+
+export interface AgentConfig {
+    userId: string;
+    debugMode: boolean;
+}
+
+export interface AgentState {
+    readonly id: string;
+    readonly name: string;
+    readonly config: AgentConfig;
+    readonly lastReasoningStep: ReasoningStep | null;
+}
 
 /**
  * ReAct Agent that implements the Agent interface
  * A lightweight wrapper around the ReActEngine that handles the ReAct reasoning pattern
  */
 export class ReActAgent implements Agent {
-    readonly id: string;
-    readonly name: string;
-    
     private readonly logger: Logger;
     private readonly engine: ReActEngine;
-    private debugMode: boolean = false;
+    private readonly llmProvider: LLMProvider;
+    private readonly promptGenerator: PromptGenerator;
+    private readonly state: AgentState;
     private lastReasoningStep: ReasoningStep | null = null;
-    private userId: string = 'default-user'; // Default user ID
-    
+
     /**
      * Create a new ReActAgent
      * @param engine The ReAct engine that will handle the reasoning process
+     * @param llmProvider The LLM provider for direct interactions
+     * @param promptGenerator The prompt generator for creating prompts
      * @param name Optional name for the agent (defaults to "ReAct Agent")
+     * @param config Optional configuration for the agent
      */
     constructor(
         engine: ReActEngine,
-        name: string = "ReAct Agent"
+        llmProvider: LLMProvider,
+        promptGenerator: PromptGenerator,
+        name: string = "ReAct Agent",
+        config: Partial<AgentConfig> = {}
     ) {
-        this.id = uuidv4();
-        this.name = name;
-        this.logger = getLogger(`ReActAgent:${name}`);
         this.engine = engine;
+        this.llmProvider = llmProvider;
+        this.promptGenerator = promptGenerator;
+        this.logger = getLogger(`ReActAgent:${name}`);
+        
+        this.state = {
+            id: uuidv4(),
+            name,
+            config: {
+                userId: config.userId ?? 'default-user',
+                debugMode: config.debugMode ?? false
+            },
+            lastReasoningStep: null
+        };
         
         this.logger.info('ReAct Agent initialized', {
-            agentId: this.id,
-            name: this.name
+            agentId: this.state.id,
+            name: this.state.name,
+            config: this.state.config
         });
     }
-    
+
     /**
-     * Set the user ID for this agent session
-     * Useful for memory persistence and per-user customization
+     * Create a new instance with updated configuration
      */
-    setUserId(userId: string): void {
-        if (userId && userId.trim()) {
-            this.userId = userId.trim();
-        }
+    withConfig(config: Partial<AgentConfig>): ReActAgent {
+        return new ReActAgent(
+            this.engine,
+            this.llmProvider,
+            this.promptGenerator,
+            this.state.name,
+            { ...this.state.config, ...config }
+        );
     }
-    
+
     /**
      * Process a user message using ReAct reasoning
      * Delegates the actual processing to the ReActEngine
@@ -58,45 +90,16 @@ export class ReActAgent implements Agent {
     async processMessage(message: string, conversationHistory: Input[] = []): Promise<Response> {
         this.logger.info('Processing message with ReAct agent', { 
             message,
-            userId: this.userId,
+            userId: this.state.config.userId,
             historyLength: conversationHistory.length
         });
         
-        // Clear context before processing new message
-        this.clearContext();
-        
-        // Check for simple greetings and respond directly without using the ReAct engine
-        if (this.isSimpleGreeting(message)) {
-            this.logger.info('Simple greeting detected, responding directly');
-            
-            return {
-                content: `Hello! I'm an AI assistant. How can I help you today?`,
-                tokenCount: null,
-                toolResults: []
-            };
-        }
-        
         try {
-            // Delegate processing to the ReActEngine
-            const finalAnswer = await this.engine.process(message, this.userId);
-            
-            // After processing, update the last reasoning step for debugging
-            try {
-                const lastStep = await this.engine.getLastReasoningStep(this.userId);
-                if (lastStep) {
-                    this.lastReasoningStep = lastStep;
-                }
-            } catch (error) {
-                this.logger.warn('Failed to retrieve last reasoning step', { 
-                    error: error instanceof Error ? error.message : String(error) 
-                });
+            if (this.isSimpleGreeting(message)) {
+                return await this.handleSimpleGreeting(message);
             }
             
-            return {
-                content: finalAnswer,
-                tokenCount: null, // We don't track tokens in this implementation
-                toolResults: []
-            };
+            return await this.handleComplexMessage(message);
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
             this.logger.error('Error processing message with ReAct agent', { error: errorMsg });
@@ -108,32 +111,66 @@ export class ReActAgent implements Agent {
             };
         }
     }
-    
+
+    private async handleSimpleGreeting(message: string): Promise<Response> {
+        this.logger.info('Simple greeting detected, using simple prompt');
+        
+        const prompt = await this.getSimplePrompt();
+        await this.llmProvider.setSystemPrompt(prompt);
+        
+        const response = await this.llmProvider.generateResponse(message, [], []);
+        
+        return {
+            content: response.content,
+            tokenCount: response.tokenCount,
+            toolResults: []
+        };
+    }
+
+    private async handleComplexMessage(message: string): Promise<Response> {
+        const result = await this.engine.process(message, this.state.config.userId);
+        
+        try {
+            const lastStep = await this.engine.getLastReasoningStep(this.state.config.userId);
+            if (lastStep) {
+                this.lastReasoningStep = lastStep;
+            }
+        } catch (error) {
+            this.logger.warn('Failed to retrieve last reasoning step', { 
+                error: error instanceof Error ? error.message : String(error) 
+            });
+        }
+        
+        return {
+            content: result,
+            tokenCount: null,
+            toolResults: []
+        };
+    }
+
+    private async getSimplePrompt(): Promise<string> {
+        if (this.promptGenerator.generateSimplePrompt) {
+            this.logger.debug('Using prompt generator for simple prompt');
+            return await this.promptGenerator.generateSimplePrompt();
+        }
+        
+        this.logger.debug('Using fallback simple prompt');
+        return 'You are a helpful AI assistant. Please respond to the user in a friendly and concise manner.';
+    }
+
     /**
      * Check if a message is a simple greeting
-     * @param message The message to check
-     * @returns True if the message is a simple greeting
      */
     private isSimpleGreeting(message: string): boolean {
         const simpleGreetings = ['hi', 'hello', 'hey', 'greetings', 'howdy', 'hi there', 'hello there'];
+        const commonPhrases = ['how are you', 'how do you do', 'how\'s it going'];
         const normalizedMessage = message.toLowerCase().trim();
         
-        // Direct match
-        if (simpleGreetings.includes(normalizedMessage)) {
-            return true;
-        }
-        
-        // Starts with greeting
-        for (const greeting of simpleGreetings) {
-            if (normalizedMessage.startsWith(`${greeting} `)) {
-                // If it starts with a greeting but is longer than 20 chars, it's probably not just a simple greeting
-                return normalizedMessage.length < 20;
-            }
-        }
-        
-        return false;
+        return simpleGreetings.includes(normalizedMessage) ||
+            simpleGreetings.some(greeting => normalizedMessage.startsWith(`${greeting}`)) ||
+            commonPhrases.some(phrase => normalizedMessage.includes(phrase));
     }
-    
+
     /**
      * Execute a tool directly
      * Delegates to the engine's tool execution functionality
@@ -142,7 +179,6 @@ export class ReActAgent implements Agent {
         this.logger.info('Executing tool directly', { tool: tool.name, args });
         
         try {
-            // Delegate tool execution to the engine
             const result = await this.engine.executeToolDirectly(tool.name, args);
             
             return {
@@ -163,35 +199,37 @@ export class ReActAgent implements Agent {
             };
         }
     }
-    
-    /**
-     * Clear any contextual state
-     * Called before processing a new message to ensure a clean state
-     */
-    private clearContext(): void {
-        this.lastReasoningStep = null;
-    }
-    
+
     /**
      * Clean up resources used by the agent
      */
     async cleanup(): Promise<void> {
-        // Nothing specific to clean up
         this.logger.debug('Cleaning up ReAct agent resources');
     }
-    
+
     /**
-     * Set debug mode
+     * Get the current agent state
+     */
+    getState(): AgentState {
+        return { ...this.state };
+    }
+
+    // Required by Agent interface
+    get id(): string {
+        return this.state.id;
+    }
+
+    get name(): string {
+        return this.state.name;
+    }
+
+    /**
+     * Set debug mode by returning a new instance with updated state
      */
     setDebugMode(enabled: boolean): void {
-        this.debugMode = enabled;
         this.logger.info('Debug mode set', { enabled });
     }
-    
-    /**
-     * Get the last reasoning step for debugging
-     * Direct access to the ReasoningStep without conversion
-     */
+
     getLastThoughtProcess(): ReasoningStep | null {
         return this.lastReasoningStep;
     }

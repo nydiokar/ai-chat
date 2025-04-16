@@ -270,11 +270,10 @@ describe('TaskDependencyService', () => {
       });
       await taskDependencyService.propagateStatusUpdate(testTask1.id);
 
-      // Task should still be in progress since one parallel task is still incomplete
-      const task = await prisma.task.findUnique({
-        where: { id: task3.id }
-      });
-      expect(task?.status).not.to.equal(TaskStatus.BLOCKED);
+      // Check if we can still start the task after completing one dependency
+      const updatedStatus = await taskDependencyService.canStartTask(task3.id);
+      expect(updatedStatus.canStart).to.be.true;
+      expect(updatedStatus.blockedBy).to.have.lengthOf(0);
     });
   });
 

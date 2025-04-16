@@ -326,7 +326,17 @@ conclusion:
             }
             
             // Add guidance for the next step based on the current step
-            promptParts.push(this.generateStepGuidance(currentStep, steps));
+            const hasObservation = steps.some(s => s.observation);
+            if (hasObservation) {
+                // Always include "Based on the observation above" when there's an observation
+                if (currentStep >= 3) {
+                    promptParts.push(`You have been reasoning for ${currentStep} steps. Based on the observation above, consider whether you have enough information to provide a final answer now. If you need more information, choose the most appropriate tool that you haven't tried yet.`);
+                } else {
+                    promptParts.push('Based on the observation above, what is your next step? If you have enough information, provide a final answer.');
+                }
+            } else {
+                promptParts.push(this.generateStepGuidance(currentStep, steps));
+            }
             
             return promptParts.join('\n\n');
         } catch (error) {
@@ -434,7 +444,16 @@ Remember:
      * Helper method to format tools as a readable list
      */
     private formatTools(tools: ToolDefinition[]): string {
-        return this.toolFormatter.formatToolDescriptions(tools);
+        try {
+            return this.toolFormatter.formatToolDescriptions(tools);
+        } catch (error) {
+            this.logger.error('Error formatting tools', {
+                error: error instanceof Error ? error.message : String(error),
+                toolsCount: tools.length
+            });
+            // Provide a basic fallback format
+            return tools.map(tool => `Tool: ${tool.name}\nDescription: ${tool.description}`).join('\n\n');
+        }
     }
 
     /**
@@ -609,16 +628,17 @@ Remember:
             .map(s => s.action!.tool);
         
         if (currentStep === 0) {
-            return 'Please start by thinking about the problem and deciding on your first step.';
-        } else if (hasObservation && currentStep >= 3) {
-            return `You have been reasoning for ${currentStep} steps. Consider whether you have enough information to provide a final answer now. If you need more information, choose the most appropriate tool that you haven't tried yet.`;
+            return 'Please start by thinking about the problem, breaking it down into clear steps. Consider what tools might help you solve this problem efficiently.';
         } else if (hasObservation) {
-            return 'Based on the observation above, what is your next step? If you have enough information, provide a final answer.';
+            if (currentStep >= 3) {
+                return `You have been reasoning for ${currentStep} steps. Based on the observation above, carefully analyze the results and connect them to the original question. If you have sufficient information, provide a comprehensive final answer. Otherwise, select the most appropriate tool that you haven't tried yet, explaining your reasoning for this choice.`;
+            }
+            return 'Based on the observation above, thoroughly evaluate the information obtained. Does it fully answer the question or do you need additional information? If more information is needed, determine the most logical next step and explain your reasoning before taking action.';
         } else if (alreadyTried.length > 0) {
             const triedTools = alreadyTried.join(', ');
-            return `You have tried these tools: ${triedTools}. What tool would be most helpful to try next?`;
+            return `You have tried these tools: ${triedTools}. Reflect on what you've learned so far and identify what information is still missing. Select the most appropriate tool to fill these knowledge gaps and explain how it will help answer the original question.`;
         } else {
-            return 'What is your next step in solving this problem?';
+            return 'What is your next logical step in solving this problem? Consider what information you need and which tool would be most effective at providing it. Explain your reasoning before taking action.';
         }
     }
 } 

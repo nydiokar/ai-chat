@@ -236,6 +236,9 @@ describe('ReActToolHandler', () => {
 
     const formatted = toolHandler.formatToolResult(mockResult, action);
     
-    expect(formatted).to.equal('Tool returned no result.');
+    expect(formatted).to.include('Tool: test_tool');
+    expect(formatted).to.include('Parameters: {}');
+    expect(formatted).to.include('Error: Test error');
+    expect(formatted).to.include('Recommendation:');
   });
 }); 

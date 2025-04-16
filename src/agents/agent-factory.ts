@@ -48,6 +48,8 @@ export class AgentFactory {
       // Create the ReActAgent using the engine
       this.reActAgentInstance = new ReActAgent(
         this.reActEngineInstance,
+        llmProvider,
+        promptGenerator,
         name
       );
     }

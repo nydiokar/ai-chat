@@ -149,6 +149,9 @@ describe('MemoryRepository', () => {
     });
 
     it('should increment frequency on repeated command usage', async () => {
+      // Create user first - fix for foreign key constraint
+      await repository.createTestUser('test-user-2');
+      
       const pattern: Omit<CommandUsagePattern, 'id'> = {
         userId: 'test-user-2',
         commandName: 'repeated-command',

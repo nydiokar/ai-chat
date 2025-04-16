@@ -15,9 +15,9 @@ describe('ReActAgent', () => {
   let mockContainer: any;
   let mockPromptGenerator: any;
   let mockLogger: any;
-  let agent: ReActAgent;
+  let agent: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create mocks
     mockLogger = {
       debug: sinon.stub(),
@@ -70,25 +70,15 @@ describe('ReActAgent', () => {
       generateFollowUpPrompt: sinon.stub().resolves('Follow-up prompt')
     };
 
-    // Create ReActEngine first
-    const mockToolChainExecutor = {
-      execute: sinon.stub().resolves({ success: true, data: 'Test result' }),
-      logger: mockLogger,
-      executeTool: sinon.stub().resolves({ success: true, data: 'Test result' }),
-      prepareToolInput: sinon.stub().resolves({}),
-      shouldAbortChain: sinon.stub().returns(false)
-    } as unknown as ToolChainExecutor;
-
-    const reactEngine = new ReActEngine(
-      mockMemoryProvider,
+    // Create agent using AgentFactory (intended for testing)
+    agent = await AgentFactory.createReActAgent(
+      mockContainer as unknown as MCPContainer,
       mockLLMProvider,
+      mockMemoryProvider,
       mockToolManager,
-      mockToolChainExecutor,
-      mockPromptGenerator as unknown as ReActPromptGenerator
+      mockPromptGenerator as unknown as ReActPromptGenerator,
+      "Test Agent"
     );
-
-    // Create agent with ReActEngine
-    agent = new ReActAgent(reactEngine);
     
     // @ts-ignore - Replace the logger with our mock
     agent.logger = mockLogger;

@@ -71,26 +71,37 @@ describe("PromptRepository", () => {
 
   describe("Priority Handling", () => {
     it("should sort prompts by priority", () => {
+      const lowPriorityContent = "This is a low priority prompt";
+      const highPriorityContent = "This is a high priority prompt";
+
+      // Create a clean repository for this test
+      const testRepository = new PromptRepository();
+      
+      // Clear the default prompts (we'll test with our custom ones only)
+      // @ts-ignore - accessing private member for testing
+      testRepository.customPrompts = new Map();
+
       const lowPriority: BasePrompt = {
         type: PromptType.BEHAVIORAL,
-        content: "low",
+        content: lowPriorityContent,
         priority: 1,
         shouldApply: () => true
       };
 
       const highPriority: BasePrompt = {
         type: PromptType.BEHAVIORAL,
-        content: "high",
+        content: highPriorityContent,
         priority: 10,
         shouldApply: () => true
       };
 
-      repository.addPrompt(lowPriority);
-      repository.addPrompt(highPriority);
+      testRepository.addPrompt(lowPriority);
+      testRepository.addPrompt(highPriority);
 
-      const prompts = repository.getApplicablePrompts({});
-      expect(prompts[0].content).to.equal("high");
-      expect(prompts[1].content).to.equal("low");
+      const prompts = testRepository.getApplicablePrompts({});
+      // Check that prompts are sorted by priority (highest first)
+      expect(prompts[0].content).to.equal(highPriorityContent);
+      expect(prompts[1].content).to.equal(lowPriorityContent);
     });
   });
 });

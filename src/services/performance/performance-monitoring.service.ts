@@ -86,7 +86,16 @@ export class PerformanceMonitoringService {
     this.prisma = this.dbService.prisma;
     
     // Apply performance monitoring middleware
-    this.prisma.$use(prismaPerformanceMiddleware);
+    try {
+      // Check if $use method exists before calling it (handle SQLite adapter case)
+      if (this.prisma && typeof this.prisma.$use === 'function') {
+        this.prisma.$use(prismaPerformanceMiddleware);
+      } else {
+        console.warn('Prisma client does not support middleware in this environment');
+      }
+    } catch (error) {
+      console.error('Error applying Prisma middleware:', error);
+    }
   }
 
   static getInstance(): PerformanceMonitoringService {
