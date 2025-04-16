@@ -46,7 +46,7 @@ export class ReActAgent implements Agent {
         llmProvider: LLMProvider,
         promptGenerator: PromptGenerator,
         name: string = "ReAct Agent",
-        config: Partial<AgentConfig> = {}
+        config: Partial<AgentConfig> = {},
     ) {
         this.engine = engine;
         this.llmProvider = llmProvider;
@@ -79,7 +79,7 @@ export class ReActAgent implements Agent {
             this.llmProvider,
             this.promptGenerator,
             this.state.name,
-            { ...this.state.config, ...config }
+            { ...this.state.config, ...config },
         );
     }
 
@@ -128,7 +128,7 @@ export class ReActAgent implements Agent {
     }
 
     private async handleComplexMessage(message: string): Promise<Response> {
-        const result = await this.engine.process(message, this.state.config.userId);
+        const content = await this.engine.process(message, this.state.config.userId);
         
         try {
             const lastStep = await this.engine.getLastReasoningStep(this.state.config.userId);
@@ -142,9 +142,9 @@ export class ReActAgent implements Agent {
         }
         
         return {
-            content: result,
+            content,
             tokenCount: null,
-            toolResults: []
+            toolResults: []  // Since we're not tracking tool results in the engine response
         };
     }
 

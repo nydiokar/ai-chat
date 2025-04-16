@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { ToolDefinition, MCPToolSchema, ToolResponse } from './tools.js';
+import { ToolDefinition, MCPToolSchema, ToolResponse } from '../../tools/mcp/types/tools.js';
 
 describe('Tool Schema', () => {
     it('should create a valid tool definition', () => {

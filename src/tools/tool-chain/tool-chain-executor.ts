@@ -10,6 +10,8 @@ export interface ToolExecutionResult {
   metadata?: {
     executionTime: number;
     toolName: string;
+    attempts?: number;
+    maxRetries?: number;
   };
 }
 
@@ -34,6 +36,13 @@ export class ToolChainExecutor {
     const chainResults: any[] = [];
 
     try {
+      this.logger.debug('Starting tool chain execution', {
+        chainId: chainConfig.id,
+        toolCount: chainConfig.tools.length,
+        tools: chainConfig.tools.map(t => t.name),
+        initialContext
+      });
+
       for (const tool of chainConfig.tools) {
         if (this.shouldAbortChain(chainConfig, executionContext, chainResults)) {
           this.logger.warn('Tool chain aborted', { 
@@ -55,9 +64,12 @@ export class ToolChainExecutor {
           return {
             success: false,
             error: inputResult.error,
+            data: chainResults,
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: 'error'
+              toolName: tool.name,
+              attempts: 1,
+              maxRetries: 0
             }
           };
         }
@@ -68,20 +80,28 @@ export class ToolChainExecutor {
           this.logger.error('Tool execution failed', { 
             chainId: chainConfig.id, 
             toolName: tool.name, 
-            error: toolResult.error 
+            error: toolResult.error,
+            partialResults: chainResults,
+            currentToolResult: toolResult
           });
+
           return {
             success: false,
             error: toolResult.error,
-            data: chainResults, // Include the results from successful tools
+            data: [...chainResults],  // Create a new array to avoid any reference issues
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: 'error'
+              toolName: tool.name,
+              attempts: toolResult.metadata?.attempts,
+              maxRetries: toolResult.metadata?.maxRetries
             }
           };
         }
 
-        chainResults.push(toolResult.data);
+        // Only add the result if it's successful and has data
+        if (toolResult.data !== null && toolResult.data !== undefined) {
+          chainResults.push(toolResult.data);
+        }
 
         const mappedKey = chainConfig.resultMapping?.[tool.name];
         if (mappedKey) {
@@ -131,17 +151,37 @@ export class ToolChainExecutor {
     const maxRetries = tool.maxRetries || 3;
     const timeoutMs = tool.timeout || 30000;
 
+    this.logger.debug('Starting tool execution', {
+      chainId: chainConfig.id,
+      toolName: tool.name,
+      inputParams,
+      maxRetries,
+      timeoutMs
+    });
+
     const toolFunction = toolRegistry[tool.name];
     if (!toolFunction) {
+      const error = new Error(`Tool '${tool.name}' not found in registry`);
+      this.logger.error('Tool not found', {
+        chainId: chainConfig.id,
+        toolName: tool.name,
+        error: error.message
+      });
       return {
         success: false,
-        error: new Error(`Tool '${tool.name}' not found in registry`),
+        error,
+        data: null,
         metadata: {
           executionTime: performance.now() - startTime,
-          toolName: 'error'
+          toolName: tool.name,
+          attempts: 1,
+          maxRetries
         }
       };
     }
+
+    let lastError: Error | undefined;
+    let lastResult: any = null;
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       try {
@@ -154,53 +194,125 @@ export class ToolChainExecutor {
         });
 
         // Race between function and timeout
-        const result = await Promise.race([functionPromise, timeoutPromise]);
+        lastResult = await Promise.race([functionPromise, timeoutPromise]);
 
-        if (result === undefined || result === null) {
+        // If the promise was rejected, it will be caught in the catch block
+        // If it resolved with undefined/null, we throw here
+        if (lastResult === undefined || lastResult === null) {
           throw new Error(`Tool ${tool.name} returned no result`);
         }
 
+        // Log successful execution
+        this.logger.info('Tool execution succeeded', {
+          chainId: chainConfig.id,
+          toolName: tool.name,
+          attempt,
+          executionTime: performance.now() - startTime,
+          result: lastResult
+        });
+
         return {
           success: true,
-          data: result,
+          data: lastResult,
           metadata: {
             executionTime: performance.now() - startTime,
-            toolName: tool.name
+            toolName: tool.name,
+            attempts: attempt
           }
         };
 
       } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
         this.logger.error('Tool execution error', {
           chainId: chainConfig.id,
           toolName: tool.name,
-          error: error instanceof Error ? error.message : String(error),
-          attempt
+          error: {
+            message: lastError.message,
+            stack: lastError.stack,
+            name: lastError.name
+          },
+          attempt,
+          maxRetries,
+          isTimeout: lastError.message.includes('TIMEOUT:'),
+          isLastAttempt: attempt === maxRetries + 1,
+          inputParams  // Log the input params to help debug
         });
 
-        if (attempt === maxRetries + 1 || (error instanceof Error && error.message.includes('TIMEOUT:'))) {
+        if (attempt === maxRetries + 1 || lastError.message.includes('TIMEOUT:')) {
+          // Ensure we return a proper error result
           return {
             success: false,
-            error: error instanceof Error ? error : new Error(String(error)),
+            error: lastError,
+            data: null,
             metadata: {
               executionTime: performance.now() - startTime,
-              toolName: 'error'
+              toolName: tool.name,
+              attempts: attempt,
+              maxRetries
             }
           };
         }
 
-        await new Promise(resolve => setTimeout(resolve, Math.min(50 * Math.pow(2, attempt - 1), 1000)));
+        // Add jitter to backoff
+        const baseDelay = Math.min(50 * Math.pow(2, attempt - 1), 1000);
+        const jitter = Math.random() * 100;  // Add up to 100ms of jitter
+        const backoffDelay = baseDelay + jitter;
+        
+        this.logger.debug('Retrying tool execution', {
+          chainId: chainConfig.id,
+          toolName: tool.name,
+          attempt,
+          baseDelay,
+          jitter,
+          backoffDelay,
+          error: lastError.message
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
     }
 
-    // This shouldn't be reached
-    throw new Error('Unexpected execution path');
+    // This shouldn't be reached, but if it does, return the last error state
+    const finalError = lastError || new Error('Unexpected execution path');
+    this.logger.error('Tool execution reached unexpected state', {
+      chainId: chainConfig.id,
+      toolName: tool.name,
+      error: {
+        message: finalError.message,
+        stack: finalError.stack,
+        name: finalError.name
+      }
+    });
+    
+    return {
+      success: false,
+      error: finalError,
+      data: null,
+      metadata: {
+        executionTime: performance.now() - startTime,
+        toolName: tool.name,
+        attempts: maxRetries + 1,
+        maxRetries
+      }
+    };
   }
 
   private prepareToolInput(
     tool: ToolInput, 
     context: ExecutionContext
   ): { success: boolean; error?: Error; params?: any } {
-    if (!tool.parameters) {
+    this.logger.debug('Preparing tool input', {
+      toolName: tool.name,
+      parameters: tool.parameters,
+      context
+    });
+
+    // Return empty params if parameters is undefined, null, or an empty object
+    if (!tool.parameters || typeof tool.parameters !== 'object' || Object.keys(tool.parameters).length === 0) {
+      this.logger.debug('No parameters provided, using empty object', {
+        toolName: tool.name
+      });
       return { success: true, params: {} };
     }
 

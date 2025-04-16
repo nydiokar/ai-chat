@@ -140,12 +140,16 @@ describe('BaseMCPClient', () => {
                 name: 'test-tool',
                 description: 'Test tool',
                 version: '1.0.0',
-                parameters: [{
-                    name: 'param1',
-                    type: 'string',
-                    description: 'Test parameter',
-                    required: true
-                }]
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        param1: {
+                            type: 'string',
+                            description: 'Test parameter'
+                        }
+                    },
+                    required: ['param1']
+                }
             }];
             console.log('Mock tools:', JSON.stringify(mockTools, null, 2));
 
@@ -153,23 +157,38 @@ describe('BaseMCPClient', () => {
             const tools = await mcpClient.listTools();
             console.log('Received tools:', JSON.stringify(tools, null, 2));
             
-            console.log('Request called times:', mockRequest.callCount);
-            console.log('Request args:', JSON.stringify(mockRequest.firstCall.args[0], null, 2));
             expect(mockRequest.calledOnce).to.be.true;
             expect(mockRequest.firstCall.args[0]).to.deep.equal({
                 method: 'tools/list',
                 params: {}
             });
-            expect(tools).to.deep.equal(mockTools);
+            expect(tools[0]).to.deep.equal({
+                name: 'test-tool',
+                description: 'Test tool',
+                version: '1.0.0',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        param1: {
+                            type: 'string',
+                            description: 'Test parameter'
+                        }
+                    },
+                    required: ['param1']
+                },
+                metadata: {}
+            });
         });
 
         it('should call tool with arguments', async () => {
             console.log('\n=== Testing callTool ===');
             const mockResponse = {
-                success: true,
-                data: { result: 'test' },
-                error: undefined,
-                metadata: undefined
+                content: [
+                    {
+                        type: 'text',
+                        text: 'test result'
+                    }
+                ]
             };
             console.log('Mock response:', JSON.stringify(mockResponse, null, 2));
 
@@ -187,7 +206,11 @@ describe('BaseMCPClient', () => {
                     arguments: { param: 'value' }
                 }
             });
-            expect(response).to.deep.equal(mockResponse);
+            expect(response).to.deep.equal({
+                success: true,
+                data: mockResponse,
+                metadata: {}
+            });
         });
 
         it('should handle tool execution errors', async () => {

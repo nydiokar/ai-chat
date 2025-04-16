@@ -31,9 +31,9 @@ describe('EnhancedMCPClient', () => {
         mockClose = sinon.stub().resolves();
         console.log('Mock methods created');
 
-        // Create instance
-        mcpClient = new EnhancedMCPClient(config, 'test-server');
-        console.log('EnhancedMCPClient instance created');
+        // Create instance with test mode enabled
+        mcpClient = new EnhancedMCPClient(config, 'test-server', { testMode: true });
+        console.log('EnhancedMCPClient instance created in test mode');
 
         // Replace the client and transport instances with our mocks
         const mockClient = {
@@ -64,7 +64,11 @@ describe('EnhancedMCPClient', () => {
                 name: 'test-tool',
                 description: 'Test tool',
                 version: '1.0.0',
-                parameters: []
+                inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                }
             }];
             console.log('Mock tools:', JSON.stringify(mockTools, null, 2));
 
@@ -82,7 +86,7 @@ describe('EnhancedMCPClient', () => {
             expect(secondResult).to.deep.equal(firstResult);
 
             // After TTL expires, should hit API again
-            clock.tick(6 * 60 * 1000); // 6 minutes
+            await clock.tickAsync(2 * 60 * 1000 + 1); // Just over 2 minutes
             const thirdResult = await mcpClient.listTools();
             console.log('Third call result (after TTL):', JSON.stringify(thirdResult, null, 2));
             expect(mockRequest.callCount).to.equal(2);
@@ -95,7 +99,7 @@ describe('EnhancedMCPClient', () => {
             expect(status).to.have.property('size');
             expect(status).to.have.property('lastCleanup');
             expect(status).to.have.property('ttl');
-            expect(status.ttl).to.equal(5 * 60 * 1000);
+            expect(status.ttl).to.equal(2 * 60 * 1000); // 2 minutes
         });
     });
 
@@ -103,13 +107,31 @@ describe('EnhancedMCPClient', () => {
         it('should perform health checks', async () => {
             console.log('\n=== Testing health monitoring ===');
             const healthListener = sinon.spy();
-            mcpClient['healthMonitor'].on('health.ok', healthListener);
+            mcpClient.on('health.status', healthListener);
 
-            // Trigger health check
+            // Mock successful listTools response
+            const mockTools = [{
+                name: 'test-tool',
+                description: 'Test tool',
+                version: '1.0.0',
+                inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                }
+            }];
+            mockRequest.resolves(mockTools);
+
+            // Trigger health check manually since we're in test mode
             await mcpClient['checkHealth']();
-            console.log('Health check performed');
-            expect(mockConnect.calledOnce).to.be.true;
+            
+            expect(mockRequest.calledOnce).to.be.true;
             expect(healthListener.calledOnce).to.be.true;
+            
+            const emittedStatus = healthListener.firstCall.args[0];
+            expect(emittedStatus).to.have.property('status', 'HEALTHY');
+            expect(emittedStatus).to.have.property('serverId', 'test-server');
+            expect(emittedStatus).to.have.property('timestamp');
 
             const status = mcpClient.getHealthStatus();
             console.log('Health status:', status);
@@ -118,19 +140,23 @@ describe('EnhancedMCPClient', () => {
 
         it('should emit health errors', async () => {
             console.log('\n=== Testing health error handling ===');
-            const errorListener = sinon.spy();
-            mcpClient['healthMonitor'].on('health.error', errorListener);
+            const healthListener = sinon.spy();
+            mcpClient.on('health.status', healthListener);
 
-            // Make connect fail
+            // Mock failed listTools response
             const error = new Error('Health check failed');
-            mockConnect.rejects(error);
+            mockRequest.rejects(error);
             console.log('Setting up health check error:', error.message);
 
-            // Trigger health check
+            // Trigger health check manually since we're in test mode
             await mcpClient['checkHealth']();
-            console.log('Health check attempted');
-            expect(errorListener.calledOnce).to.be.true;
-            expect(errorListener.firstCall.args[0]).to.equal(error);
+            
+            expect(healthListener.calledOnce).to.be.true;
+            const emittedStatus = healthListener.firstCall.args[0];
+            expect(emittedStatus).to.have.property('status', 'UNHEALTHY');
+            expect(emittedStatus).to.have.property('serverId', 'test-server');
+            expect(emittedStatus).to.have.property('timestamp');
+            expect(emittedStatus).to.have.property('error', error);
         });
     });
 
@@ -146,14 +172,26 @@ describe('EnhancedMCPClient', () => {
             mcpClient.on('tool.error', errorListener);
 
             // Test successful tool call
-            const mockResponse = { success: true, data: { result: 'test' } };
+            const mockResponse = {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'test result'
+                    }
+                ]
+            };
             mockRequest.resolves(mockResponse);
             console.log('Testing successful tool call');
-            await mcpClient.callTool('test-tool', { param: 'value' });
+            const response = await mcpClient.callTool('test-tool', { param: 'value' });
 
             expect(calledListener.calledOnce).to.be.true;
             expect(successListener.calledOnce).to.be.true;
             expect(errorListener.called).to.be.false;
+            expect(response).to.deep.equal({
+                success: true,
+                data: mockResponse,
+                metadata: {}
+            });
 
             console.log('Called event args:', JSON.stringify(calledListener.firstCall.args[0], null, 2));
             console.log('Success event args:', JSON.stringify(successListener.firstCall.args[0], null, 2));

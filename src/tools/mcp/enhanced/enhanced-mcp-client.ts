@@ -3,12 +3,10 @@ import { BaseMCPClient } from '../base/base-mcp-client.js';
 import { ToolDefinition, ToolResponse } from '../types/tools.js';
 import { ServerConfig } from '../types/server.js';
 import { CacheStatus, HealthStatus } from '../types/status.js';
-import { IMCPClient } from '../interfaces/core.js';
 import { ClientMetrics } from '../types/metrics.js';
 import { info, warn, error, debug } from '../../../utils/logger.js';
 import { createLogContext, createErrorContext } from '../../../utils/log-utils.js';
-import { MCPError, ErrorType } from '../types/errors.js';
-import { z } from 'zod';
+
 
 const COMPONENT = 'EnhancedMCPClient';
 
@@ -24,10 +22,9 @@ const pollingServers = new Set<string>();
 
 export class EnhancedMCPClient extends BaseMCPClient {
     private cache: Map<string, { value: any; timestamp: number }>;
-    private healthMonitor: EventEmitter;
     private eventEmitter: EventEmitter = new EventEmitter();
     private lastHealthCheck: Date;
-    private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    private readonly CACHE_TTL = 2 * 60 * 1000; // 2 minutes
     private readonly HEALTH_CHECK_INTERVAL = 60 * 1000; // 1 minute
     private reconnectAttempts: number = 0;
     private maxReconnectAttempts: number = 5;
@@ -39,14 +36,13 @@ export class EnhancedMCPClient extends BaseMCPClient {
     private shouldReconnect: boolean = true;
     private baseReconnectDelay: number = 1000;
     private maxReconnectDelay: number = 60000; // 1 minute
+    private isTestMode: boolean = false;
 
-    constructor(config: ServerConfig, serverId: string) {
+    constructor(config: ServerConfig, serverId: string, options: { testMode?: boolean } = {}) {
         super(config, serverId);
         this.cache = new Map();
-        this.healthMonitor = new EventEmitter();
         this.lastHealthCheck = new Date();
-        this.setupHealthMonitoring();
-        this.setupNotificationHandlers();
+        this.isTestMode = options.testMode || false;
         
         // Initialize metrics
         this.metrics = {
@@ -61,6 +57,11 @@ export class EnhancedMCPClient extends BaseMCPClient {
             serverId: this.serverId
         };
 
+        if (!this.isTestMode) {
+            this.setupHealthMonitoring();
+            this.setupNotificationHandlers();
+        }
+
         info('Enhanced MCP Client initialized', createLogContext(
             COMPONENT,
             'constructor',
@@ -68,12 +69,15 @@ export class EnhancedMCPClient extends BaseMCPClient {
                 serverId: this.serverId,
                 healthCheckInterval: this.HEALTH_CHECK_INTERVAL,
                 toolsRefreshInterval: this.TOOLS_REFRESH_INTERVAL,
-                maxReconnectAttempts: this.maxReconnectAttempts
+                maxReconnectAttempts: this.maxReconnectAttempts,
+                testMode: this.isTestMode
             }
         ));
     }
 
     private setupHealthMonitoring(): void {
+        if (this.isTestMode) return;
+        
         setInterval(() => {
             this.checkHealth();
         }, this.HEALTH_CHECK_INTERVAL);
@@ -244,7 +248,7 @@ export class EnhancedMCPClient extends BaseMCPClient {
                 }
             ));
 
-            this.healthMonitor.emit('health.status', { 
+            this.eventEmitter.emit('health.status', { 
                 status: HEALTH_STATUS.HEALTHY,
                 serverId: this.serverId,
                 timestamp: now
@@ -265,14 +269,16 @@ export class EnhancedMCPClient extends BaseMCPClient {
                 }
             ));
 
-            this.healthMonitor.emit('health.status', {
+            this.eventEmitter.emit('health.status', {
                 status: HEALTH_STATUS.UNHEALTHY,
                 serverId: this.serverId,
                 timestamp: now,
                 error: err
             });
 
-            await this.handleReconnect();
+            if (!this.isTestMode) {
+                await this.handleReconnect();
+            }
         }
     }
 

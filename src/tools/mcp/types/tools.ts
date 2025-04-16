@@ -19,8 +19,8 @@ export interface MCPToolSchema {
 export interface ToolDefinition {
     name: string;
     description: string;
-    inputSchema: MCPToolSchema;
     version?: string;
+    inputSchema: MCPToolSchema;
     metadata?: Record<string, any>;
     enabled?: boolean;
     server?: ServerConfig;
