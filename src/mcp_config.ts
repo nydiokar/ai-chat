@@ -39,24 +39,6 @@ const servers: Record<string, any> = {
         env: {
             BRAVE_API_KEY: process.env.BRAVE_API_KEY
         }
-    },
-    "sequential-thinking": {
-        id: "sequential-thinking",
-        name: "Sequential Thinking",
-        command: "npx",
-        args: [
-            "-y",
-            "@modelcontextprotocol/server-sequential-thinking"
-        ]
-    },
-    "youtube-transcript": {
-        id: "youtube-transcript",
-        name: "YouTube Transcript",
-        command: "npx",
-        args: [
-            "-y",
-            "@kimtaeyoon83/mcp-server-youtube-transcript"
-        ]
     }
 };
 

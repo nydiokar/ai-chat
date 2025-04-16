@@ -11,6 +11,7 @@ import { defaultConfig } from '../utils/config.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { MemoryProvider, MemoryType } from '../interfaces/memory-provider.js';
 import { AgentFactory } from '../agents/agent-factory.js';
+import { PromptRepository } from '../services/prompt/prompt-repository.js';
 
 /**
  * Main application factory for creating AI agents with proper configuration.
@@ -157,7 +158,8 @@ export class AIFactory {
             const provider = new OpenAIProvider(config);
             
             // Create prompt generator
-            const promptGenerator = new ReActPromptGenerator(this.toolManager);
+            const promptRepository = new PromptRepository();
+            const promptGenerator = new ReActPromptGenerator(this.toolManager, promptRepository);
             
             // If a memory provider wasn't passed in, throw an error
             if (!memoryProvider) {

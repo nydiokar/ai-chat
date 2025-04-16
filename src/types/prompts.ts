@@ -36,9 +36,10 @@ export interface ReasoningPrompt extends BasePrompt {
 }
 
 export interface PromptContext {
-  requestType?: 'tool_usage' | 'reasoning' | 'general';
+  requestType?: 'tool_usage' | 'reasoning' | 'general' | 'react';
   tools?: string[]; // Tools being used in the request
   complexity?: 'low' | 'medium' | 'high';
+  afterToolExecution?: boolean; // Whether this context is after a tool execution
   userPreferences?: {
     tone?: BehavioralPrompt['tone'];
     formatting?: BehavioralPrompt['style']['formatting'];

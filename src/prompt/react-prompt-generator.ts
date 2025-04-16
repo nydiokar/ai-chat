@@ -5,6 +5,9 @@ import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { getLogger } from '../utils/shared-logger.js';
 import type { Logger } from 'winston';
 import { ReasoningStep } from '../interfaces/react-types.js';
+import { PromptRepository } from '../services/prompt/prompt-repository.js';
+import { BasePrompt, PromptContext, PromptType, ReasoningPrompt, ToolUsagePrompt } from '../types/prompts.js';
+import { ToolFormatter } from '../tools/tool-formatter.js';
 
 /**
  * Generator for creating prompts that guide the LLM to use ReAct-style reasoning
@@ -12,6 +15,7 @@ import { ReasoningStep } from '../interfaces/react-types.js';
  */
 export class ReActPromptGenerator implements PromptGenerator {
     private readonly logger: Logger;
+    private readonly toolFormatter: ToolFormatter;
     private readonly defaultIdentity = `You are an intelligent AI assistant with access to external tools to help users. Always respond directly unless a tool would clearly help solve the user's request.
 
 When using tools:
@@ -21,9 +25,116 @@ When using tools:
 4. If a tool fails, try an alternative approach or explain the issue to the user`;
 
     constructor(
-        private readonly toolManager: IToolManager
+        private readonly toolManager: IToolManager,
+        private readonly promptRepository?: PromptRepository
     ) {
         this.logger = getLogger('ReActPromptGenerator');
+        this.toolFormatter = new ToolFormatter(2000); // Initialize ToolFormatter
+        
+        // Register prompts if repository is provided
+        if (this.promptRepository) {
+            this.registerReActPrompts();
+        }
+    }
+    
+    /**
+     * Register ReAct-specific prompts in the prompt repository
+     */
+    private registerReActPrompts(): void {
+        try {
+            // Register main ReAct reasoning prompt
+            this.promptRepository!.addPrompt({
+                type: PromptType.REASONING,
+                content: `You are an intelligent assistant that uses systematic reasoning and tools when necessary.
+
+When solving a problem:
+1. THINK about what needs to be done
+2. Use TOOLS when they would help answer the question
+3. Always read tool descriptions carefully and use EXACT parameter names
+4. Provide a clear final answer once you have enough information
+
+Format your response as:
+\`\`\`yaml
+thought:
+  reasoning: "Brief analysis of what you need to do next"
+  plan: "Step-by-step approach to solve this part"
+  
+action:
+  tool: "tool_name"
+  purpose: "Why you're using this tool"
+  params:
+    param1: "value1"
+    param2: "value2"
+    
+# OR if you've completed the task
+conclusion:
+  final_answer: "Your complete, comprehensive answer to the request. Include multiple paragraphs with specific facts, examples, and detailed information from your tool results."
+  explanation: "Brief summary of how you arrived at this answer"
+\`\`\``,
+                priority: 10,
+                complexity: 'advanced',
+                approaches: [
+                    'Structured reasoning',
+                    'Tool selection',
+                    'Solution synthesis'
+                ],
+                shouldApply: (context: PromptContext) => 
+                    context.requestType === 'react' && !context.afterToolExecution
+            } as ReasoningPrompt);
+            
+            // Register follow-up prompt for after tool execution
+            this.promptRepository!.addPrompt({
+                type: PromptType.TOOL_USAGE,
+                content: `Analyze the tool results and decide on next steps.
+
+Based on the tool results you received:
+1. Determine if the information answers the user's question
+2. Decide if you need additional information from another tool
+3. If you have sufficient information, provide a comprehensive final answer
+
+Format your response as:
+\`\`\`yaml
+thought:
+  reasoning: "Analysis of the tool results and what to do next"
+  plan: "How to proceed based on the results"
+  
+action:
+  tool: "tool_name"
+  purpose: "Why you need additional information"
+  params:
+    param1: "value1"
+    param2: "value2"
+    
+# OR if you've completed the task
+conclusion:
+  final_answer: "Your complete, detailed answer to the request, incorporating the tool results"
+  explanation: "Brief summary of how the tool results led to this answer"
+\`\`\``,
+                priority: 10,
+                tools: ['*'],
+                usagePatterns: {
+                    bestPractices: [
+                        'Analyze tool results thoroughly',
+                        'Connect tool results to the original question',
+                        'Decide when you have sufficient information'
+                    ],
+                    commonErrors: [
+                        'Ignoring tool results',
+                        'Repeatedly using the same tool with same parameters',
+                        'Not providing a final answer when sufficient information is available'
+                    ]
+                },
+                shouldApply: (context: PromptContext) => 
+                    context.requestType === 'react' && 
+                    context.afterToolExecution === true
+            } as ToolUsagePrompt);
+            
+            this.logger.info('Registered ReAct-specific prompts in repository');
+        } catch (error) {
+            this.logger.error('Failed to register ReAct prompts', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
     }
 
     /**
@@ -154,143 +265,176 @@ When using tools:
         tools: ToolDefinition[] = [],
         currentStep: number = 0
     ): Promise<string> {
-        // Get current date and time information
-        const now = new Date();
-        
-        // Build the base ReAct prompt with improved instructions and examples
-        const basePrompt = `You are an intelligent assistant that uses systematic reasoning and tools when necessary.
+        try {
+            // Get current date and time information
+            const now = new Date();
+            const currentDate = now.toDateString();
+            const currentTime = now.toTimeString().split(' ')[0];
 
-When solving a problem:
-1. THINK about what needs to be done
-2. Use TOOLS when they would help answer the question
-3. Always read tool descriptions carefully and use EXACT parameter names
-4. Provide a clear final answer once you have enough information
-
-IMPORTANT:
-- Be concise in your reasoning
-- Use the exact parameter names from each tool's description
-- If a tool fails, check if you used the correct parameters
-- Don't get stuck in loops - try a different approach if something isn't working
-- For simple greetings like "hi", "hello", etc. - DO NOT use tools, just respond directly
-- When providing a final answer about complex topics, synthesize the information into a coherent response rather than just listing search results
-- For informational queries, provide specific details from your search results, not general knowledge
-- ALWAYS provide comprehensive, detailed final answers (at least 3-5 sentences) that include all relevant information you gathered
-- Your final answer should fully address the user's query with specific facts and details from tool results
-
-Format your response as:
-\`\`\`yaml
-thought:
-  reasoning: "Brief analysis of what you need to do next"
-  plan: "Step-by-step approach to solve this part"
-  
-action:
-  tool: "tool_name"
-  purpose: "Why you're using this tool"
-  params:
-    param1: "value1"
-    param2: "value2"
-    
-# OR if you've completed the task
-conclusion:
-  final_answer: "Your complete, comprehensive answer to the request. Include multiple paragraphs with specific facts, examples, and detailed information from your tool results. Minimum 3-5 sentences."
-  explanation: "Brief summary of how you arrived at this answer"
-\`\`\`
-
-Current date: ${now.toDateString()}
-Current time: ${now.toTimeString().split(' ')[0]}
-
-Available tools:
-${this.formatTools(tools)}`;
-
-        // Add reasoning history if we have previous steps
-        let historyContent = '';
-        if (steps.length > 0) {
-            historyContent = '\n\nPrevious reasoning steps:\n';
+            // Build the prompt with components
+            const promptParts: string[] = [];
             
-            for (const step of steps) {
-                if (step.thought) {
-                    historyContent += `\nThought:\nReasoning: ${step.thought.reasoning}\nPlan: ${step.thought.plan}\n`;
+            // Add prompt ingredients from the repository if available
+            if (this.promptRepository) {
+                const context: PromptContext = {
+                    requestType: 'react',
+                    tools: tools.map(t => t.name),
+                    complexity: steps.length > 3 ? 'high' : 'medium',
+                    afterToolExecution: steps.some(s => s.observation !== undefined)
+                };
+                
+                const applicablePrompts = this.promptRepository.getApplicablePrompts(context);
+                
+                // Add behavioral prompt first (if any)
+                const behavioralPrompt = applicablePrompts.find(p => p.type === PromptType.BEHAVIORAL);
+                if (behavioralPrompt) {
+                    promptParts.push(behavioralPrompt.content);
                 }
                 
-                if (step.action) {
-                    historyContent += `\nAction: ${step.action.tool}\nPurpose: ${step.action.purpose || "Not specified"}\nParams: ${JSON.stringify(step.action.params, null, 2)}\n`;
+                // Then add reasoning prompt (if any)
+                const reasoningPrompt = applicablePrompts.find(p => p.type === PromptType.REASONING);
+                if (reasoningPrompt) {
+                    promptParts.push(reasoningPrompt.content);
                 }
                 
-                if (step.observation) {
-                    historyContent += `\nObservation: ${step.observation.result}\n`;
+                // Then add tool usage prompt (if any)
+                const toolUsagePrompt = applicablePrompts.find(p => p.type === PromptType.TOOL_USAGE);
+                if (toolUsagePrompt) {
+                    promptParts.push(toolUsagePrompt.content);
                 }
-                
-                if (step.conclusion) {
-                    historyContent += `\nConclusion: ${step.conclusion.final_answer}\nExplanation: ${step.conclusion.explanation || ""}\n`;
-                }
+            } else {
+                // Fallback to default identity if no repository
+                promptParts.push(this.defaultIdentity);
             }
+            
+            // Add current date/time context
+            promptParts.push(`Current date: ${currentDate}\nCurrent time: ${currentTime}`);
+            
+            // Add user input with clear formatting
+            promptParts.push(`User request: ${input}`);
+            
+            // Add formatted tools using the ToolFormatter for better descriptions
+            if (tools && tools.length > 0) {
+                promptParts.push(this.formatTools(tools));
+            } else {
+                promptParts.push('No tools are available.');
+            }
+            
+            // Add reasoning steps with proper formatting
+            if (steps && steps.length > 0) {
+                promptParts.push(this.formatReasoningSteps(steps));
+            }
+            
+            // Add guidance for the next step based on the current step
+            promptParts.push(this.generateStepGuidance(currentStep, steps));
+            
+            return promptParts.join('\n\n');
+        } catch (error) {
+            this.logger.error('Error generating ReAct prompt', {
+                error: error instanceof Error ? error.message : String(error),
+                stepsCount: steps.length,
+                toolsCount: tools.length
+            });
+            
+            // Provide a simple fallback prompt
+            return `You are a helpful AI assistant. The user has requested: "${input}".
+            
+Please provide a step-by-step approach to solve this problem, using tools when necessary.
+
+${this.formatTools(tools)}`;
         }
-
-        const nextStepPrompt = `
-Your next step (step ${currentStep + 1}):
-
-${currentStep > 3 
-    ? "Consider whether you now have enough information to provide a final answer. If you do, ensure your conclusion synthesizes ALL the information into a comprehensive, detailed response with multiple paragraphs covering specific facts from your tool results."
-    : "Decide if you need more information from a tool or can provide a final answer."}`;
-
-        return `${basePrompt}${historyContent}\n\nUser request: ${input}${nextStepPrompt}`;
     }
 
     /**
-     * Generates a follow-up prompt after tool execution
-     * For use when continuation is needed after tools have been executed
+     * Generate a follow-up prompt after tool execution
      */
     async generateFollowUpPrompt(
         originalMessage: string,
         steps: ReasoningStep[],
         toolResult: any
     ): Promise<string> {
-        // Get the most recent reasoning step
+        // Get the last observation step
         const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
-        const lastAction = lastStep?.action;
+        const toolResultText = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult, null, 2);
         
-        // Build a prompt focusing on the tool result and next steps
-        return `Original request: ${originalMessage}
+        // Build using prompt repository if available
+        let basePromptContent = '';
+        
+        if (this.promptRepository) {
+            // Create context specifically for follow-up
+            const context: PromptContext = {
+                requestType: 'react',
+                afterToolExecution: true,
+                complexity: steps.length > 3 ? 'high' : 'medium',
+                tools: steps
+                    .filter(s => s.action?.tool)
+                    .map(s => s.action!.tool)
+            };
+            
+            // Get applicable prompts from repository
+            const prompts = this.promptRepository.getApplicablePrompts(context);
+            
+            if (prompts.length > 0) {
+                // Use the highest priority prompt as the base
+                basePromptContent = prompts[0].content;
+            }
+        }
+        
+        // If no prompts from repository or repository not available, use default
+        if (!basePromptContent) {
+            basePromptContent = `Now you have tool results to help answer the user's question. 
 
-You just used tool "${lastAction?.tool}" with parameters:
-${JSON.stringify(lastAction?.params || {}, null, 2)}
+Analyze these results carefully and decide what to do next:
+1. If the results provide enough information, give a final answer
+2. If more information is needed, decide which tool to use next
+3. If the results aren't helpful, try a different approach
 
-The tool returned:
-${typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult, null, 2)}
-
-Now:
-1. Analyze what you learned from these results
-2. Decide if you need more information or can provide a final answer
-3. If the tool failed, check if you used the correct parameters
-
-For complex topics, synthesize the information into a coherent response rather than just listing search results. Use specific details from your search results.
-
-Continue using the same YAML format:
-\`\`\`yaml
-thought:
-  reasoning: "Brief analysis of the results"
-  plan: "Next steps based on what you learned"
-
-action:
-  tool: "next_tool_name"  # if you need more information
-  purpose: "Why you need this additional information"
-  params:
-    param1: "value1"
-
-# OR if you can now provide an answer
-conclusion:
-  final_answer: "Your complete, comprehensive answer to the request. Include multiple paragraphs with specific facts, examples, and detailed information from your tool results. Minimum 3-5 sentences."
-  explanation: "Brief summary of how you arrived at this answer"
-\`\`\``;
+Remember:
+- Synthesize information from multiple sources
+- Connect the tool results directly to the user's question
+- Be specific and detailed in your final answer`;
+        }
+        
+        // Construct the follow-up prompt
+        const promptParts = [
+            basePromptContent,
+            `Original query: ${originalMessage}`,
+            `Latest tool result:\n${toolResultText}`,
+        ];
+        
+        // Add previous steps for context
+        if (steps.length > 1) {
+            const previousSteps = steps.slice(0, -1).map((step, idx) => {
+                let renderedStep = `Step ${idx + 1}:\n`;
+                
+                if (step.thought) {
+                    renderedStep += `THOUGHT: ${step.thought.reasoning.substring(0, 100)}...\n`;
+                }
+                
+                if (step.action) {
+                    renderedStep += `ACTION: Using tool ${step.action.tool}\n`;
+                }
+                
+                if (step.observation) {
+                    // Truncate observation for brevity
+                    const obs = step.observation.result;
+                    renderedStep += `OBSERVATION: ${obs.substring(0, 100)}${obs.length > 100 ? '...' : ''}\n`;
+                }
+                
+                return renderedStep;
+            }).join('\n');
+            
+            promptParts.push(`Previous steps summary:\n${previousSteps}`);
+        }
+        
+        return promptParts.join('\n\n');
     }
 
     /**
      * Helper method to format tools as a readable list
      */
     private formatTools(tools: ToolDefinition[]): string {
-        return tools.map(tool => 
-            `${tool.name}: ${tool.description}`
-        ).join('\n');
+        return this.toolFormatter.formatToolDescriptions(tools);
     }
 
     /**
@@ -411,5 +555,70 @@ conclusion:
         
         // Return optimized steps in the correct order
         return [firstStep, ...middleSteps, ...lastSteps];
+    }
+
+    /**
+     * Format reasoning steps for inclusion in prompts
+     * @param steps Array of reasoning steps
+     * @returns Formatted reasoning steps section for prompt
+     */
+    private formatReasoningSteps(steps: ReasoningStep[]): string {
+        if (!steps || steps.length === 0) {
+            return 'No previous reasoning steps.';
+        }
+        
+        const stepsRendered = steps.map((step, idx) => {
+            let renderedStep = `Step ${idx + 1}:\n`;
+            
+            if (step.thought) {
+                renderedStep += `THOUGHT: ${step.thought.reasoning}\n`;
+                if (step.thought.plan) {
+                    renderedStep += `PLAN: ${step.thought.plan}\n`;
+                }
+            }
+            
+            if (step.action) {
+                renderedStep += `ACTION: Using tool ${step.action.tool}\n`;
+                renderedStep += `Parameters: ${JSON.stringify(step.action.params, null, 2)}\n`;
+            }
+            
+            if (step.observation) {
+                renderedStep += `OBSERVATION: ${step.observation.result}\n`;
+            }
+            
+            if (step.conclusion) {
+                renderedStep += `CONCLUSION: ${step.conclusion.final_answer}\n`;
+            }
+            
+            return renderedStep;
+        }).join('\n');
+        
+        return `Previous reasoning steps:\n${stepsRendered}`;
+    }
+    
+    /**
+     * Generate guidance for the next reasoning step
+     * @param currentStep Current step number
+     * @param steps Previous reasoning steps
+     * @returns Guidance for the next step
+     */
+    private generateStepGuidance(currentStep: number, steps: ReasoningStep[]): string {
+        const hasObservation = steps.some(s => s.observation);
+        const alreadyTried = steps
+            .filter(s => s.action?.tool)
+            .map(s => s.action!.tool);
+        
+        if (currentStep === 0) {
+            return 'Please start by thinking about the problem and deciding on your first step.';
+        } else if (hasObservation && currentStep >= 3) {
+            return `You have been reasoning for ${currentStep} steps. Consider whether you have enough information to provide a final answer now. If you need more information, choose the most appropriate tool that you haven't tried yet.`;
+        } else if (hasObservation) {
+            return 'Based on the observation above, what is your next step? If you have enough information, provide a final answer.';
+        } else if (alreadyTried.length > 0) {
+            const triedTools = alreadyTried.join(', ');
+            return `You have tried these tools: ${triedTools}. What tool would be most helpful to try next?`;
+        } else {
+            return 'What is your next step in solving this problem?';
+        }
     }
 } 

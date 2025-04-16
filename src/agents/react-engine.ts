@@ -5,18 +5,30 @@ import { ReasoningStep } from "../interfaces/react-types.js";
 import { ToolChainExecutor, ToolExecutionResult } from "../tools/tool-chain/tool-chain-executor.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
-import { ToolChainConfigBuilder } from "../tools/tool-chain/tool-chain-config.js";
-import { v4 as uuidv4 } from 'uuid';
 import { PromptGenerator } from "../interfaces/prompt-generator.js";
-import yaml from 'js-yaml';
+import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
+import { ReActStepParser } from "./react-step-parser.js";
+import { ReActToolHandler } from "./react-tool-handler.js";
+import { ReActTrace } from "./react-trace.js";
 
-/**
- * Interface for thought process representation
- */
-interface ReasoningProcess {
-  steps: ReasoningStep[];
-  final_response: string;
-  is_complete: boolean;
+// Adapter function to convert ToolResponse to ToolExecutionResult
+function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
+  // Create a properly typed metadata object with required fields
+  let typedMetadata: ToolExecutionResult['metadata'] = undefined;
+  
+  if (response.metadata) {
+    typedMetadata = {
+      executionTime: response.metadata.executionTime || 0,
+      toolName: response.metadata.toolName || 'unknown'
+    };
+  }
+  
+  return {
+    success: response.success,
+    data: response.data,
+    error: response.error ? new Error(response.error) : undefined,
+    metadata: typedMetadata
+  };
 }
 
 /**
@@ -26,18 +38,20 @@ interface ReasoningProcess {
 export class ReActEngine {
   private readonly MAX_STEPS = 8;
   private readonly logger: Logger;
-  private readonly sessionId: string;
   private readonly VERBOSE_LOGGING = process.env.REACT_VERBOSE_LOGGING !== 'false';
+  private readonly stepParser: ReActStepParser;
+  private readonly toolHandler: ReActToolHandler;
   
   constructor(
     private readonly memory: MemoryProvider,
     private readonly llm: LLMProvider,
     private readonly toolManager: IToolManager,
-    private readonly toolExecutor: ToolChainExecutor,
+    toolExecutor: ToolChainExecutor,
     private readonly promptGenerator: PromptGenerator
   ) {
     this.logger = getLogger('ReActEngine');
-    this.sessionId = uuidv4();
+    this.stepParser = new ReActStepParser();
+    this.toolHandler = new ReActToolHandler(toolManager, toolExecutor);
   }
 
   // Helper method to handle verbose logging
@@ -106,333 +120,90 @@ export class ReActEngine {
     previousSteps: ReasoningStep[] = [],
     maxIterations: number = this.MAX_STEPS
   ): Promise<string> {
-    // Create a reasoning process to track all steps and the final result
-    const reasoningProcess: ReasoningProcess = {
-      steps: previousSteps || [],
-      final_response: '',
-      is_complete: false
-    };
+    // Create a reasoning trace to track all steps and manage state
+    const trace = new ReActTrace(this.memory, userId);
+    
+    // Add previous steps to the trace if provided
+    if (previousSteps.length > 0) {
+      for (const step of previousSteps) {
+        await trace.addStep(step, false); // Don't save again to memory
+      }
+    }
     
     // Counter for tracking iterations
     let iterationCount = 0;
     
-    // Get available tools from the tool manager
-    const availableTools = await this.toolManager.getAvailableTools();
-    
-    // Create the tool registry for executing tools
-    const toolRegistry = await this.getToolRegistry();
+    // Get available tools and registry
+    const tools = await this.prepareTools();
     
     // Log start of reasoning process
     this.logger.info(`Processing user message: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
     this.logVerbose('debug', 'Available tools', {
-      count: availableTools.length,
-      tools: availableTools.map(t => t.name).join(', ')
+      count: tools.availableTools.length,
+      tools: tools.availableTools.map(t => t.name).join(', ')
     });
     
     // Main ReAct loop - use MAX_STEPS to limit iterations
-    while (!reasoningProcess.is_complete && iterationCount < maxIterations) {
+    while (!trace.isReasoningComplete() && iterationCount < maxIterations) {
       iterationCount++;
       this.logger.debug(`ReAct iteration ${iterationCount}/${maxIterations}`);
       
-      // Check if we need to optimize steps due to token limitations
-      let stepsForPrompt = reasoningProcess.steps;
-      if (reasoningProcess.steps.length > 5 && this.promptGenerator.optimizeSteps) {
-        // Use the optimizeSteps method if available in the promptGenerator
-        try {
-          stepsForPrompt = this.promptGenerator.optimizeSteps(reasoningProcess.steps);
-          if (stepsForPrompt.length < reasoningProcess.steps.length) {
-            this.logger.info('Optimized reasoning steps for prompt', {
-              originalSteps: reasoningProcess.steps.length,
-              optimizedSteps: stepsForPrompt.length
-            });
-          }
-        } catch (error) {
-          // If optimization fails, fall back to original steps
-          this.logger.warn('Failed to optimize reasoning steps', {
-            error: error instanceof Error ? error.message : String(error)
-          });
-          stepsForPrompt = reasoningProcess.steps;
-        }
-      }
-      
-      // Generate prompt - use generateReActPrompt if available, otherwise fall back to regular generatePrompt
-      let prompt: string;
-      if (this.promptGenerator.generateReActPrompt) {
-        prompt = await this.promptGenerator.generateReActPrompt(
-          userMessage,
-          stepsForPrompt,
-          availableTools,
-          iterationCount
-        );
-      } else {
-        // Fall back to standard prompt generation if ReAct-specific method is not available
-        prompt = await this.promptGenerator.generatePrompt(
-          userMessage,
-          availableTools,
-          []
-        );
-      }
-      
-      // Log prompt summary 
-      this.logVerbose('debug', 'Generated prompt', {
-        length: prompt.length,
-        firstLine: prompt.split('\n')[0],
-        stepCount: stepsForPrompt.length
-      });
+      // Generate prompt with appropriate context using optimized steps
+      const optimizedSteps = trace.optimizeSteps();
+      const prompt = await this.generateContextualPrompt(
+        userMessage, optimizedSteps, tools.availableTools, iterationCount
+      );
       
       try {
-        const llmResponse = await this.llm.generateResponse(prompt, [], availableTools);
+        // Get LLM response and parse reasoning step
+        const nextStep = await this.getLLMReasoningStep(prompt);
+        if (!nextStep) continue;
         
-        // Log the raw LLM response
-        this.logVerbose('debug', 'LLM Response (raw)', {
-          content: llmResponse.content.substring(0, 200) + (llmResponse.content.length > 200 ? '...' : ''),
-          tokenCount: llmResponse.tokenCount,
-          hasToolCalls: llmResponse.toolResults && llmResponse.toolResults.length > 0
+        // Add step to the trace
+        await trace.addStep(nextStep);
+        
+        // Log the step for debugging
+        this.logVerbose('debug', `Added step: ${nextStep.stepId}`, {
+          step: this.formatForDisplay(nextStep)
         });
         
-        // Parse reasoning step
-        const nextStep = this.parseReasoningStep(llmResponse.content);
-        if (!nextStep) {
-          this.logger.error('Failed to parse reasoning step', { 
-            response: llmResponse.content
-          });
-          continue;
-        }
-        
-        // Log the parsed reasoning step in a user-friendly format
-        this.logger.info('Reasoning step', {
-          step: this.formatForDisplay(nextStep),
-          raw: this.VERBOSE_LOGGING ? nextStep : undefined
-        });
-        
-        // Store thought step
-        await this.storeReasoningStep(nextStep, userId, this.sessionId);
-        reasoningProcess.steps.push(nextStep);
-        
-        // CHECK FOR SIMPLE GREETINGS - Don't use tools for these
-        const simpleGreetings = ['hi', 'hello', 'hey', 'greetings', 'howdy'];
-        const isSimpleGreeting = simpleGreetings.some(g => 
-          userMessage.toLowerCase().trim() === g || 
-          userMessage.toLowerCase().trim().startsWith(`${g} `)
-        );
-
-        // If it's a simple greeting but trying to use a tool, override with a simple response
-        if (isSimpleGreeting && nextStep.action?.tool && !nextStep.conclusion) {
-          this.logger.info('Overriding tool usage for simple greeting');
-          
-          // Create a conclusion step instead of using tools
-          const conclusionStep: ReasoningStep = {
-            stepId: `greeting_${Date.now()}`,
-            conclusion: {
-              final_answer: `Hello! I'm an AI assistant. How can I help you today?`
-            },
-            isComplete: true,
-            timestamp: new Date().toISOString()
-          };
-          
-          await this.storeReasoningStep(conclusionStep, userId, this.sessionId);
-          reasoningProcess.steps.push(conclusionStep);
-          reasoningProcess.is_complete = true;
-          reasoningProcess.final_response = conclusionStep.conclusion!.final_answer;
-          
-          this.logger.info('Simple greeting detected - bypassing tool usage');
-          continue;
-        }
-        
-        // Check for final answer
-        if (nextStep.conclusion?.final_answer) {
-          reasoningProcess.is_complete = true;
-          reasoningProcess.final_response = nextStep.conclusion.final_answer;
-          
-          // Log the final answer
-          this.logger.info('Final answer reached', {
-            answer: nextStep.conclusion.final_answer.substring(0, 100) + 
-                    (nextStep.conclusion.final_answer.length > 100 ? '...' : '')
-          });
-          
-          continue;
-        }
-        
-        // Execute tool if action is specified
+        // Handle tool execution if needed
         if (nextStep.action?.tool) {
-          const toolName = nextStep.action.tool;
-          const params = nextStep.action.params || {};
-          
-          // Log tool execution with actual parameters
-          this.logger.info(`Executing tool: ${toolName}`, {
-            parameters: JSON.stringify(params, null, 2),
-            purpose: nextStep.action.purpose || 'Not specified',
-            query: params.query || params.search_term || params.search_query || undefined,
-            url: params.url || undefined,
-            details: this.VERBOSE_LOGGING ? params : undefined
-          });
-          
-          try {
-            // Create a tool chain config
-            const chainConfig = new ToolChainConfigBuilder(`tool_exec_${Date.now()}`)
-              .addTool({
-                name: toolName,
-                parameters: params,
-                maxRetries: 3,
-                timeout: 30000
-              })
-              .build();
-            
-            // Get and execute the tool
-            const result = await this.toolExecutor.execute(
-              chainConfig,
-              toolRegistry,
-              { userId }
-            );
-            
-            // Log tool execution result
-            const formattedResult = this.formatToolResult(result, nextStep.action);
-            this.logger.info(`Tool execution successful: ${toolName}`, {
-              resultPreview: formattedResult.substring(0, 100) + 
-                            (formattedResult.length > 100 ? '...' : '')
-            });
-            
-            // Store tool execution in memory
-            await this.storeToolExecution(
-              toolName, 
-              params, 
-              result, 
-              true,
-              userId
-            );
-            
-            // Create observation step
-            const observationStep: ReasoningStep = {
-              stepId: `obs_${Date.now()}`,
-              observation: {
-                result: formattedResult
-              },
-              isComplete: false,
-              timestamp: new Date().toISOString()
-            };
-            
-            await this.storeReasoningStep(observationStep, userId, this.sessionId);
-            reasoningProcess.steps.push(observationStep);
-            
-          } catch (error) {
-            // Handle tool execution errors
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            
-            this.logger.error(`Tool execution failed: ${toolName}`, {
-              error: errorMessage,
-              parameters: JSON.stringify(params)
-            });
-            
-            const observationStep: ReasoningStep = {
-              stepId: `error_${Date.now()}`,
-              observation: {
-                result: `Error executing tool ${toolName}:\n` +
-                       `${errorMessage}\n\n` +
-                       `Please try a different approach or tool.`
-              },
-              isComplete: false,
-              timestamp: new Date().toISOString()
-            };
-            
-            await this.storeToolExecution(
-              toolName, 
-              params, 
-              null, 
-              false,
-              userId,
-              errorMessage
-            );
-            
-            await this.storeReasoningStep(observationStep, userId, this.sessionId);
-            reasoningProcess.steps.push(observationStep);
-          }
+          await this.executeToolAndStoreResult(
+            nextStep.action, trace
+          );
         }
         
+        // Check for conclusion
+        if (nextStep.conclusion?.final_answer) {
+          trace.markComplete(nextStep.conclusion.final_answer);
+        }
       } catch (error) {
-        // Handle LLM errors with fallback mechanism
-        this.logger.error('LLM generation failed', {
-          error: error instanceof Error ? error.message : String(error),
-          iteration: iterationCount
-        });
-        
-        // Add an error step to the reasoning process
-        const errorStep: ReasoningStep = {
-          stepId: `llm_error_${Date.now()}`,
-          error_handling: {
-            error: error instanceof Error ? error.message : String(error),
-            recovery: {
-              log_error: `LLM error at step ${iterationCount}`,
-              alternate_plan: "Will try to continue with simplified context"
-            }
-          },
-          isComplete: false,
-          timestamp: new Date().toISOString()
-        };
-        
-        await this.storeReasoningStep(errorStep, userId, this.sessionId);
-        reasoningProcess.steps.push(errorStep);
-        
-        // Simplify context more aggressively for next attempt
-        if (reasoningProcess.steps.length > 3 && this.promptGenerator.optimizeSteps) {
-          try {
-            // Force more aggressive optimization to reduce context
-            stepsForPrompt = this.promptGenerator.optimizeSteps(
-              reasoningProcess.steps, 
-              3000  // Lower token limit for recovery
-            );
-            this.logger.info('Applied aggressive context optimization after error', {
-              originalSteps: reasoningProcess.steps.length,
-              reducedSteps: stepsForPrompt.length
-            });
-          } catch (e) {
-            // If optimization fails, use minimal context
-            stepsForPrompt = [
-              reasoningProcess.steps[0],  // Initial user message
-              ...reasoningProcess.steps.slice(-1) // Latest step only
-            ];
-          }
-        }
+        await this.handleProcessingError(error, trace, iterationCount);
       }
       
-      // Max steps reached - generate a fallback response
-      if (iterationCount >= maxIterations && !reasoningProcess.is_complete) {
-        this.logger.info(`Maximum number of steps (${maxIterations}) reached without completion.`);
-        reasoningProcess.is_complete = true;
-        reasoningProcess.final_response = 
-          "I've analyzed multiple sources and compiled the following information: " +
-          this.generateFallbackResponse(reasoningProcess.steps);
+      // Check for max iterations reached
+      if (iterationCount >= maxIterations && !trace.isReasoningComplete()) {
+        const fallbackResponse = this.generateFallbackResponse(trace.getSteps());
+        trace.markComplete(fallbackResponse);
       }
-    }
-    
-    // Store the complete reasoning process for future reference
-    await this.memory.store({
-      userId,
-      type: MemoryType.THOUGHT_PROCESS,
-      content: {
-        complete_process: reasoningProcess,
-        summary: `Process with ${reasoningProcess.steps.length} steps. Complete: ${reasoningProcess.is_complete}`
-      },
-      metadata: {
-        sessionId: this.sessionId,
-        timestamp: new Date().toISOString(),
-        stepCount: reasoningProcess.steps.length
-      }
-    });
-    
-    // Log important summary of the reasoning process
-    if (reasoningProcess.steps.length === 0) {
-      this.logger.info('No reasoning steps were recorded.');
-    } else {
-      const toolCalls = reasoningProcess.steps.filter(step => step.action?.tool).length;
-      this.logger.info('Reasoning process completed', {
-        stepCount: reasoningProcess.steps.length,
-        toolCalls,
-        isComplete: reasoningProcess.is_complete
-      });
     }
     
     // Return the final response
-    return reasoningProcess.final_response;
+    return trace.getFinalResponse();
+  }
+
+  /**
+   * Prepares tools and registry for the reasoning process
+   * @returns Object containing available tools and tool registry
+   */
+  private async prepareTools(): Promise<{ 
+    availableTools: ToolDefinition[], 
+    registry: Record<string, (input: any) => Promise<any>> 
+  }> {
+    const availableTools = await this.toolManager.getAvailableTools();
+    const registry = await this.toolHandler.getToolRegistry();
+    return { availableTools, registry };
   }
 
   /**
@@ -440,161 +211,164 @@ export class ReActEngine {
    * @param steps The reasoning steps collected so far
    * @returns A reasonable fallback response
    */
-  private generateFallbackResponse(steps: ReasoningStep[]): string {
+  private generateFallbackResponse(steps: ReadonlyArray<ReasoningStep>): string {
     // Extract useful information from the steps
     const observations = steps
       .filter(step => step.observation?.result)
       .map(step => step.observation!.result);
     
-    if (observations.length > 0) {
-      // Look for specific patterns that indicate key information
-      // For web search results, look for titles and descriptions
-      const titlePattern = /Title:([^\n]+)/ig;
-      const descriptionPattern = /Description:([^\n]+)/ig;
-      const urlPattern = /URL:([^\n]+)/ig;
-      
-      // Extract all titles, descriptions, and URLs
-      const titles: string[] = [];
-      const descriptions: string[] = [];
-      const urls: string[] = [];
-      
-      // Process all observations to extract information
-      observations.forEach(obs => {
-        let match;
-        
-        // Extract titles
-        while ((match = titlePattern.exec(obs)) !== null) {
-          if (match[1].trim()) titles.push(match[1].trim());
-        }
-        
-        // Extract descriptions
-        while ((match = descriptionPattern.exec(obs)) !== null) {
-          if (match[1].trim()) descriptions.push(match[1].trim());
-        }
-        
-        // Extract URLs
-        while ((match = urlPattern.exec(obs)) !== null) {
-          if (match[1].trim()) urls.push(match[1].trim());
-        }
-      });
-      
-      // If we found structured information, create a formatted response
-      if (descriptions.length > 0) {
-        // Create a summary from the descriptions
-        // Remove HTML tags for cleaner text
-        const cleanDescriptions = descriptions.map(d => 
-          d.replace(/<\/?[^>]+(>|$)/g, "")
-        );
-        
-        return cleanDescriptions.join(" ");
-      }
-      
-      // If no structured data was found, extract key sentences from all observations
-      const allText = observations.join(" ");
-      
-      // Extract sentences (naive implementation)
-      const sentences = allText.split(/[.!?]/).filter(s => s.trim().length > 20);
-      
-      // Get the most important sentences (first few and any with numbers or important keywords)
-      const importantSentences = sentences.filter((s, i) => 
-        i < 3 || // First 3 sentences
-        /\d+/.test(s) || // Contains numbers
-        /(tariff|tax|increase|impact|economic|household|market)/.test(s.toLowerCase()) // Contains relevant keywords
-      ).slice(0, 5); // Limit to 5 sentences
-      
-      if (importantSentences.length > 0) {
-        return importantSentences.join(". ") + ".";
-      }
-      
-      // Fallback to returning the first part of the observations
-      return allText.substring(0, 500) + (allText.length > 500 ? "..." : "");
-    }
+    const lastThought = steps[steps.length - 1]?.thought?.reasoning || '';
     
-    return "I wasn't able to complete this task. Could you try asking in a different way?";
+    // Create a reasonable fallback response
+    return `I've been working on your request, but need more information. Based on what I've found so far:\n\n${
+      observations.slice(-2).join('\n\n')
+    }\n\nMy current thinking is: ${lastThought}\n\nCould you provide more details or clarify your request?`;
   }
 
   /**
-   * Get the last reasoning step for a user from memory
-   * @param userId The user ID to get the last reasoning step for
-   * @returns The last reasoning step or null if none found
-   */
-  public async getLastReasoningStep(userId: string): Promise<ReasoningStep | null> {
-    try {
-      const memories = await this.memory.search({
-        userId,
-        types: [MemoryType.THOUGHT_PROCESS],
-        limit: 1,
-        sortBy: 'timestamp',
-        sortDirection: 'desc'
-      });
-      
-      if (memories.entries.length > 0) {
-        return memories.entries[0].content.step;
-      }
-      
-      return null;
-    } catch (error) {
-      this.logger.error('Failed to get last reasoning step', {
-        error: error instanceof Error ? error.message : String(error),
-        userId
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Execute a tool directly without going through the reasoning process
+   * Execute a tool directly outside of the reasoning process
    * @param toolName The name of the tool to execute
-   * @param params The parameters to pass to the tool
-   * @returns The tool execution result
+   * @param params The parameters for the tool
+   * @returns The result of the tool execution
    */
   public async executeToolDirectly(toolName: string, params: Record<string, unknown>): Promise<any> {
-    const result = await this.toolManager.executeTool(toolName, params);
-    return result.data;
+    return await this.toolManager.executeTool(toolName, params);
   }
-  
+
   /**
-   * Store a reasoning step in memory
-   * @param step The reasoning step to store
-   * @param userId The user ID for memory context
-   * @param sessionId The session ID for memory context
-   * @returns Boolean indicating success or failure
+   * Gets a reasoning step from the LLM
+   * @param prompt The prompt to send to the LLM
+   * @returns A parsed reasoning step or null if parsing failed
    */
-  private async storeReasoningStep(
-    step: ReasoningStep, 
-    userId: string,
-    sessionId: string
-  ): Promise<boolean> {
+  private async getLLMReasoningStep(prompt: string): Promise<ReasoningStep | null> {
     try {
-      await this.memory.storeThoughtProcess(
-        step,
-        userId,
-        {
-          sessionId,
-          timestamp: new Date().toISOString()
-        }
-      );
-      return true;
+      const llmResponse = await this.llm.generateResponse(prompt);
+      
+      if (!llmResponse || !llmResponse.content) {
+        this.logger.error('LLM returned empty response');
+        return null;
+      }
+      
+      // Parse the response into a reasoning step
+      return this.stepParser.parseReasoningStep(llmResponse.content);
     } catch (error) {
-      this.logger.error('Failed to store reasoning step', { 
-        error: error instanceof Error ? error.message : String(error),
-        userId,
-        sessionId,
-        step: step.stepId
+      this.logger.error('Error getting reasoning step from LLM', {
+        error: String(error)
       });
-      return false;
+      return null;
     }
   }
-  
+
   /**
-   * Store tool execution details in memory
-   * @param tool The name of the tool executed
-   * @param params The parameters passed to the tool
-   * @param result The result of the tool execution (or null if failed)
+   * Execute a tool and store the result in the trace
+   * @param action The tool action to execute
+   * @param trace The reasoning trace
+   */
+  private async executeToolAndStoreResult(
+    action: ReasoningStep['action'],
+    trace: ReActTrace
+  ): Promise<void> {
+    if (!action) return;
+    
+    const { tool, params } = action;
+    
+    this.logger.info(`Executing tool: ${tool}`, {
+      params: JSON.stringify(params || {})
+    });
+    
+    try {
+      // Execute the tool using the tool manager
+      const toolResponse = await this.toolManager.executeTool(tool, params || {});
+      
+      // Convert ToolResponse to ToolExecutionResult for compatibility
+      const result = adaptToolResponse(toolResponse);
+      
+      // Format the result using the tool handler for better readability
+      const formattedResult = this.toolHandler.formatToolResult(result, action);
+      
+      // Create an observation step with the result
+      const observationStep = this.toolHandler.createObservationStep(formattedResult);
+      
+      // Add the observation to the trace
+      await trace.addStep(observationStep);
+      
+      this.logVerbose('debug', `Added observation: ${observationStep.stepId}`, {
+        observation: formattedResult.substring(0, 100) + (formattedResult.length > 100 ? '...' : '')
+      });
+      
+      // Store the tool execution in memory for analytics
+      await this.storeToolExecution(
+        tool,
+        params || {},
+        result,
+        true,
+        trace.getUserId()
+      );
+    } catch (error) {
+      this.logger.error(`Error executing tool: ${tool}`, {
+        error: String(error),
+        params: JSON.stringify(params || {})
+      });
+      
+      // Create an error observation with formatted error message from the tool handler
+      const errorMessage = this.toolHandler.formatErrorResult(
+        error instanceof Error ? error : new Error(String(error)),
+        action
+      );
+      const observationStep = this.toolHandler.createObservationStep(errorMessage);
+      
+      // Add the error observation to the trace
+      await trace.addStep(observationStep);
+      
+      // Store the failed tool execution in memory
+      await this.storeToolExecution(
+        tool,
+        params || {},
+        null,
+        false,
+        trace.getUserId(),
+        String(error)
+      );
+    }
+  }
+
+  /**
+   * Handles errors in the processing loop
+   * @param error The error that occurred
+   * @param trace The reasoning trace
+   * @param iterationCount The current iteration count
+   */
+  private async handleProcessingError(
+    error: any, 
+    trace: ReActTrace,
+    iterationCount: number
+  ): Promise<void> {
+    this.logger.error(`Error in processing loop (iteration ${iterationCount})`, {
+      error: String(error)
+    });
+    
+    try {
+      // Create an error observation to guide the LLM
+      const errorMessage = `There was an error: ${String(error)}. Please try a different approach.`;
+      const observationStep = this.toolHandler.createObservationStep(errorMessage);
+      
+      // Add the error observation to the trace
+      await trace.addStep(observationStep);
+    } catch (secondaryError) {
+      this.logger.error('Error creating error observation step', {
+        error: String(secondaryError)
+      });
+    }
+  }
+
+  /**
+   * Stores a tool execution in memory for analytics
+   * @param tool The tool that was executed
+   * @param params The parameters used
+   * @param result The result of the execution
    * @param success Whether the execution was successful
-   * @param userId The user ID for memory context
-   * @param errorMessage Optional error message if execution failed
-   * @returns Boolean indicating success or failure of storage operation
+   * @param userId The user ID
+   * @param errorMessage Optional error message
    */
   private async storeToolExecution(
     tool: string,
@@ -605,316 +379,118 @@ export class ReActEngine {
     errorMessage?: string
   ): Promise<boolean> {
     try {
+      // Store tool usage in memory
       await this.memory.store({
         userId,
         type: MemoryType.TOOL_USAGE,
         content: {
           tool,
           params,
-          result: result ? result.data : null,
+          result: result ? { 
+            success: result.success, 
+            // Store a trimmed version of the data to avoid huge entries
+            data: typeof result.data === 'string' ? 
+              result.data.substring(0, 1000) : 
+              JSON.stringify(result.data).substring(0, 1000),
+            metadata: result.metadata
+          } : null,
           success,
           errorMessage
         },
         metadata: {
-          sessionId: this.sessionId,
           timestamp: new Date().toISOString()
         }
       });
+      
       return true;
     } catch (error) {
-      this.logger.error('Failed to store tool execution', { 
-        error: error instanceof Error ? error.message : String(error),
-        userId,
-        sessionId: this.sessionId,
-        tool
+      this.logger.error('Failed to store tool execution', {
+        error: String(error),
+        tool,
+        userId
       });
+      
       return false;
     }
   }
 
   /**
-   * Parse the LLM response into a reasoning step
-   * @param llmResponse The raw response from the LLM
-   * @returns Parsed reasoning step or null if parsing failed
+   * Generates a contextual prompt for the LLM
+   * @param userMessage The user message
+   * @param steps The reasoning steps to include
+   * @param tools The available tools
+   * @param currentStep The current step number
+   * @returns A formatted prompt
    */
-  private parseReasoningStep(llmResponse: string): ReasoningStep | null {
+  private async generateContextualPrompt(
+    userMessage: string,
+    steps: ReasoningStep[],
+    tools: ToolDefinition[],
+    currentStep: number
+  ): Promise<string> {
     try {
-      // First check for YAML in code blocks
-      const yamlMatch = llmResponse.match(/```(?:yaml)?\s*([\s\S]*?)```/);
-      if (yamlMatch) {
-        try {
-          const yamlContent = yamlMatch[1];
-          // Parse YAML content
-          const parsed = yaml.load(yamlContent) as Record<string, any>;
-          
-          // Create step ID based on the type of step
-          let stepType = 'unknown';
-          if (parsed.thought) stepType = 'thought';
-          if (parsed.action) stepType = 'action';
-          if (parsed.conclusion) stepType = 'conclusion';
-          
-          const stepId = `${stepType}_${Date.now()}`;
-          
-          // Convert to ReasoningStep format
-          const step: ReasoningStep = {
-            stepId,
-            timestamp: new Date().toISOString(),
-            isComplete: false
-          };
-          
-          if (parsed.thought) {
-            step.thought = parsed.thought;
-          }
-          
-          if (parsed.action) {
-            step.action = parsed.action;
-          }
-          
-          if (parsed.conclusion) {
-            step.conclusion = parsed.conclusion;
-            step.isComplete = true;
-          }
-          
-          // Log successful YAML parsing
-          this.logger.debug('Successfully parsed YAML response', {
-            stepType,
-            parsedLength: JSON.stringify(parsed).length
-          });
-          
-          return step;
-        } catch (yamlError) {
-          this.logger.error('Failed to parse YAML content', {
-            error: yamlError instanceof Error ? yamlError.message : String(yamlError),
-            content: yamlMatch[1].substring(0, 100) + '...'
-          });
-          // Continue to other parsing methods
-        }
-      }
-      
-      // Then try to parse as JSON
-      try {
-        const parsed = JSON.parse(llmResponse);
-        
-        // Validate required fields
-        if (parsed.stepId) {
-          // Add timestamp if missing
-          if (!parsed.timestamp) {
-            parsed.timestamp = new Date().toISOString();
-          }
-          // Ensure isComplete field
-          if (parsed.isComplete === undefined) {
-            parsed.isComplete = false;
-          }
-          return parsed as ReasoningStep;
-        }
-      } catch (e) {
-        // Not valid JSON, continue to text parsing
-      }
-      
-      // Fall back to basic text parsing
-      const lines = llmResponse.split('\n');
-      const typeMatch = llmResponse.match(/^(THOUGHT|ACTION|FINAL_ANSWER):/i);
-      
-      if (typeMatch) {
-        const type = typeMatch[1].toLowerCase();
-        const stepId = `${type}_${Date.now()}`;
-        
-        if (type === 'thought') {
-          return {
-            stepId,
-            thought: {
-              reasoning: llmResponse.replace(/^THOUGHT:/i, '').trim(),
-              plan: ''
-            },
-            isComplete: false,
-            timestamp: new Date().toISOString()
-          };
-        } else if (type === 'action') {
-          // Try to extract tool and params
-          const toolMatch = llmResponse.match(/ACTION:\s*([a-zA-Z0-9_]+)/i);
-          if (!toolMatch) return null;
-          
-          // Extract parameters
-          const paramsMatch = llmResponse.match(/\{[\s\S]*\}/);
-          let params: Record<string, unknown> = {};
-          if (paramsMatch) {
-            try {
-              params = JSON.parse(paramsMatch[0]);
-            } catch (e) {
-              // If JSON parsing fails, try to extract key-value pairs
-              const paramRegex = /([a-zA-Z0-9_]+):\s*([^\n,]+)/g;
-              let match;
-              while ((match = paramRegex.exec(llmResponse)) !== null) {
-                if (match[1] && match[2]) {
-                  params[match[1].trim()] = match[2].trim();
-                }
-              }
-            }
-          }
-          
-          return {
-            stepId,
-            action: {
-              tool: toolMatch[1].trim(),
-              params
-            },
-            isComplete: false,
-            timestamp: new Date().toISOString()
-          };
-        } else if (type === 'final_answer') {
-          return {
-            stepId,
-            conclusion: {
-              final_answer: llmResponse.replace(/^FINAL_ANSWER:/i, '').trim()
-            },
-            isComplete: true,
-            timestamp: new Date().toISOString()
-          };
-        }
-      }
-      
-      // Could not parse, return null
-      return null;
-    } catch (error) {
-      this.logger.error('Error parsing reasoning step', { 
-        error: error instanceof Error ? error.message : String(error),
-        response: llmResponse
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Get the tool registry from the tool manager
-   * This method handles compatibility with different tool manager implementations
-   */
-  private async getToolRegistry(): Promise<Record<string, (input: any) => Promise<any>>> {
-    // Create a registry mapping tool names to execution functions
-    const toolRegistry: Record<string, (input: any) => Promise<any>> = {};
-    
-    try {
-      // Get available tools
-      const tools = await this.toolManager.getAvailableTools();
-      
-      // Create execution functions for each tool
-      tools.forEach((tool: any) => {
-        toolRegistry[tool.name] = async (input: any) => {
-          try {
-            // Execute the tool directly via the tool manager
-            const result = await this.toolManager.executeTool(tool.name, input);
-            return result;
-          } catch (error) {
-            this.logger.error(`Failed to execute tool ${tool.name}`, { 
-              error: error instanceof Error ? error.message : String(error),
-              input
-            });
-            throw error;
-          }
-        };
-      });
-      
-      return toolRegistry;
-    } catch (error) {
-      this.logger.error('Failed to get available tools', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      // Return empty registry in case of error
-      return toolRegistry;
-    }
-  }
-
-  /**
-   * Format tool result into a structured, LLM-friendly observation
-   * Handles different result types, truncates long content, and adds context
-   * 
-   * @param result The raw tool execution result
-   * @param action The original action that produced this result
-   * @param maxLength Maximum length to allow before truncating (default 2000 chars)
-   * @returns Formatted observation text
-   */
-  private formatToolResult(
-    result: ToolExecutionResult, 
-    action: ReasoningStep['action'],
-    maxLength: number = 2000
-  ): string {
-    if (!action || !result) {
-      return 'No result or action information available';
-    }
-
-    const toolName = action.tool;
-    const rawData = result.data;
-    let formattedResult: string;
-    
-    try {
-      // Format based on data type
-      if (typeof rawData === 'string') {
-        formattedResult = rawData;
-      } else if (rawData === null || rawData === undefined) {
-        formattedResult = 'No data returned from tool';
-      } else if (Array.isArray(rawData)) {
-        // For arrays, create a more readable listing
-        if (rawData.length === 0) {
-          formattedResult = 'Empty list result []';
-        } else if (typeof rawData[0] === 'object' && rawData[0] !== null) {
-          // Array of objects - create a summarized view
-          formattedResult = `List with ${rawData.length} items:\n` + 
-            rawData.slice(0, 5).map((item, i) => 
-              `${i+1}. ${JSON.stringify(item, null, 1).replace(/\n\s*/g, ' ')}`
-            ).join('\n');
-          
-          if (rawData.length > 5) {
-            formattedResult += `\n...and ${rawData.length - 5} more items`;
-          }
-        } else {
-          // Simple array - show directly
-          formattedResult = `[${rawData.slice(0, 10).join(', ')}${rawData.length > 10 ? '...' : ''}]`;
-        }
-      } else if (typeof rawData === 'object') {
-        // For objects, pretty-print with custom handling
-        if (Object.keys(rawData).length === 0) {
-          formattedResult = 'Empty object result {}';
-        } else {
-          formattedResult = JSON.stringify(rawData, null, 2);
-        }
+      // Let the prompt generator create the appropriate prompt with existing method
+      if (this.promptGenerator.generateReActPrompt) {
+        return await this.promptGenerator.generateReActPrompt(
+          userMessage,
+          steps,
+          tools,
+          currentStep
+        );
       } else {
-        // For other types, convert to string
-        formattedResult = String(rawData);
+        // Fallback to basic prompt generation if method not available
+        return await this.promptGenerator.generatePrompt(
+          userMessage,
+          tools
+        );
       }
-      
-      // Truncate if too long
-      if (formattedResult.length > maxLength) {
-        const halfLength = Math.floor(maxLength / 2) - 50;
-        formattedResult = 
-          formattedResult.substring(0, halfLength) +
-          `\n...[Result truncated (${formattedResult.length} chars total)]...\n` +
-          formattedResult.substring(formattedResult.length - halfLength);
-      }
-      
-      // Log the tool response for debugging purposes
-      this.logger.info(`Tool response from ${toolName}:`, {
-        toolName,
-        queryParams: action.params ? JSON.stringify(action.params, null, 2) : 'none',
-        responsePreview: formattedResult.length > 300 
-          ? formattedResult.substring(0, 300) + '...' 
-          : formattedResult,
-        responseLength: formattedResult.length,
-        isSearch: action.params?.query || action.params?.search_term || action.params?.search_query ? true : false,
-        searchQuery: action.params?.query || action.params?.search_term || action.params?.search_query || null
-      });
-      
-      // Add context about the tool execution
-      return `Result from ${toolName}:\n${formattedResult}`;
-      
     } catch (error) {
-      this.logger.error('Error formatting tool result', {
-        toolName,
-        error: error instanceof Error ? error.message : String(error)
+      this.logger.error('Error generating contextual prompt', {
+        error: String(error)
       });
       
-      // Fallback to basic formatting
-      return `Result from ${toolName} (format error): ${
-        typeof rawData === 'string' ? rawData : JSON.stringify(rawData)
-      }`;
+      // Fallback to a simple prompt if the generator fails
+      return `You are a helpful AI assistant. The user has requested: "${userMessage}".
+      
+Previous steps: ${JSON.stringify(steps, null, 2)}
+
+Available tools: ${JSON.stringify(tools.map(t => ({
+  name: t.name,
+  description: t.description,
+  parameters: t.inputSchema
+})), null, 2)}
+
+Please provide the next step in reasoning or a final answer.`;
+    }
+  }
+  
+  /**
+   * Gets the last reasoning step for a user
+   * This is kept for backward compatibility
+   * @param userId The user ID
+   */
+  public async getLastReasoningStep(userId: string): Promise<ReasoningStep | null> {
+    try {
+      const memories = await this.memory.search({
+        userId,
+        types: [MemoryType.THOUGHT_PROCESS],
+        sortBy: 'timestamp',
+        sortDirection: 'desc',
+        limit: 1
+      });
+      
+      if (memories.entries.length === 0) {
+        return null;
+      }
+      
+      return memories.entries[0].content.step;
+    } catch (error) {
+      this.logger.error('Error retrieving last reasoning step', {
+        error: String(error),
+        userId
+      });
+      
+      return null;
     }
   }
 }
