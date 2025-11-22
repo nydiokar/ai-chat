@@ -1,0 +1,71 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check for dependency changes
+      run: |
+        if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '(package\.json|package-lock\.json)'; then
+          echo "Dependencies changed, running full audit"
+          npm audit --audit-level high
+        else
+          echo "No dependency changes detected"
+        fi
+
+    - name: Type check
+      run: npm run build
+
+    - name: Lint code
+      run: npm run lint
+
+    - name: Run unit tests
+      run: npm run test:unit
+      env:
+        NODE_ENV: test
+
+    - name: Check test coverage
+      run: |
+        npm run test:coverage
+        # Ensure minimum coverage (adjust thresholds as needed)
+        npx c8 check-coverage --lines 80 --functions 80 --branches 70
+
+    - name: Check for security vulnerabilities
+      run: |
+        # Check for high/critical vulnerabilities
+        if npm audit --audit-level high --json | jq -e '.vulnerabilities.high or .vulnerabilities.critical'; then
+          echo "🚨 High or critical security vulnerabilities found!"
+          echo "Please address these before merging."
+          exit 1
+        else
+          echo "✅ No high/critical security vulnerabilities found"
+        fi
+
+    - name: Validate commit messages
+      if: github.event_name == 'pull_request'
+      run: |
+        # Check if PR title follows conventional commit format
+        PR_TITLE="${{ github.event.pull_request.title }}"
+        if echo "$PR_TITLE" | grep -E "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,}"; then
+          echo "✅ PR title follows conventional commit format"
+        else
+          echo "⚠️  PR title should follow conventional commit format: 'type(scope): description'"
+          echo "Examples: 'feat: add new feature', 'fix: resolve bug', 'docs: update README'"
+        fi

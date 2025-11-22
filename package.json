@@ -1,6 +1,6 @@
 {
   "name": "them",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -27,6 +27,9 @@
     "test:github": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node -r tsconfig-paths/register src/features/pulse-mcp/tests/test-github-installation.ts",
     "lint": "eslint src/**/*.{js,ts,jsx,tsx}",
     "lint:fix": "eslint src/**/*.{js,ts,jsx,tsx} --fix",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,js,json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,js,json,md}\"",
     "mcp:tools": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node src/tools/mcp/types/tools.test.ts",
     "mcp:status": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node src/tools/mcp/dashboard-cli.ts",
     "mcp:dashboard": "cross-env NODE_OPTIONS=\"--loader ts-node/esm\" ts-node src/tools/mcp/start-dashboard.ts",

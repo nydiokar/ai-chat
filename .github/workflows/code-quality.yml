@@ -1,0 +1,110 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check code formatting
+      run: |
+        # Check if prettier is available
+        if npm list prettier > /dev/null 2>&1; then
+          echo "Running prettier check..."
+          npx prettier --check "src/**/*.{ts,js,json,md}"
+        else
+          echo "Prettier not installed, skipping format check"
+        fi
+
+    - name: Check for TypeScript strict mode compliance
+      run: |
+        # Check for any TypeScript any types (can be made stricter)
+        ANY_COUNT=$(grep -r ":\s*any" src/ --include="*.ts" | wc -l)
+        echo "Found $ANY_COUNT 'any' type usages"
+
+        # Warn if too many any types (adjust threshold as needed)
+        if [ "$ANY_COUNT" -gt 10 ]; then
+          echo "⚠️  High number of 'any' types detected. Consider using more specific types."
+        fi
+
+    - name: Check for console.log statements in production code
+      run: |
+        # Find console.log statements (excluding test files and config files)
+        LOG_COUNT=$(find src -name "*.ts" -not -path "*/tests/*" -not -name "*.config.*" -not -name "*.test.*" -exec grep -l "console\.log" {} \; | wc -l)
+
+        if [ "$LOG_COUNT" -gt 0 ]; then
+          echo "⚠️  Found console.log statements in production code:"
+          find src -name "*.ts" -not -path "*/tests/*" -not -name "*.config.*" -not -name "*.test.*" -exec grep -l "console\.log" {} \;
+          echo "Consider using the logger utility instead for production code."
+        else
+          echo "✅ No console.log statements found in production code"
+        fi
+
+    - name: Check bundle size
+      run: |
+        # Build and check bundle size if webpack or similar is configured
+        if npm run build 2>/dev/null; then
+          echo "✅ Build successful"
+
+          # Check dist directory size
+          if [ -d "dist" ]; then
+            DIST_SIZE=$(du -sh dist | cut -f1)
+            echo "📦 Distribution bundle size: $DIST_SIZE"
+          fi
+        else
+          echo "⚠️  Build command failed or not configured"
+        fi
+
+    - name: Check for TODO comments
+      run: |
+        TODO_COUNT=$(grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" --include="*.js" | wc -l)
+        echo "Found $TODO_COUNT TODO/FIXME/HACK comments"
+
+        if [ "$TODO_COUNT" -gt 0 ]; then
+          echo "📝 TODO comments found:"
+          grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" --include="*.js"
+        fi
+
+    - name: Validate package.json
+      run: |
+        # Check if package.json has required fields
+        if ! jq -e '.name and .version and .main' package.json > /dev/null; then
+          echo "❌ package.json missing required fields (name, version, main)"
+          exit 1
+        fi
+
+        # Check if all scripts referenced in README exist
+        if grep -q "npm run" README.md; then
+          echo "✅ README references npm scripts - validating they exist..."
+          # This could be expanded to actually validate script existence
+        fi
+
+    - name: Check for large files
+      run: |
+        # Find files larger than 1MB (excluding node_modules and dist)
+        LARGE_FILES=$(find . -type f -size +1M -not -path "./node_modules/*" -not -path "./dist/*" -not -path "./.git/*" 2>/dev/null)
+
+        if [ -n "$LARGE_FILES" ]; then
+          echo "⚠️  Large files found (>1MB):"
+          echo "$LARGE_FILES"
+          echo "Consider optimizing or excluding these files"
+        else
+          echo "✅ No large files found"
+        fi

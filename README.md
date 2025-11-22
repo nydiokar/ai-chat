@@ -1,5 +1,9 @@
 # Kanebra - Discord bot with MCP capabilities
 
+[![CI](https://github.com/nydiokar/ai-chat/workflows/CI/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
+[![Security](https://github.com/nydiokar/ai-chat/workflows/Security/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
+[![CodeQL](https://github.com/nydiokar/ai-chat/workflows/CodeQL/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
+
 A comprehensive system that combines AI capabilities, cryptocurrency token tracking, and advanced task management. Built with a modular architecture using the Model Context Protocol (MCP) for extensible tool integration.
 
 ## Core Features
@@ -188,13 +192,72 @@ For detailed documentation, please refer to the `/docs` directory:
 - [Cache System](/docs/services/cache.md)
 - [Performance](/docs/services/performance.md)
 
+## CI/CD & Quality Assurance
+
+This project uses comprehensive CI/CD pipelines to maintain code quality and security:
+
+### Automated Workflows
+
+- **CI Pipeline**: Runs on every push/PR with build, test, lint, and type checking
+- **Security Scanning**: Daily CodeQL analysis and dependency vulnerability checks
+- **PR Validation**: Additional checks for pull requests including security audits
+- **Code Quality**: Automated checks for formatting, bundle size, and best practices
+- **Release Automation**: Automated GitHub releases on version tags
+
+### Dependency Management
+
+- **Dependabot**: Smart dependency updates with grouping and spam prevention
+  - Monthly updates for production dependencies (grouped by ecosystem)
+  - Bi-weekly updates for dev dependencies
+  - Monthly updates for GitHub Actions
+  - Ignores unstable packages and alpha/beta versions
+
+### Code Quality Tools
+
+- **ESLint**: JavaScript/TypeScript linting
+- **Prettier**: Code formatting
+- **TypeScript**: Strict type checking
+- **Mocha + Chai**: Testing framework with coverage reporting
+- **C8**: Code coverage analysis
+
+### Available Scripts
+
+```bash
+# Development
+npm run build          # TypeScript compilation
+npm run typecheck      # Type checking only
+npm run lint           # ESLint checking
+npm run format         # Prettier formatting
+npm run format:check   # Check formatting without changes
+
+# Testing
+npm test               # Run all tests
+npm run test:unit      # Run unit tests only
+npm run test:coverage  # Run tests with coverage
+npm run test:watch     # Watch mode testing
+
+# Maintenance
+npm run db:sync        # Database synchronization
+npm run prisma:generate # Generate Prisma client
+```
+
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to your branch
-5. Create a Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and ensure tests pass (`npm test`)
+4. Format your code (`npm run format`)
+5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+6. Push to your branch (`git push origin feature/amazing-feature`)
+7. Create a Pull Request
+
+### Pull Request Requirements
+
+- All CI checks must pass
+- Code must be formatted with Prettier
+- Tests must have adequate coverage
+- No security vulnerabilities introduced
+- Conventional commit messages preferred
 
 ## License
 
