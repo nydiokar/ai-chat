@@ -21,6 +21,9 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Generate Prisma client
+      run: npm run prisma:generate
+
     - name: Check for dependency changes
       run: |
         if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '(package\.json|package-lock\.json)'; then
