@@ -63,7 +63,9 @@ A comprehensive system that combines AI capabilities, cryptocurrency token track
 
 ## Environment Setup
 
-Create a `.env.development` or `.env.production` file:
+Create a `.env.development` or `.env.production` file based on the example:
+
+**Quick Start:** Copy `.env.example` to `.env` and fill in your actual values.
 
 ```env
 # Core Configuration
@@ -72,16 +74,43 @@ NODE_ENV=development
 
 # AI Services
 OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
 OLLAMA_HOST=http://127.0.0.1:11434
+
+# AI Model Configuration
+OPENAI_MODEL=gpt-3.5-turbo-0125
+OPENAI_TEMPERATURE=0.7
+OPENAI_MAX_RETRIES=3
+OLLAMA_MODEL=llama3.2:latest
+
+# Alternative provider-based configuration (used by main services):
+# MODEL=openai
+# OPENAI_MODEL=gpt-3.5-turbo-0125
+# CLAUDE_MODEL=claude-3-5-sonnet-20241022
+# OLLAMA_MODEL=llama3.2:latest
 
 # Discord Integration
 DISCORD_TOKEN=your_discord_bot_token
+DISCORD_CLEANUP_INTERVAL=24
+DISCORD_SESSION_TIMEOUT=12
+
+# MCP Configuration
+MCP_ENABLED=true
+MCP_AUTH_TOKEN=your_mcp_token
+MCP_LOG_LEVEL=info
+MCP_GITHUB_ENABLED=true
+MCP_BRAVE_ENABLED=true
+GITHUB_TOKEN=your_github_token
+BRAVE_API_KEY=your_brave_api_key
 
 # Database
 DATABASE_URL=your_database_url
 
 # Optional Settings
 DEBUG=true
+LOG_LEVEL=info
+LOG_SHOW_TOOLS=true
+LOG_SHOW_REQUESTS=true
 ```
 
 ## Getting Started
