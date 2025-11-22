@@ -1,3 +1,4 @@
+# IMPORTANT: Replace "YOUR_GITHUB_USERNAME" with your actual GitHub username below
 version: 2
 updates:
   # Enable version updates for npm (production dependencies)

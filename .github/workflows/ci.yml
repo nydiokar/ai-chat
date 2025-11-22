@@ -9,8 +9,10 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [18.x, 20.x]
 
@@ -30,6 +32,9 @@ jobs:
     - name: Generate Prisma client
       run: npm run prisma:generate
 
+    - name: Validate database schema
+      run: npx prisma validate
+
     - name: Type check
       run: npm run typecheck
 
@@ -39,12 +44,7 @@ jobs:
     - name: Check formatting
       run: npm run format:check
 
-    - name: Run tests
-      run: npm run test:unit
-      env:
-        NODE_ENV: test
-
-    - name: Generate coverage report
+    - name: Run tests with coverage
       run: npm run test:coverage
       env:
         NODE_ENV: test

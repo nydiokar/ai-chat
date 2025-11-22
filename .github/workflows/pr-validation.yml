@@ -7,6 +7,7 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -39,16 +40,13 @@ jobs:
     - name: Lint code
       run: npm run lint
 
-    - name: Run unit tests
-      run: npm run test:unit
-      env:
-        NODE_ENV: test
-
-    - name: Check test coverage
+    - name: Run tests with coverage
       run: |
         npm run test:coverage
         # Ensure minimum coverage (adjust thresholds as needed)
         npx c8 check-coverage --lines 80 --functions 80 --branches 70
+      env:
+        NODE_ENV: test
 
     - name: Check for security vulnerabilities
       run: |
