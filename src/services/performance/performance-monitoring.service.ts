@@ -2,34 +2,7 @@ import { performance } from 'perf_hooks';
 import { DatabaseService } from '../db-service.js';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
-import { Prisma, PrismaClient } from '@prisma/client';
-
-// Performance monitoring middleware for Prisma
-const prismaPerformanceMiddleware: Prisma.Middleware = async (params, next) => {
-  const start = performance.now();
-  const result = await next(params);
-  const duration = performance.now() - start;
-  
-  try {
-    // Only log if query took longer than 100ms
-    if (duration > 100) {
-      const queryHash = JSON.stringify(params);
-      await DatabaseService.getInstance().prisma.queryMetrics.create({
-        data: {
-          queryHash,
-          queryString: JSON.stringify(params),
-          executionTime: Math.round(duration),
-          rowCount: Array.isArray(result) ? result.length : 1
-        }
-      });
-    }
-  } catch (error) {
-    // Log error but don't interrupt the original query
-    console.error('Error logging query metrics:', error);
-  }
-  
-  return result;
-};
+import { PrismaClient } from '@prisma/client';
 
 interface ToolUsageStats {
   name: string;
@@ -84,18 +57,6 @@ export class PerformanceMonitoringService {
   private constructor() {
     this.dbService = DatabaseService.getInstance();
     this.prisma = this.dbService.prisma;
-    
-    // Apply performance monitoring middleware
-    try {
-      // Check if $use method exists before calling it (handle SQLite adapter case)
-      if (this.prisma && typeof this.prisma.$use === 'function') {
-        this.prisma.$use(prismaPerformanceMiddleware);
-      } else {
-        console.warn('Prisma client does not support middleware in this environment');
-      }
-    } catch (error) {
-      console.error('Error applying Prisma middleware:', error);
-    }
   }
 
   static getInstance(): PerformanceMonitoringService {

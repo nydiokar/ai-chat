@@ -39,33 +39,10 @@ export class QueryOptimizationService {
   }
 
   private setupPrismaMiddleware(): void {
-    const prisma = this.dbService.prisma;
-    if (prisma && typeof prisma.$use === 'function') {
-      prisma.$use(async (params, next) => {
-        const monitoring: QueryMonitoringData = {
-          queryString: JSON.stringify(params),
-          startTime: new Date(),
-        };
-
-        try {
-          const result = await next(params);
-          monitoring.endTime = new Date();
-          monitoring.rowCount = Array.isArray(result) ? result.length : 1;
-          
-          // Track query metrics asynchronously
-          this.trackQueryMetrics(monitoring).catch(error => {
-            debug(`Failed to track query metrics: ${error.message}`);
-          });
-
-          return result;
-        } catch (error) {
-          monitoring.endTime = new Date();
-          throw error;
-        }
-      });
-    } else {
-      debug('Prisma client not properly initialized or $use method not available');
-    }
+    // Note: Prisma v6 no longer supports middleware via $use()
+    // Query optimization now relies on manual tracking and caching
+    // Consider using query extensions or manual operation wrapping for future enhancements
+    debug('Query optimization initialized without middleware (Prisma v6 compatibility)');
   }
 
   private generateQueryHash(queryString: string, params?: any): string {
