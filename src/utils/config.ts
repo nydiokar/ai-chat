@@ -86,7 +86,9 @@ function getOpenAIModel(currentProvider: AIModel): string {
   }
 
   const env = process.env.NODE_ENV || "development";
-  const envConfig = modelConfig[env as keyof typeof modelConfig];
+  // For test environment, use development config
+  const configKey = env === 'test' ? 'development' : env;
+  const envConfig = modelConfig[configKey as keyof typeof modelConfig];
   const configuredModel = process.env.OPENAI_MODEL;
 
   // If valid model specified in env, use it

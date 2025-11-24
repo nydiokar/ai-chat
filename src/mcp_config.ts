@@ -9,10 +9,13 @@ const envPath =
     ? ".env.production"
     : ".env.development");
 
-// Load environment variables
+// Load environment variables (optional for CI/development)
 const result = dotenv.config({ path: envPath });
 if (result.error) {
-  console.error(`Error loading environment from ${envPath}:`, result.error);
+  // Only warn in development/CI, don't fail
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(`Warning: Could not load environment from ${envPath}:`, result.error.message);
+  }
 }
 
 // Server configurations
