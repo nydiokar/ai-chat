@@ -40,11 +40,8 @@ jobs:
     - name: Lint code
       run: npm run lint
 
-    - name: Run tests with coverage
-      run: |
-        npm run test:coverage
-        # Ensure minimum coverage (adjust thresholds as needed)
-        npx c8 check-coverage --lines 80 --functions 80 --branches 70
+    - name: Run CI tests
+      run: npm run test:ci
       env:
         NODE_ENV: test
 

@@ -3,7 +3,8 @@
     "compilerOptions": {
         "types": ["node", "mocha", "chai", "sinon"],
         "module": "NodeNext",
-        "moduleResolution": "NodeNext"
+        "moduleResolution": "NodeNext",
+        "lib": ["ES2020", "DOM"]
     },
     "include": [
         "src/**/*.test.ts",

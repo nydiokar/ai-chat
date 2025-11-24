@@ -271,9 +271,10 @@ npm run format         # Prettier formatting
 npm run format:check   # Check formatting without changes
 
 # 🧪 Testing
-npm test               # Run all tests
+npm test               # Run all tests (including database-dependent)
 npm run test:unit      # Run unit tests only
-npm run test:coverage  # Run tests with coverage
+npm run test:ci        # Run CI tests (core functionality only)
+npm run test:coverage  # Run tests with coverage (includes database tests)
 npm run test:watch     # Watch mode testing
 
 # 🔧 Maintenance

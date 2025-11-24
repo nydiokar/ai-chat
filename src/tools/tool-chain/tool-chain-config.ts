@@ -35,7 +35,7 @@ export class ToolChainConfigBuilder {
   constructor(name: string) {
     this.config = {
       name,
-      id: crypto.randomUUID(),
+      id: (globalThis.crypto as any)?.randomUUID?.() || `tool-chain-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       tools: [],
     };
   }
