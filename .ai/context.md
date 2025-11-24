@@ -27,26 +27,32 @@
 
 ## Active
 
-**Current Task**: Ongoing maintenance and feature enhancements
+**Current Task**: Agent Reasoning Enhancement - Tree-of-Thought Integration
 
-- [ ] Performance optimizations
-- [ ] Additional AI model integrations
-- [ ] Enhanced error handling and logging
-- [ ] Documentation improvements
+### Primary Objective
+Transform the ReAct agent from a reactive tool executor into a deliberate reasoning system by integrating Tree-of-Thought (ToT) pre-planning capabilities inspired by LightAgent architecture.
 
+### Status: Planning Phase
+- [x] Architecture analysis completed
+- [x] LightAgent pattern study completed
+- [x] Quality control review completed
+- [ ] Implementation Phase 1: Core ToT Planning Module
+- [ ] Implementation Phase 2: Tool Filtering Service
+- [ ] Implementation Phase 3: Integration with ReActEngine
+- [ ] Testing & Validation Phase
 
-Consider these, they are several potential future tasks: 
+### Critical Success Factors
+1. **Maintain backward compatibility** - Existing agent functionality must not break
+2. **Preserve superior infrastructure** - Keep task management, memory, DI, Discord systems
+3. **Enable gradual rollout** - Feature flag for ToT vs traditional ReAct
+4. **Validate reasoning improvement** - Measurable metrics for planning effectiveness
 
-Improvements from light agent - https://github.com/wxai-space/LightAgent
+### Reference Architecture
+- **Source**: [LightAgent](https://github.com/wxai-space/LightAgent) - Use as architectural reference only
+- **Key Patterns**: 3-stage ToT planning, reflect-then-filter tool selection
+- **Integration Point**: Pre-planning stage before ReActEngine execution loop
 
-
-Use LightAgent only as an architectural reference, not as a dependency.
-Adopt its Tree-of-Thought pre-planning loop and integrate it into ai-service as an optional planning stage before tool selection.
-Reuse its MCP auto-registration pattern to simplify the logic in tools/mcp/* and reduce LOC by collapsing redundant discovery and schema-conversion code.
-Replace your current implicit tool-selection heuristics with LightAgent’s explicit “reflect-then-filter” cycle to stabilize reasoning.
-Keep all existing task, memory, DI, and Discord layers; these are already superior to LightAgent’s internal abstractions.
-Do not import or rewrite LightAgent’s run-loop; mirror only the planning and tool-filter logic inside your existing orchestrator.
-Use LightAgent as a correctness baseline when debugging reasoning failures, not as the primary runtime engine.
+**Detailed Implementation Plan**: See `.ai/tot-refactoring/` directory
 
 
 ---

@@ -11,6 +11,7 @@ import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import { MemoryProvider } from "../interfaces/memory-provider.js";
 import { AgentFactory } from "../agents/agent-factory.js";
 import { PromptRepository } from "../services/prompt/prompt-repository.js";
+import { ToTPlanner } from "../agents/planning/tot-planner.js";
 
 /**
  * Main application factory for creating AI agents with proper configuration.
@@ -183,6 +184,24 @@ export class AIFactory {
         );
       }
 
+      // Create ToT planner if enabled (Simple!)
+      let totPlanner: ToTPlanner | undefined;
+
+      if (process.env.ENABLE_TOT_PLANNING === "true") {
+        info(
+          "ToT Planning enabled",
+          createLogContext("AIFactory", "create", {
+            timeoutMs: parseInt(process.env.TOT_PLANNING_TIMEOUT_MS || "5000", 10),
+          }),
+        );
+        totPlanner = new ToTPlanner(provider);
+      } else {
+        debug(
+          "ToT Planning disabled",
+          createLogContext("AIFactory", "create", {}),
+        );
+      }
+
       // Create agent using AgentFactory to maintain singleton pattern
       this.agentInstance = await AgentFactory.createReActAgent(
         this.container,
@@ -191,6 +210,7 @@ export class AIFactory {
         this.toolManager,
         promptGenerator,
         agentName,
+        totPlanner, // Pass ToT planner
       );
 
       return this.agentInstance;

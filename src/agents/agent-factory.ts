@@ -7,6 +7,7 @@ import { ReActPromptGenerator } from "../prompt/react-prompt-generator.js";
 import { MCPContainer } from "../tools/mcp/di/container.js";
 import { ToolChainExecutor } from "../tools/tool-chain/tool-chain-executor.js";
 import { ReActEngine } from "./react-engine.js";
+import { ToTPlanner } from "./planning/tot-planner.js";
 
 /**
  * Low-level factory for creating agent instances with specific dependencies.
@@ -29,6 +30,7 @@ export class AgentFactory {
     toolManager: IToolManager,
     promptGenerator: ReActPromptGenerator,
     name?: string,
+    totPlanner?: ToTPlanner,
   ): Promise<Agent> {
     if (!this.reActAgentInstance) {
       // Get or create the tool chain executor
@@ -42,6 +44,7 @@ export class AgentFactory {
           toolManager,
           toolChainExecutor,
           promptGenerator,
+          totPlanner, // Pass ToT planner
         );
       }
 
