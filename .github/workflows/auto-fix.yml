@@ -101,6 +101,13 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
+        # Check if we're in a PR
+        if [ -n "${{ github.head_ref }}" ]; then
+          # Fetch the PR branch
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
+        fi
+
         # Add all changes
         git add .
 
@@ -116,8 +123,12 @@ jobs:
         # Commit with detailed message
         git commit -m "$COMMIT_MSG" -m "Auto-fixed code quality issues"
 
-        # Push the changes
-        git push origin ${{ github.head_ref }}
+        # Push the changes back to the source branch
+        if [ -n "${{ github.head_ref }}" ]; then
+          git push origin "HEAD:${{ github.head_ref }}"
+        else
+          echo "Not in a PR, skipping push"
+        fi
 
         echo "✅ Auto-fixes committed and pushed"
         echo "fixes-committed=true" >> $GITHUB_OUTPUT

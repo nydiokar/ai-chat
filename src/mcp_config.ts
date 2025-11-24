@@ -13,8 +13,11 @@ const envPath =
 const result = dotenv.config({ path: envPath });
 if (result.error) {
   // Only warn in development/CI, don't fail
-  if (process.env.NODE_ENV !== 'test') {
-    console.warn(`Warning: Could not load environment from ${envPath}:`, result.error.message);
+  if (process.env.NODE_ENV !== "test") {
+    console.warn(
+      `Warning: Could not load environment from ${envPath}:`,
+      result.error.message,
+    );
   }
 }
 

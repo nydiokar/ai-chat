@@ -37,6 +37,7 @@
     "pre-push": "bash scripts/pre-push-check.sh",
     "quality:check": "npm run lint && npm run format:check && npm run typecheck",
     "quality:fix": "npm run lint:fix && npm run format",
+    "test:setup": "npx prisma db push --accept-data-loss",
     "db:setup:dev": "cross-env NODE_ENV=development node scripts/manage-db.js setup",
     "db:setup:prod": "cross-env NODE_ENV=production node scripts/manage-db.js setup",
     "db:generate:dev": "cross-env NODE_ENV=development node scripts/manage-db.js generate",
