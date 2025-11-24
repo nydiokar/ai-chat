@@ -9,46 +9,18 @@ const __dirname = dirname(__filename);
 const ROOT_PATH = join(__dirname, '..');
 const SCHEMA_PATH = join(ROOT_PATH, 'prisma');
 
-function getSchemaInfo() {
-    const sourceSchema = ENV === 'development'
-        ? join(SCHEMA_PATH, 'schema.dev.prisma')
-        : join(SCHEMA_PATH, 'schema.prod.prisma');
-
-    // Read the schema to determine provider and database path
-    const schemaContent = fs.readFileSync(sourceSchema, 'utf8');
-    const providerMatch = schemaContent.match(/provider\s*=\s*"(\w+)"/);
-    const urlMatch = schemaContent.match(/url\s*=\s*"([^"]+)"/);
-
-    return {
-        sourceSchema,
-        provider: providerMatch ? providerMatch[1] : 'sqlite',
-        dbUrl: urlMatch ? urlMatch[1] : 'file:./dev.db'
-    };
-}
-
-function copySchema() {
-    const { sourceSchema } = getSchemaInfo();
-    const targetSchema = join(SCHEMA_PATH, 'schema.prisma');
-
-    console.log(`Copying ${ENV} schema...`);
-    fs.copyFileSync(sourceSchema, targetSchema);
-}
-
 function resetDatabase() {
-    const { provider, dbUrl } = getSchemaInfo();
+    console.log(`Resetting ${ENV} database...`);
 
-    console.log(`Resetting ${provider} database...`);
-
-    if (provider === 'sqlite') {
+    if (ENV === 'development') {
         // For SQLite, delete the database file
-        const dbPath = dbUrl.replace('file:', '');
-        const fullDbPath = join(SCHEMA_PATH, dbPath);
-        if (fs.existsSync(fullDbPath)) {
-            fs.unlinkSync(fullDbPath);
-            console.log(`Deleted SQLite database: ${fullDbPath}`);
+        const dbPath = join(SCHEMA_PATH, 'dev.db');
+        if (fs.existsSync(dbPath)) {
+            fs.unlinkSync(dbPath);
+            console.log(`Deleted SQLite database: ${dbPath}`);
         }
         // Also delete any journal files
-        const journalPath = fullDbPath + '-journal';
+        const journalPath = dbPath + '-journal';
         if (fs.existsSync(journalPath)) {
             fs.unlinkSync(journalPath);
             console.log(`Deleted SQLite journal: ${journalPath}`);
@@ -56,13 +28,13 @@ function resetDatabase() {
     } else {
         // For PostgreSQL, we can't delete the database, but we can warn
         console.log(`⚠️  PostgreSQL database detected. Manual database reset may be required.`);
-        console.log(`   Database URL: ${dbUrl}`);
+        console.log(`   Database URL: ${process.env.DATABASE_URL || '(not set)'}`);
     }
 }
 
 function resetMigrations() {
-    const { provider } = getSchemaInfo();
     const migrationsDir = join(SCHEMA_PATH, 'migrations');
+    const provider = ENV === 'production' ? 'postgresql' : 'sqlite';
 
     console.log('Resetting migration history...');
 
@@ -117,7 +89,6 @@ function main() {
             case 'reset':
                 resetDatabase();
                 resetMigrations();
-                copySchema();
                 createAndApplyMigration();
                 generateClient();
                 break;
@@ -125,7 +96,6 @@ function main() {
             case 'setup':
                 // Try to run existing migrations first
                 try {
-                    copySchema();
                     runMigrations();
                     console.log('✅ Existing migrations applied successfully');
                 } catch (migrationError) {
@@ -133,7 +103,6 @@ function main() {
                     // Fall back to reset if migrations fail
                     resetDatabase();
                     resetMigrations();
-                    copySchema();
                     createAndApplyMigration();
                     console.log('✅ Database reset and fresh migrations created');
                 }
@@ -142,21 +111,19 @@ function main() {
                 break;
 
             case 'generate':
-                copySchema();
                 generateClient();
                 break;
 
             case 'migrate':
-                copySchema();
                 runMigrations();
                 break;
 
             default:
                 console.error('Available commands:');
-                console.error('  reset   - Force reset database and create fresh migrations');
-                console.error('  setup   - Setup database (uses existing migrations, resets if failed)');
+                console.error('  reset    - Force reset database and create fresh migrations');
+                console.error('  setup    - Setup database (uses existing migrations, resets if failed)');
                 console.error('  generate - Generate Prisma client only');
-                console.error('  migrate  - Run existing migrations only (fails if incompatible)');
+                console.error('  migrate  - Run existing migrations only');
                 process.exit(1);
         }
     } catch (error) {

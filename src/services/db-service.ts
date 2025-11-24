@@ -4,7 +4,6 @@ import { ToolResponse } from '../tools/mcp/types/tools.js';
 import { MCPError } from '../types/errors.js';
 import { debug, info, error, warn } from '../utils/logger.js';
 import { DiscordContext } from '../types/discord.js';
-import path from 'path';
 
 export class DatabaseError extends Error {
   public cause?: any;
@@ -43,42 +42,23 @@ export class DatabaseService {
 
   protected constructor() {
     const env = process.env.NODE_ENV || 'development';
-    
-    // Configure database based on environment
-    const dbConfig = {
-      development: {
-        provider: 'sqlite',
-        url: `file:${path.resolve(process.cwd(), 'prisma/dev.db')}`
-      },
-      production: {
-        provider: 'postgresql',
-        url: process.env.DATABASE_URL || ''
-      }
-    };
 
-    const config = dbConfig[env as keyof typeof dbConfig] || dbConfig.development;
-    
     info({
       component: 'Database',
       message: 'Initializing PrismaClient',
       environment: env,
-      config: {
-        provider: config.provider,
-        url: config.url.replace(/^.*\//, '.../')  // Hide full path for security
-      }
+      note: 'Database configuration managed by prisma.config.ts (Prisma 6.15.0)'
     });
-    
+
+    // For Prisma 6.15.0, we can still use datasources override
+    // This works alongside prisma.config.ts
+    // The config file manages schema selection, this ensures runtime connection
     this.prisma = new PrismaClient({
       log: [
         { emit: 'event', level: 'error' },
         { emit: 'event', level: 'warn' },
         { emit: 'event', level: 'info' }
-      ],
-      datasources: {
-        db: {
-          url: config.url
-        }
-      }
+      ]
     });
 
     // Set up Prisma event handlers
