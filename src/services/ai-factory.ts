@@ -1,12 +1,14 @@
 import { Agent } from "../interfaces/base-agent.js";
 import { OpenAIProvider } from "../providers/openai.js";
+import { OllamaProvider } from "../providers/ollama-provider.js";
+import { LLMProvider } from "../interfaces/llm-provider.js";
 import { ReActPromptGenerator } from "../prompt/react-prompt-generator.js";
 import { MCPContainer, MCPConfig } from "../tools/mcp/di/container.js";
 import { MCPError, ErrorType } from "../types/errors.js";
 import { info, error, debug, warn } from "../utils/logger.js";
 import { createLogContext, createErrorContext } from "../utils/log-utils.js";
 import { mcpConfig } from "../mcp_config.js";
-import { defaultConfig } from "../utils/config.js";
+import { defaultConfig, AIProviders } from "../utils/config.js";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import { MemoryProvider } from "../interfaces/memory-provider.js";
 import { AgentFactory } from "../agents/agent-factory.js";
@@ -157,17 +159,51 @@ export class AIFactory {
           ? defaultConfig.openai.model
           : selectedModel;
 
+      // Determine which provider to use
+      const providerType = process.env.MODEL || AIProviders.OPENAI;
+
       debug(
         "Model configuration",
         createLogContext("AIFactory", "create", {
+          provider: providerType,
           selectedModel: config.openai.model,
           envModel: process.env.MODEL,
           defaultModel: defaultConfig.openai.model,
         }),
       );
 
-      // Create provider with config
-      const provider = new OpenAIProvider(config);
+      // Create provider based on type
+      let provider: LLMProvider;
+
+      if (providerType === AIProviders.OLLAMA) {
+        const ollamaModel = process.env.OLLAMA_MODEL || "llama3.2:latest";
+        const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://127.0.0.1:11434";
+        info(
+          "Creating Ollama provider",
+          createLogContext("AIFactory", "create", {
+            model: ollamaModel,
+            endpoint: ollamaEndpoint,
+          }),
+        );
+        provider = new OllamaProvider(this.container, ollamaModel, ollamaEndpoint);
+
+        // Load tools asynchronously (non-blocking)
+        (provider as OllamaProvider).ensureToolsLoaded().catch((error) => {
+          warn(
+            "Failed to load tools for Ollama provider",
+            createLogContext("AIFactory", "create", { error: error.message }),
+          );
+        });
+      } else {
+        // Default to OpenAI
+        info(
+          "Creating OpenAI provider",
+          createLogContext("AIFactory", "create", {
+            model: config.openai.model,
+          }),
+        );
+        provider = new OpenAIProvider(config);
+      }
 
       // Create prompt generator
       const promptRepository = new PromptRepository();

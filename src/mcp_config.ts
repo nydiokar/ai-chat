@@ -7,7 +7,7 @@ const envPath =
   process.env.DOTENV_CONFIG_PATH ||
   (process.env.NODE_ENV === "production"
     ? ".env.production"
-    : ".env.development");
+    : ".env");
 
 // Load environment variables (optional for CI/development)
 const result = dotenv.config({ path: envPath });

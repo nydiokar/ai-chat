@@ -63,12 +63,25 @@ export class OllamaBridge {
       throw new Error(`Invalid tool call: ${toolCall.function.name}`);
     }
 
+    // Ensure arguments is always an object (handle Ollama model output variations)
+    let normalizedArgs = toolCall.function.arguments;
+    if (Array.isArray(normalizedArgs)) {
+      // If it's an array with one object, unwrap it
+      if (normalizedArgs.length === 1 && typeof normalizedArgs[0] === 'object') {
+        normalizedArgs = normalizedArgs[0];
+      } else {
+        // Otherwise, create an object with the array as params
+        normalizedArgs = { params: normalizedArgs };
+      }
+      console.warn(`[OllamaBridge] Normalized array params for ${toolCall.function.name}`);
+    }
+
     // Try each client until one successfully executes the tool
     for (const [clientName, client] of this.clients.entries()) {
       try {
         const result = await client.callTool(
           toolCall.function.name,
-          toolCall.function.arguments,
+          normalizedArgs,
         );
         return JSON.stringify(result);
       } catch (error) {

@@ -768,7 +768,6 @@ static async create(
 ```env
 # Tree-of-Thought Planning
 ENABLE_TOT_PLANNING=false
-TOT_PLANNING_MODEL=gpt-3.5-turbo  # Cheaper model for planning
 TOT_PLANNING_TIMEOUT_MS=5000
 TOT_MAX_TOOLS_AFTER_FILTER=10
 ```

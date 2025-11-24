@@ -21,11 +21,50 @@ export class OllamaProvider implements LLMProvider {
   ) {
     this.model = model;
     this.endpoint = endpoint;
-    this.initialize(container).catch((error) => {
-      debug(
-        `Failed to initialize OllamaProvider: ${error instanceof Error ? error.message : String(error)}`,
+
+    // Initialize synchronously using container's pre-initialized clients
+    this.initializeSync(container);
+  }
+
+  /**
+   * Synchronous initialization using pre-initialized MCP clients from container
+   */
+  private initializeSync(container: MCPContainer): void {
+    try {
+      // Get pre-initialized clients from the container
+      const toolManager = container.getToolManager();
+      const serverManager = container.getServerManager();
+
+      // Create a map of clients from the server manager
+      const clients = new Map<string, IMCPClient>();
+      const serverIds = serverManager.getServerIds();
+
+      for (const serverId of serverIds) {
+        const server = serverManager.getServer(serverId);
+        if (server && (server as any).client) {
+          clients.set(serverId, (server as any).client);
+        }
+      }
+
+      // Initialize bridge with existing clients
+      this.bridge = new OllamaBridge(
+        this.model,
+        this.endpoint,
+        clients,
+        toolManager,
       );
-    });
+
+      // Mark as initialized immediately
+      this.bridgeInitialized = true;
+      debug(`OllamaProvider initialized: ${this.model} with ${clients.size} MCP clients`);
+
+    } catch (error) {
+      throw new MCPError(
+        "Failed to initialize OllamaProvider",
+        ErrorType.INITIALIZATION_ERROR,
+        { cause: error instanceof Error ? error : new Error(String(error)) },
+      );
+    }
   }
 
   public getModel(): string {
@@ -81,72 +120,29 @@ export class OllamaProvider implements LLMProvider {
     );
   }
 
-  private async initialize(container: MCPContainer): Promise<void> {
-    if (!container) {
+  /**
+   * Lazy initialization of tools - called when needed
+   */
+  public async ensureToolsLoaded(): Promise<void> {
+    if (!this.bridgeInitialized) {
       throw new MCPError(
-        "Container not initialized",
+        "OllamaProvider not initialized",
         ErrorType.INITIALIZATION_ERROR,
       );
     }
 
     try {
-      // Initialize clients
-      const clients = await this.initializeClients(container);
-      if (clients.size === 0) {
-        throw new MCPError(
-          "No MCP clients could be initialized",
-          ErrorType.INITIALIZATION_ERROR,
-        );
+      // Get tools from tool manager and update bridge
+      const toolManager = this.bridge['toolManager'] as any;
+      if (toolManager) {
+        const tools = await toolManager.getAvailableTools();
+        await this.bridge.updateAvailableTools(tools);
+        debug(`OllamaProvider loaded ${tools.length} tools`);
       }
-
-      // Initialize bridge with the tool manager from container
-      this.bridge = new OllamaBridge(
-        this.model,
-        this.endpoint,
-        clients,
-        container.getToolManager(),
-      );
-
-      // Use tools from the central tool manager
-      const tools = await container.getToolManager().getAvailableTools();
-      await this.bridge.updateAvailableTools(tools);
-
-      this.bridgeInitialized = true;
-      debug("OllamaProvider initialization complete");
     } catch (error) {
-      throw new MCPError(
-        "Failed to initialize OllamaProvider",
-        ErrorType.INITIALIZATION_ERROR,
-        {
-          cause: error instanceof Error ? error : new Error(String(error)),
-        },
-      );
+      debug(`OllamaProvider failed to load tools: ${error instanceof Error ? error.message : String(error)}`);
+      // Non-fatal - can proceed without tools
     }
-  }
-
-  private async initializeClients(
-    container: MCPContainer,
-  ): Promise<Map<string, IMCPClient>> {
-    const clients = new Map<string, IMCPClient>();
-
-    // Get server manager from container
-    const serverManager = container.getServerManager();
-    const serverIds = serverManager.getServerIds();
-
-    for (const serverId of serverIds) {
-      try {
-        const client = container.getMCPClient(serverId);
-        await client.initialize();
-        clients.set(serverId, client);
-      } catch (error) {
-        debug(
-          `Failed to initialize client for server ${serverId}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        // Continue with other clients even if one fails
-      }
-    }
-
-    return clients;
   }
 
   public async cleanup(): Promise<void> {

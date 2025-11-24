@@ -46,6 +46,7 @@ export class ToTPlanner {
     } catch (error) {
       this.logger.error("ToT planning failed, using all tools", {
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         duration: Date.now() - startTime,
       });
       return allTools; // Fallback to all tools
