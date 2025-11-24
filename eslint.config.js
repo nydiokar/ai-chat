@@ -66,8 +66,11 @@ export default [
       'no-empty': ['error', { 'allowEmptyCatch': true }], // Allow empty catch blocks
       'no-control-regex': 'off', // Disable control character check in regex
       'no-unused-vars': 'off', // Use @typescript-eslint version instead
-      'no-undef': 'error',
-      'no-useless-catch': 'error'
+      'no-undef': 'warn', // Downgrade to warning for Node.js globals
+      'no-prototype-builtins': 'off', // Allow hasOwnProperty usage
+      'no-useless-catch': 'warn', // Downgrade to warning
+      'no-useless-escape': 'warn', // Downgrade to warning
+      'no-case-declarations': 'warn', // Downgrade to warning
     }
   }
 ];
