@@ -1,40 +1,40 @@
-import { redactSensitiveInfo } from './security.js';
+import { redactSensitiveInfo } from "./security.js";
 
 export interface LogContext {
-  component: string;    // Service/class name
-  operation: string;    // Method/function name
-  serverId?: string;    // For server operations
-  requestId?: string;   // For request tracing
-  instanceId?: string;  // For multi-instance deployments
-  intervalMs?: number;  // For interval tasks
-  timeoutMs?: number;   // For timeout configurations
-  envPath?: string;     // Path to environment file
+  component: string; // Service/class name
+  operation: string; // Method/function name
+  serverId?: string; // For server operations
+  requestId?: string; // For request tracing
+  instanceId?: string; // For multi-instance deployments
+  intervalMs?: number; // For interval tasks
+  timeoutMs?: number; // For timeout configurations
+  envPath?: string; // Path to environment file
   environment?: string; // Environment (dev/prod)
-  
+
   // OpenAI specific properties
-  model?: string;       // OpenAI model being used
+  model?: string; // OpenAI model being used
   temperature?: number; // Model temperature
   maxRetries?: number; // API retry configuration
   messageLength?: number; // Length of input message
   historyLength?: number; // Length of conversation history
   responseLength?: number; // Length of generated response
-  tokenCount?: number;    // Total tokens used
-  cached?: boolean;      // Whether response was cached
-  tool?: string;         // Tool being executed
-  success?: boolean;     // Tool execution success
+  tokenCount?: number; // Total tokens used
+  cached?: boolean; // Whether response was cached
+  tool?: string; // Tool being executed
+  success?: boolean; // Tool execution success
   successfulTools?: number; // Number of successful tool executions
 
   // Config specific properties
-  provider?: string;     // AI provider name
+  provider?: string; // AI provider name
   defaultProvider?: string; // Default AI provider
-  defaultModel?: string;  // Default model for provider
-  host?: string;         // Host configuration
-  logLevel?: string;     // Logging level
-  missing?: string[];    // Missing configuration items
+  defaultModel?: string; // Default model for provider
+  host?: string; // Host configuration
+  logLevel?: string; // Logging level
+  missing?: string[]; // Missing configuration items
   features?: Record<string, boolean>; // Feature flags
-  inputLength?: number;  // Length of input
-  maxLength?: number;    // Maximum allowed length
-  sanitized?: boolean;   // Whether input was sanitized
+  inputLength?: number; // Length of input
+  maxLength?: number; // Maximum allowed length
+  sanitized?: boolean; // Whether input was sanitized
 
   // MCP-specific properties
   healthCheckInterval?: number;
@@ -51,7 +51,7 @@ export interface LogContext {
   responseTime?: number;
   avgResponseTime?: number;
   successRate?: number;
- 
+
   key?: string;
 
   previousRequests?: number;
@@ -71,9 +71,9 @@ export interface LogContext {
   clearedServers?: boolean;
   healthCheckStopped?: boolean;
   state?: string;
-  error?: Error | unknown;  // Changed to support both string and Error objects
-  currentState?: string;    // Added for state tracking
-  expectedState?: string;   // Added for state validation
+  error?: Error | unknown; // Changed to support both string and Error objects
+  currentState?: string; // Added for state tracking
+  expectedState?: string; // Added for state validation
 
   // Tool Handler specific properties
   maxErrorHistory?: number;
@@ -121,7 +121,7 @@ export interface LogContext {
   clearedClients?: boolean;
 
   // New properties
-  errorCategory?: 'System' | 'MCP';
+  errorCategory?: "System" | "MCP";
   errorType?: string;
   clearedHistory?: boolean;
   name?: string;
@@ -140,13 +140,13 @@ export interface LogContext {
   [key: string]: any;
 }
 
-export interface ErrorLogContext extends Omit<LogContext, 'error'> {
-  errorCategory: 'MCP' | 'System';  // Simplified categories
-  errorType: string;                // Maps to MCPError.type for MCP errors
-  error: Error | unknown;           // The actual error object
+export interface ErrorLogContext extends Omit<LogContext, "error"> {
+  errorCategory: "MCP" | "System"; // Simplified categories
+  errorType: string; // Maps to MCPError.type for MCP errors
+  error: Error | unknown; // The actual error object
 }
 
-export type ErrorSource = 'System' | 'MCP' | 'Tool' | 'API';
+export type ErrorSource = "System" | "MCP" | "Tool" | "API";
 
 /**
  * Creates a standardized context object for logging
@@ -154,11 +154,11 @@ export type ErrorSource = 'System' | 'MCP' | 'Tool' | 'API';
 export const createLogContext = (
   component: string,
   operation: string,
-  extra: Partial<LogContext> = {}
+  extra: Partial<LogContext> = {},
 ): LogContext => ({
   component,
   operation,
-  ...extra
+  ...extra,
 });
 
 /**
@@ -167,30 +167,33 @@ export const createLogContext = (
 export const createErrorContext = (
   component: string,
   operation: string,
-  errorCategory: ErrorLogContext['errorCategory'],
+  errorCategory: ErrorLogContext["errorCategory"],
   errorType: string,
   error: Error | unknown,
-  extra: Partial<Omit<LogContext, 'component' | 'operation'>> = {}
+  extra: Partial<Omit<LogContext, "component" | "operation">> = {},
 ): ErrorLogContext => ({
   component,
   operation,
   errorCategory,
   errorType,
   error,
-  ...extra
+  ...extra,
 });
 
 /**
  * Formats an error for logging, including relevant context
  */
-export const formatError = (error: Error | unknown, context?: Partial<LogContext>) => {
+export const formatError = (
+  error: Error | unknown,
+  context?: Partial<LogContext>,
+) => {
   const errorObj = error instanceof Error ? error : new Error(String(error));
-  
+
   return redactSensitiveInfo({
     message: errorObj.message,
     name: errorObj.name,
-    stack: process.env.NODE_ENV === 'development' ? errorObj.stack : undefined,
-    ...context
+    stack: process.env.NODE_ENV === "development" ? errorObj.stack : undefined,
+    ...context,
   });
 };
 
@@ -201,7 +204,7 @@ export function logTiming(component: string) {
   return function (
     target: any,
     propertyKey: string,
-    descriptor: PropertyDescriptor
+    descriptor: PropertyDescriptor,
   ) {
     const originalMethod = descriptor.value;
 
@@ -210,7 +213,7 @@ export function logTiming(component: string) {
       try {
         const result = await originalMethod.apply(this, args);
         const duration = performance.now() - start;
-        
+
         // We'll integrate this with the logger in the next step
         return result;
       } catch (error) {
@@ -221,4 +224,4 @@ export function logTiming(component: string) {
 
     return descriptor;
   };
-} 
+}

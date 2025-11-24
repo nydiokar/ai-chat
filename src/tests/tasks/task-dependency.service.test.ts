@@ -1,10 +1,10 @@
-import { describe, it, beforeEach, afterEach } from 'mocha';
-import { expect } from 'chai';
-import { PrismaClient } from '@prisma/client';
-import { TaskDependencyService } from '../../features/tasks/task-dependency.service.js';
-import { DependencyType, TaskPriority, TaskStatus } from '../../types/task.js';
+import { describe, it, beforeEach, afterEach } from "mocha";
+import { expect } from "chai";
+import { PrismaClient } from "@prisma/client";
+import { TaskDependencyService } from "../../features/tasks/task-dependency.service.js";
+import { DependencyType, TaskPriority, TaskStatus } from "../../types/task.js";
 
-describe('TaskDependencyService', () => {
+describe("TaskDependencyService", () => {
   let prisma: PrismaClient;
   let taskDependencyService: TaskDependencyService;
   let testTask1: any;
@@ -18,35 +18,35 @@ describe('TaskDependencyService', () => {
     // First create a test user
     testUser = await prisma.user.create({
       data: {
-        id: 'test-user',
-        username: 'Test User',
-        isActive: true
-      }
+        id: "test-user",
+        username: "Test User",
+        isActive: true,
+      },
     });
 
     // Then create test tasks with valid user reference
     testTask1 = await prisma.task.create({
       data: {
-        title: 'Test Task 1',
-        description: 'Test Description 1',
+        title: "Test Task 1",
+        description: "Test Description 1",
         status: TaskStatus.OPEN,
         priority: TaskPriority.MEDIUM,
         creatorId: testUser.id,
         tags: {},
         metadata: {},
-      }
+      },
     });
 
     testTask2 = await prisma.task.create({
       data: {
-        title: 'Test Task 2',
-        description: 'Test Description 2',
+        title: "Test Task 2",
+        description: "Test Description 2",
         status: TaskStatus.OPEN,
         priority: TaskPriority.MEDIUM,
         creatorId: testUser.id,
         tags: {},
         metadata: {},
-      }
+      },
     });
   });
 
@@ -59,13 +59,13 @@ describe('TaskDependencyService', () => {
     await prisma.$disconnect();
   });
 
-  describe('addDependency', () => {
-    it('should successfully create a dependency between tasks', async () => {
+  describe("addDependency", () => {
+    it("should successfully create a dependency between tasks", async () => {
       const dependency = await taskDependencyService.addDependency(
         testTask1.id,
         testTask2.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       expect(dependency).to.exist;
@@ -74,27 +74,27 @@ describe('TaskDependencyService', () => {
       expect(dependency.dependencyType).to.equal(DependencyType.BLOCKS);
     });
 
-    it('should automatically set blocked status on dependent task', async () => {
+    it("should automatically set blocked status on dependent task", async () => {
       await taskDependencyService.addDependency(
         testTask1.id,
         testTask2.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       const updatedTask = await prisma.task.findUnique({
-        where: { id: testTask1.id }
+        where: { id: testTask1.id },
       });
 
       expect(updatedTask?.status).to.equal(TaskStatus.BLOCKED);
     });
 
-    it('should prevent circular dependencies', async () => {
+    it("should prevent circular dependencies", async () => {
       await taskDependencyService.addDependency(
         testTask1.id,
         testTask2.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       try {
@@ -102,68 +102,78 @@ describe('TaskDependencyService', () => {
           testTask2.id,
           testTask1.id,
           testUser.id,
-          DependencyType.BLOCKS
+          DependencyType.BLOCKS,
         );
-        expect.fail('Should have thrown circular dependency error');
+        expect.fail("Should have thrown circular dependency error");
       } catch (error: any) {
-        expect(error.message).to.include('circular dependency');
+        expect(error.message).to.include("circular dependency");
       }
     });
   });
 
-  describe('removeDependency', () => {
-    it('should successfully remove a dependency', async () => {
+  describe("removeDependency", () => {
+    it("should successfully remove a dependency", async () => {
       // First create a dependency
       await taskDependencyService.addDependency(
         testTask1.id,
         testTask2.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       // Then remove it
-      await taskDependencyService.removeDependency(testTask1.id, testTask2.id, testUser.id);
+      await taskDependencyService.removeDependency(
+        testTask1.id,
+        testTask2.id,
+        testUser.id,
+      );
 
       // Verify it's gone
-      const dependencies = await taskDependencyService.getDependencies(testTask1.id);
+      const dependencies = await taskDependencyService.getDependencies(
+        testTask1.id,
+      );
       expect(dependencies.blockedBy).to.have.length(0);
     });
 
-    it('should update task status when last blocker is removed', async () => {
+    it("should update task status when last blocker is removed", async () => {
       // Add dependency
       await taskDependencyService.addDependency(
         testTask1.id,
         testTask2.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       // Remove dependency
-      await taskDependencyService.removeDependency(testTask1.id, testTask2.id, testUser.id);
+      await taskDependencyService.removeDependency(
+        testTask1.id,
+        testTask2.id,
+        testUser.id,
+      );
 
       // Check task status
       const task = await prisma.task.findUnique({
-        where: { id: testTask1.id }
+        where: { id: testTask1.id },
       });
 
       expect(task?.status).to.equal(TaskStatus.OPEN);
     });
   });
 
-  describe('propagateStatusUpdate', () => {
-    it('should unblock dependent tasks when blocker is completed', async () => {
+  describe("propagateStatusUpdate", () => {
+    it("should unblock dependent tasks when blocker is completed", async () => {
       // Create dependency
       await taskDependencyService.addDependency(
         testTask2.id,
         testTask1.id,
         testUser.id,
-        DependencyType.BLOCKS
+        DependencyType.BLOCKS,
       );
 
       // Complete blocker task
       await prisma.task.update({
         where: { id: testTask2.id },
-        data: { status: TaskStatus.COMPLETED }
+        data: { status: TaskStatus.COMPLETED },
       });
 
       // Propagate the status update
@@ -171,23 +181,23 @@ describe('TaskDependencyService', () => {
 
       // Check blocked task status
       const task = await prisma.task.findUnique({
-        where: { id: testTask1.id }
+        where: { id: testTask1.id },
       });
 
       expect(task?.status).to.equal(TaskStatus.OPEN);
     });
 
-    it('should handle sequential task dependencies correctly', async () => {
+    it("should handle sequential task dependencies correctly", async () => {
       const task3 = await prisma.task.create({
         data: {
-          title: 'Test Task 3',
-          description: 'Test Description 3',
+          title: "Test Task 3",
+          description: "Test Description 3",
           status: TaskStatus.OPEN,
           priority: TaskPriority.MEDIUM,
           creatorId: testUser.id,
           tags: {},
           metadata: {},
-        }
+        },
       });
 
       // Create sequential dependencies: task1 -> task2 -> task3
@@ -195,23 +205,25 @@ describe('TaskDependencyService', () => {
         testTask2.id,
         testTask1.id,
         testUser.id,
-        DependencyType.SEQUENTIAL
+        DependencyType.SEQUENTIAL,
       );
       await taskDependencyService.addDependency(
         task3.id,
         testTask2.id,
         testUser.id,
-        DependencyType.SEQUENTIAL
+        DependencyType.SEQUENTIAL,
       );
 
       // Validate sequential order
-      let canStart = await taskDependencyService.validateSequentialOrder(task3.id);
+      let canStart = await taskDependencyService.validateSequentialOrder(
+        task3.id,
+      );
       expect(canStart).to.be.false;
 
       // Complete first task
       await prisma.task.update({
         where: { id: testTask1.id },
-        data: { status: TaskStatus.COMPLETED }
+        data: { status: TaskStatus.COMPLETED },
       });
       await taskDependencyService.propagateStatusUpdate(testTask1.id);
 
@@ -223,7 +235,7 @@ describe('TaskDependencyService', () => {
       // Complete second task
       await prisma.task.update({
         where: { id: testTask2.id },
-        data: { status: TaskStatus.COMPLETED }
+        data: { status: TaskStatus.COMPLETED },
       });
       await taskDependencyService.propagateStatusUpdate(testTask2.id);
 
@@ -232,17 +244,17 @@ describe('TaskDependencyService', () => {
       expect(canStart).to.be.true;
     });
 
-    it('should handle parallel task dependencies correctly', async () => {
+    it("should handle parallel task dependencies correctly", async () => {
       const task3 = await prisma.task.create({
         data: {
-          title: 'Test Task 3',
-          description: 'Test Description 3',
+          title: "Test Task 3",
+          description: "Test Description 3",
           status: TaskStatus.OPEN,
           priority: TaskPriority.MEDIUM,
           creatorId: testUser.id,
           tags: {},
           metadata: {},
-        }
+        },
       });
 
       // Create parallel dependencies: task3 depends on task1 and task2 in parallel
@@ -250,13 +262,13 @@ describe('TaskDependencyService', () => {
         task3.id,
         testTask1.id,
         testUser.id,
-        DependencyType.PARALLEL
+        DependencyType.PARALLEL,
       );
       await taskDependencyService.addDependency(
         task3.id,
         testTask2.id,
         testUser.id,
-        DependencyType.PARALLEL
+        DependencyType.PARALLEL,
       );
 
       // Initially task3 should be blocked but can be worked on in parallel with others
@@ -266,7 +278,7 @@ describe('TaskDependencyService', () => {
       // Complete first dependency
       await prisma.task.update({
         where: { id: testTask1.id },
-        data: { status: TaskStatus.COMPLETED }
+        data: { status: TaskStatus.COMPLETED },
       });
       await taskDependencyService.propagateStatusUpdate(testTask1.id);
 
@@ -277,31 +289,31 @@ describe('TaskDependencyService', () => {
     });
   });
 
-  describe('canStartTask', () => {
-    it('should correctly identify when a task can start based on dependency type', async () => {
+  describe("canStartTask", () => {
+    it("should correctly identify when a task can start based on dependency type", async () => {
       // Create tasks with different dependency types
       const sequential = await prisma.task.create({
         data: {
-          title: 'Sequential Task',
-          description: 'Must be done in sequence',
+          title: "Sequential Task",
+          description: "Must be done in sequence",
           status: TaskStatus.OPEN,
           priority: TaskPriority.MEDIUM,
           creatorId: testUser.id,
           tags: {},
           metadata: {},
-        }
+        },
       });
 
       const parallel = await prisma.task.create({
         data: {
-          title: 'Parallel Task',
-          description: 'Can be done in parallel',
+          title: "Parallel Task",
+          description: "Can be done in parallel",
           status: TaskStatus.OPEN,
           priority: TaskPriority.MEDIUM,
           creatorId: testUser.id,
           tags: {},
           metadata: {},
-        }
+        },
       });
 
       // Add dependencies
@@ -309,23 +321,27 @@ describe('TaskDependencyService', () => {
         sequential.id,
         testTask1.id,
         testUser.id,
-        DependencyType.SEQUENTIAL
+        DependencyType.SEQUENTIAL,
       );
 
       await taskDependencyService.addDependency(
         parallel.id,
         testTask2.id,
         testUser.id,
-        DependencyType.PARALLEL
+        DependencyType.PARALLEL,
       );
 
       // Check sequential task
-      let sequentialStatus = await taskDependencyService.canStartTask(sequential.id);
+      let sequentialStatus = await taskDependencyService.canStartTask(
+        sequential.id,
+      );
       expect(sequentialStatus.canStart).to.be.false;
       expect(sequentialStatus.blockedBy).to.have.lengthOf(1);
 
       // Check parallel task
-      let parallelStatus = await taskDependencyService.canStartTask(parallel.id);
+      let parallelStatus = await taskDependencyService.canStartTask(
+        parallel.id,
+      );
       expect(parallelStatus.canStart).to.be.true;
       expect(parallelStatus.blockedBy).to.have.lengthOf(0);
     });

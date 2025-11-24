@@ -1,5 +1,5 @@
-import type { Message } from '@prisma/client';
-import { Model, Role } from './index.js';
+import type { Message } from "@prisma/client";
+import { Model, Role } from "./index.js";
 
 export interface UserPreferences {
   id: string;
@@ -55,7 +55,7 @@ export interface ScoredMemory {
   id: string;
   score: number;
   data: ConversationContext | EntityRelationship | CommandUsagePattern;
-  type: 'context' | 'relationship' | 'command';
+  type: "context" | "relationship" | "command";
   metadata?: {
     messageCount?: number;
     lastMessageTimestamp?: Date;
@@ -86,9 +86,9 @@ export interface ContextScore {
 }
 
 export interface ContextDecayParams {
-  baseHalfLife: number;  // Base time in ms for score to decay by 50%
-  topicMultiplier: number;  // Multiplier based on topic relevance
-  interactionBoost: number;  // Boost factor for recent interactions
+  baseHalfLife: number; // Base time in ms for score to decay by 50%
+  topicMultiplier: number; // Multiplier based on topic relevance
+  interactionBoost: number; // Boost factor for recent interactions
 }
 
 export interface ConversationMetadata {
@@ -99,33 +99,33 @@ export interface ConversationMetadata {
 }
 
 export interface EntityReference {
-  type: 'pronoun' | 'implicit' | 'explicit';
-  sourceId: string;  // ID of the referencing message/context
-  targetId: string;  // ID of the referenced entity/message
+  type: "pronoun" | "implicit" | "explicit";
+  sourceId: string; // ID of the referencing message/context
+  targetId: string; // ID of the referenced entity/message
   confidence: number;
-  context?: string;  // Surrounding context that helps understand the reference
-  resolvedValue?: string;  // The actual entity being referenced
+  context?: string; // Surrounding context that helps understand the reference
+  resolvedValue?: string; // The actual entity being referenced
 }
 
 export interface ReferenceChain {
   id: string;
   references: EntityReference[];
-  rootEntityId: string;  // The original entity being referenced
+  rootEntityId: string; // The original entity being referenced
   lastUpdated: Date;
-  conversationIds: number[];  // Conversations where this reference chain appears
+  conversationIds: number[]; // Conversations where this reference chain appears
 }
 
 export interface ReferenceVisualization {
   nodes: Array<{
     id: string;
-    type: 'entity' | 'message' | 'context';
+    type: "entity" | "message" | "context";
     label: string;
     data?: any;
   }>;
   edges: Array<{
     source: string;
     target: string;
-    type: EntityReference['type'];
+    type: EntityReference["type"];
     confidence: number;
   }>;
 }
@@ -135,7 +135,7 @@ export interface ConversationMessage {
   role: keyof typeof Role;
   tokenCount?: number;
   metadata?: {
-      discordUserId?: string;
-      discordUsername?: string;
+    discordUserId?: string;
+    discordUsername?: string;
   };
 }

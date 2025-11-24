@@ -1,6 +1,6 @@
-import { ToolDefinition } from '../tools/mcp/types/tools.js';
-import { Input } from '../types/common.js';
-import { ReasoningStep } from './react-types.js';
+import { ToolDefinition } from "../tools/mcp/types/tools.js";
+import { Input } from "../types/common.js";
+import { ReasoningStep } from "./react-types.js";
 
 /**
  * Interface for prompt generators that create formatted prompts for LLMs
@@ -14,17 +14,17 @@ export interface PromptGenerator {
    * @returns Promise resolving to the formatted prompt string
    */
   generatePrompt(
-    input: string, 
+    input: string,
     tools: ToolDefinition[],
-    history?: Input[]
+    history?: Input[],
   ): Promise<string>;
-  
+
   /**
    * Generate a simple prompt for direct interactions without reasoning
    * @returns Promise resolving to a simple prompt string
    */
   generateSimplePrompt?(): Promise<string>;
-  
+
   /**
    * Generate a ReAct-specific prompt that encourages reasoning
    * @param input User input to reason about
@@ -37,9 +37,9 @@ export interface PromptGenerator {
     input: string,
     steps?: ReasoningStep[],
     tools?: ToolDefinition[],
-    currentStep?: number
+    currentStep?: number,
   ): Promise<string>;
-  
+
   /**
    * Generate a follow-up prompt after tool execution
    * @param originalMessage Original user query
@@ -50,9 +50,9 @@ export interface PromptGenerator {
   generateFollowUpPrompt?(
     originalMessage: string,
     steps: ReasoningStep[],
-    toolResult: any
+    toolResult: any,
   ): Promise<string>;
-  
+
   /**
    * Estimates token count for a reasoning step
    * Useful for context management and preventing token limit issues
@@ -60,7 +60,7 @@ export interface PromptGenerator {
    * @returns Approximate token count for the step
    */
   estimateStepTokens?(step: ReasoningStep): number;
-  
+
   /**
    * Estimates the total token count for a prompt with reasoning steps
    * @param input The user input
@@ -68,8 +68,12 @@ export interface PromptGenerator {
    * @param tools The available tools
    * @returns Approximate token count for the full prompt
    */
-  estimatePromptTokens?(input: string, steps: ReasoningStep[], tools: ToolDefinition[]): number;
-  
+  estimatePromptTokens?(
+    input: string,
+    steps: ReasoningStep[],
+    tools: ToolDefinition[],
+  ): number;
+
   /**
    * Optimizes a list of reasoning steps to fit within a token limit
    * @param steps The full list of reasoning steps
@@ -77,4 +81,4 @@ export interface PromptGenerator {
    * @returns A reduced list of steps that fits within the token limit
    */
   optimizeSteps?(steps: ReasoningStep[], maxTokens?: number): ReasoningStep[];
-} 
+}

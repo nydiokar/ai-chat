@@ -1,7 +1,7 @@
 import { ReasoningStep } from "../interfaces/react-types.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
-import yaml from 'js-yaml';
+import yaml from "js-yaml";
 
 /**
  * Handles parsing LLM outputs into structured reasoning steps
@@ -9,11 +9,11 @@ import yaml from 'js-yaml';
  */
 export class ReActStepParser {
   private readonly logger: Logger;
-  
+
   constructor() {
-    this.logger = getLogger('ReActStepParser');
+    this.logger = getLogger("ReActStepParser");
   }
-  
+
   /**
    * Parse LLM response into a reasoning step
    * @param llmResponse The raw response from the LLM
@@ -28,55 +28,58 @@ export class ReActStepParser {
           const yamlContent = yamlMatch[1];
           // Parse YAML content
           const parsed = yaml.load(yamlContent) as Record<string, any>;
-          
+
           // Create step ID based on the type of step
-          let stepType = 'unknown';
-          if (parsed.thought) stepType = 'thought';
-          if (parsed.action) stepType = 'action';
-          if (parsed.conclusion) stepType = 'conclusion';
-          
+          let stepType = "unknown";
+          if (parsed.thought) stepType = "thought";
+          if (parsed.action) stepType = "action";
+          if (parsed.conclusion) stepType = "conclusion";
+
           const stepId = `${stepType}_${Date.now()}`;
-          
+
           // Convert to ReasoningStep format
           const step: ReasoningStep = {
             stepId,
             timestamp: new Date().toISOString(),
-            isComplete: false
+            isComplete: false,
           };
-          
+
           if (parsed.thought) {
             step.thought = parsed.thought;
           }
-          
+
           if (parsed.action) {
             step.action = parsed.action;
           }
-          
+
           if (parsed.conclusion) {
             step.conclusion = parsed.conclusion;
             step.isComplete = true;
           }
-          
+
           // Log successful YAML parsing
-          this.logger.debug('Successfully parsed YAML response', {
+          this.logger.debug("Successfully parsed YAML response", {
             stepType,
-            parsedLength: JSON.stringify(parsed).length
+            parsedLength: JSON.stringify(parsed).length,
           });
-          
+
           return step;
         } catch (yamlError) {
-          this.logger.error('Failed to parse YAML content', {
-            error: yamlError instanceof Error ? yamlError.message : String(yamlError),
-            content: yamlMatch[1].substring(0, 100) + '...'
+          this.logger.error("Failed to parse YAML content", {
+            error:
+              yamlError instanceof Error
+                ? yamlError.message
+                : String(yamlError),
+            content: yamlMatch[1].substring(0, 100) + "...",
           });
           // Continue to other parsing methods
         }
       }
-      
+
       // Then try to parse as JSON
       try {
         const parsed = JSON.parse(llmResponse);
-        
+
         // Validate required fields
         if (parsed.stepId) {
           // Add timestamp if missing
@@ -92,29 +95,29 @@ export class ReActStepParser {
       } catch (e) {
         // Not valid JSON, continue to text parsing
       }
-      
+
       // Fall back to basic text parsing
       const typeMatch = llmResponse.match(/^(THOUGHT|ACTION|FINAL_ANSWER):/i);
-      
+
       if (typeMatch) {
         const type = typeMatch[1].toLowerCase();
         const stepId = `${type}_${Date.now()}`;
-        
-        if (type === 'thought') {
+
+        if (type === "thought") {
           return {
             stepId,
             thought: {
-              reasoning: llmResponse.replace(/^THOUGHT:/i, '').trim(),
-              plan: ''
+              reasoning: llmResponse.replace(/^THOUGHT:/i, "").trim(),
+              plan: "",
             },
             isComplete: false,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           };
-        } else if (type === 'action') {
+        } else if (type === "action") {
           // Try to extract tool and params
           const toolMatch = llmResponse.match(/ACTION:\s*([a-zA-Z0-9_]+)/i);
           if (!toolMatch) return null;
-          
+
           // Extract parameters
           const paramsMatch = llmResponse.match(/\{[\s\S]*\}/);
           let params: Record<string, unknown> = {};
@@ -132,36 +135,36 @@ export class ReActStepParser {
               }
             }
           }
-          
+
           return {
             stepId,
             action: {
               tool: toolMatch[1].trim(),
-              params
+              params,
             },
             isComplete: false,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           };
-        } else if (type === 'final_answer') {
+        } else if (type === "final_answer") {
           return {
             stepId,
             conclusion: {
-              final_answer: llmResponse.replace(/^FINAL_ANSWER:/i, '').trim()
+              final_answer: llmResponse.replace(/^FINAL_ANSWER:/i, "").trim(),
             },
             isComplete: true,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           };
         }
       }
-      
+
       // Could not parse, return null
       return null;
     } catch (error) {
-      this.logger.error('Error parsing reasoning step', { 
+      this.logger.error("Error parsing reasoning step", {
         error: error instanceof Error ? error.message : String(error),
-        response: llmResponse
+        response: llmResponse,
       });
       return null;
     }
   }
-} 
+}

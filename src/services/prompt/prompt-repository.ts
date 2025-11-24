@@ -1,10 +1,10 @@
-import { 
-  BasePrompt, 
-  BehavioralPrompt, 
-  ToolUsagePrompt, 
+import {
+  BasePrompt,
+  BehavioralPrompt,
+  ToolUsagePrompt,
   ReasoningPrompt,
   PromptType,
-  PromptContext
+  PromptContext,
 } from "../../types/prompts.js";
 
 // Default fallback prompts for each category
@@ -17,12 +17,12 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
 - Stay focused on the task
 - Be direct but courteous`,
     priority: 1,
-    tone: 'professional',
+    tone: "professional",
     style: {
-      formatting: 'concise',
-      language: 'formal'
+      formatting: "concise",
+      language: "formal",
     },
-    shouldApply: () => true // Behavioral prompt always applies as a base
+    shouldApply: () => true, // Behavioral prompt always applies as a base
   } as BehavioralPrompt,
 
   [PromptType.TOOL_USAGE]: {
@@ -34,21 +34,21 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
 4. Handle errors gracefully
 5. Report results clearly`,
     priority: 2,
-    tools: ['*'], // Applies to all tools
+    tools: ["*"], // Applies to all tools
     usagePatterns: {
       bestPractices: [
-        'Verify tool availability before use',
-        'Use specific tools over general ones',
-        'Include error handling in your approach'
+        "Verify tool availability before use",
+        "Use specific tools over general ones",
+        "Include error handling in your approach",
       ],
       commonErrors: [
-        'Using incorrect parameter formats',
-        'Missing required parameters',
-        'Not handling errors'
-      ]
+        "Using incorrect parameter formats",
+        "Missing required parameters",
+        "Not handling errors",
+      ],
     },
-    shouldApply: (context: PromptContext) => 
-      context.requestType === 'tool_usage' || (context.tools?.length ?? 0) > 0
+    shouldApply: (context: PromptContext) =>
+      context.requestType === "tool_usage" || (context.tools?.length ?? 0) > 0,
   } as ToolUsagePrompt,
 
   [PromptType.REASONING]: {
@@ -60,16 +60,16 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
 4. Validate assumptions
 5. Explain your reasoning process`,
     priority: 3,
-    complexity: 'basic',
+    complexity: "basic",
     approaches: [
-      'Step-by-step analysis',
-      'Problem decomposition',
-      'Solution validation'
+      "Step-by-step analysis",
+      "Problem decomposition",
+      "Solution validation",
     ],
     shouldApply: (context: PromptContext) =>
-      context.requestType === 'reasoning' || 
-      (context.complexity && ['medium', 'high'].includes(context.complexity))
-  } as ReasoningPrompt
+      context.requestType === "reasoning" ||
+      (context.complexity && ["medium", "high"].includes(context.complexity)),
+  } as ReasoningPrompt,
 };
 
 export class PromptRepository {
@@ -77,7 +77,7 @@ export class PromptRepository {
 
   constructor() {
     // Initialize with default prompts
-    Object.values(PromptType).forEach(type => {
+    Object.values(PromptType).forEach((type) => {
       this.customPrompts.set(type, [defaultPrompts[type]]);
     });
   }
@@ -90,13 +90,13 @@ export class PromptRepository {
       throw new Error(`Invalid prompt type: ${prompt.type}`);
     }
     if (!prompt.content?.trim()) {
-      throw new Error('Prompt content must be a non-empty string');
+      throw new Error("Prompt content must be a non-empty string");
     }
-    if (typeof prompt.priority !== 'number' || prompt.priority < 0) {
-      throw new Error('Prompt priority must be a positive number');
+    if (typeof prompt.priority !== "number" || prompt.priority < 0) {
+      throw new Error("Prompt priority must be a positive number");
     }
-    if (typeof prompt.shouldApply !== 'function') {
-      throw new Error('Prompt must have a shouldApply function');
+    if (typeof prompt.shouldApply !== "function") {
+      throw new Error("Prompt must have a shouldApply function");
     }
   }
 
@@ -110,7 +110,7 @@ export class PromptRepository {
       const existing = this.customPrompts.get(prompt.type) ?? [];
       this.customPrompts.set(prompt.type, [...existing, prompt]);
     } catch (error) {
-      console.error('[PromptRepository] Failed to add prompt:', error);
+      console.error("[PromptRepository] Failed to add prompt:", error);
       throw error;
     }
   }
@@ -124,14 +124,17 @@ export class PromptRepository {
     try {
       const allPrompts: BasePrompt[] = [];
 
-      this.customPrompts.forEach(prompts => {
-        prompts.forEach(prompt => {
+      this.customPrompts.forEach((prompts) => {
+        prompts.forEach((prompt) => {
           try {
             if (prompt.shouldApply(context)) {
               allPrompts.push(prompt);
             }
           } catch (error) {
-            console.warn(`[PromptRepository] Error applying prompt filter:`, error);
+            console.warn(
+              `[PromptRepository] Error applying prompt filter:`,
+              error,
+            );
           }
         });
       });
@@ -139,7 +142,10 @@ export class PromptRepository {
       // Sort by priority (higher numbers first)
       return allPrompts.sort((a, b) => b.priority - a.priority);
     } catch (error) {
-      console.error('[PromptRepository] Error getting applicable prompts:', error);
+      console.error(
+        "[PromptRepository] Error getting applicable prompts:",
+        error,
+      );
       // Return default behavioral prompt as fallback
       return [defaultPrompts[PromptType.BEHAVIORAL]];
     }
@@ -157,7 +163,7 @@ export class PromptRepository {
       }
       return defaultPrompts[type];
     } catch (error) {
-      console.error('[PromptRepository] Error getting fallback prompt:', error);
+      console.error("[PromptRepository] Error getting fallback prompt:", error);
       // Always have a safe fallback
       return defaultPrompts[PromptType.BEHAVIORAL];
     }

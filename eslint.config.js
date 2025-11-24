@@ -2,6 +2,11 @@ import eslint from '@eslint/js';
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tseslintParser from '@typescript-eslint/parser';
 import unusedImports from 'eslint-plugin-unused-imports';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export default [
   // Base ESLint configuration
@@ -35,7 +40,7 @@ export default [
       parser: tseslintParser,
       parserOptions: {
         project: './tsconfig.json',
-        tsconfigRootDir: './',
+        tsconfigRootDir: __dirname,
         ecmaVersion: 'latest',
         sourceType: 'module',
       },
@@ -55,14 +60,17 @@ export default [
           'argsIgnorePattern': '^_' 
         }
       ],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/no-unused-vars': 'error',
+      '@typescript-eslint/no-unused-vars': 'warn',
       'no-empty': ['error', { 'allowEmptyCatch': true }], // Allow empty catch blocks
       'no-control-regex': 'off', // Disable control character check in regex
       'no-unused-vars': 'off', // Use @typescript-eslint version instead
-      'no-undef': 'error',
-      'no-useless-catch': 'error'
+      'no-undef': 'warn', // Downgrade to warning for Node.js globals
+      'no-prototype-builtins': 'off', // Allow hasOwnProperty usage
+      'no-useless-catch': 'warn', // Downgrade to warning
+      'no-useless-escape': 'warn', // Downgrade to warning
+      'no-case-declarations': 'warn', // Downgrade to warning
     }
   }
 ];

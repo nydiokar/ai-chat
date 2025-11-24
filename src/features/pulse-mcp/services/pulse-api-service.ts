@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from "axios";
 
 export interface PulseMCPServer {
   name: string;
@@ -17,8 +17,8 @@ export interface SearchResult {
 }
 
 export class PulseAPIService {
-  private baseUrl = 'https://api.pulsemcp.com/v0beta';
-  private userAgent = 'Them/0.5';
+  private baseUrl = "https://api.pulsemcp.com/v0beta";
+  private userAgent = "Them/0.5";
 
   /**
    * Search for MCP servers using the Pulse API
@@ -30,12 +30,12 @@ export class PulseAPIService {
   async searchServers(
     query?: string,
     countPerPage: number = 20,
-    offset: number = 0
+    offset: number = 0,
   ): Promise<SearchResult> {
     try {
       const params: Record<string, string | number> = {
         count_per_page: countPerPage,
-        offset
+        offset,
       };
 
       if (query) {
@@ -45,24 +45,32 @@ export class PulseAPIService {
       const response = await axios.get(`${this.baseUrl}/servers`, {
         params,
         headers: {
-          'User-Agent': this.userAgent
-        }
+          "User-Agent": this.userAgent,
+        },
       });
 
       // Filter out servers without a source_code_url
       const filteredData = {
         ...response.data,
-        servers: response.data.servers.filter((server: PulseMCPServer) => !!server.source_code_url)
+        servers: response.data.servers.filter(
+          (server: PulseMCPServer) => !!server.source_code_url,
+        ),
       };
 
       return filteredData;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        console.error(`[PulseAPIService] API error: ${error.response?.data?.error?.message || error.message}`);
-        throw new Error(`Failed to search MCP servers: ${error.response?.data?.error?.message || error.message}`);
+        console.error(
+          `[PulseAPIService] API error: ${error.response?.data?.error?.message || error.message}`,
+        );
+        throw new Error(
+          `Failed to search MCP servers: ${error.response?.data?.error?.message || error.message}`,
+        );
       }
       console.error(`[PulseAPIService] Unexpected error: ${error}`);
-      throw new Error('Failed to search MCP servers due to an unexpected error');
+      throw new Error(
+        "Failed to search MCP servers due to an unexpected error",
+      );
     }
   }
 
@@ -87,4 +95,4 @@ export class PulseAPIService {
 
     return allServers;
   }
-} 
+}

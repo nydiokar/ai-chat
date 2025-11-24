@@ -1,32 +1,37 @@
-import { TaskManager } from './task-manager.js';
-import { TaskFilters, TaskStatus, TaskPriority, TaskListResult } from '../../types/task.js';
-import { debug } from '../../utils/logger.js';
+import { TaskManager } from "./task-manager.js";
+import {
+  TaskFilters,
+  TaskStatus,
+  TaskPriority,
+  TaskListResult,
+} from "../../types/task.js";
+import { debug } from "../../utils/logger.js";
 
 export class TaskQueryService {
   private static instance: TaskQueryService;
   private readonly taskManager: TaskManager;
-  
+
   // Common keywords and their mappings
   private readonly statusKeywords = new Map<string, TaskStatus>([
-    ['open', TaskStatus.OPEN],
-    ['active', TaskStatus.IN_PROGRESS],
-    ['in progress', TaskStatus.IN_PROGRESS],
-    ['done', TaskStatus.COMPLETED],
-    ['completed', TaskStatus.COMPLETED],
-    ['finished', TaskStatus.COMPLETED],
-    ['cancelled', TaskStatus.CANCELLED],
-    ['canceled', TaskStatus.CANCELLED],
-    ['blocked', TaskStatus.BLOCKED],
-    ['stuck', TaskStatus.BLOCKED]
+    ["open", TaskStatus.OPEN],
+    ["active", TaskStatus.IN_PROGRESS],
+    ["in progress", TaskStatus.IN_PROGRESS],
+    ["done", TaskStatus.COMPLETED],
+    ["completed", TaskStatus.COMPLETED],
+    ["finished", TaskStatus.COMPLETED],
+    ["cancelled", TaskStatus.CANCELLED],
+    ["canceled", TaskStatus.CANCELLED],
+    ["blocked", TaskStatus.BLOCKED],
+    ["stuck", TaskStatus.BLOCKED],
   ]);
 
   private readonly priorityKeywords = new Map<string, TaskPriority>([
-    ['low', TaskPriority.LOW],
-    ['medium', TaskPriority.MEDIUM],
-    ['normal', TaskPriority.MEDIUM],
-    ['high', TaskPriority.HIGH],
-    ['urgent', TaskPriority.URGENT],
-    ['critical', TaskPriority.URGENT]
+    ["low", TaskPriority.LOW],
+    ["medium", TaskPriority.MEDIUM],
+    ["normal", TaskPriority.MEDIUM],
+    ["high", TaskPriority.HIGH],
+    ["urgent", TaskPriority.URGENT],
+    ["critical", TaskPriority.URGENT],
   ]);
 
   private constructor() {
@@ -51,10 +56,13 @@ export class TaskQueryService {
     const lowercaseQuery = query.toLowerCase();
 
     // User context parsing
-    if (lowercaseQuery.includes('my tasks') || lowercaseQuery.includes('assigned to me')) {
+    if (
+      lowercaseQuery.includes("my tasks") ||
+      lowercaseQuery.includes("assigned to me")
+    ) {
       filters.assigneeId = userId;
     }
-    if (lowercaseQuery.includes('created by me')) {
+    if (lowercaseQuery.includes("created by me")) {
       filters.creatorId = userId;
     }
 
@@ -67,13 +75,13 @@ export class TaskQueryService {
     }
 
     // Priority parsing
-    if (lowercaseQuery.includes('urgent')) {
+    if (lowercaseQuery.includes("urgent")) {
       filters.priority = TaskPriority.URGENT;
-    } else if (lowercaseQuery.includes('high priority')) {
+    } else if (lowercaseQuery.includes("high priority")) {
       filters.priority = TaskPriority.HIGH;
-    } else if (lowercaseQuery.includes('medium priority')) {
+    } else if (lowercaseQuery.includes("medium priority")) {
       filters.priority = TaskPriority.MEDIUM;
-    } else if (lowercaseQuery.includes('low priority')) {
+    } else if (lowercaseQuery.includes("low priority")) {
       filters.priority = TaskPriority.LOW;
     }
 
@@ -88,7 +96,7 @@ export class TaskQueryService {
     // Add pagination parsing
     const limitMatch = lowercaseQuery.match(/limit (\d+)/i);
     if (limitMatch && limitMatch[1]) {
-        filters.limit = parseInt(limitMatch[1], 10);
+      filters.limit = parseInt(limitMatch[1], 10);
     }
 
     debug(`Parsed query "${query}" to filters: ${JSON.stringify(filters)}`);
@@ -107,7 +115,9 @@ export class TaskQueryService {
       const filters = await this.parseQuery(query, userId);
       return await this.taskManager.listTasks(filters);
     } catch (error) {
-      throw new Error(`Failed to process task query: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to process task query: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }
 
@@ -117,15 +127,15 @@ export class TaskQueryService {
    */
   getExampleQueries(): string[] {
     return [
-      'Show my tasks',
-      'Find all high priority tasks',
-      'Show tasks assigned to me',
-      'List open tasks',
-      'Show completed tasks',
-      'Find urgent tasks',
-      'Show tasks created by me',
-      'List blocked tasks',
-      'Show in progress tasks limit 5'
+      "Show my tasks",
+      "Find all high priority tasks",
+      "Show tasks assigned to me",
+      "List open tasks",
+      "Show completed tasks",
+      "Find urgent tasks",
+      "Show tasks created by me",
+      "List blocked tasks",
+      "Show in progress tasks limit 5",
     ];
   }
 }

@@ -1,4 +1,4 @@
-import { TaskWithRelations, DependencyType } from '../../types/task.js';
+import { TaskWithRelations, DependencyType } from "../../types/task.js";
 
 export interface Node {
   id: number;
@@ -37,7 +37,7 @@ export class TaskVisualizationService {
         id: task.id,
         label: task.title,
         status: task.status,
-        priority: task.priority
+        priority: task.priority,
       });
 
       // Only process blocking relationships to avoid duplicates
@@ -47,7 +47,7 @@ export class TaskVisualizationService {
           edges.push({
             from: task.id,
             to: dep.blockedTaskId,
-            type: dep.dependencyType as DependencyType
+            type: dep.dependencyType as DependencyType,
           });
         }
       }
@@ -63,20 +63,20 @@ export class TaskVisualizationService {
    * Generate a Mermaid diagram representation of the dependency graph
    */
   generateMermaidDiagram(tasks: TaskWithRelations[]): string {
-    const lines: string[] = ['graph TD;'];
+    const lines: string[] = ["graph TD;"];
     const processedEdges = new Set<string>();
 
     // Helper to generate node style based on task status
     const getNodeStyle = (task: TaskWithRelations): string => {
       switch (task.status) {
-        case 'COMPLETED':
-          return ':::completed';
-        case 'BLOCKED':
-          return ':::blocked';
-        case 'IN_PROGRESS':
-          return ':::inProgress';
+        case "COMPLETED":
+          return ":::completed";
+        case "BLOCKED":
+          return ":::blocked";
+        case "IN_PROGRESS":
+          return ":::inProgress";
         default:
-          return '';
+          return "";
       }
     };
 
@@ -84,94 +84,100 @@ export class TaskVisualizationService {
     const getEdgeStyle = (depType: DependencyType): string => {
       switch (depType) {
         case DependencyType.BLOCKS:
-          return ' ==> ';
+          return " ==> ";
         case DependencyType.SEQUENTIAL:
-          return ' --> ';
+          return " --> ";
         case DependencyType.PARALLEL:
-          return ' -.-> ';
+          return " -.-> ";
         case DependencyType.REQUIRED:
-          return ' === ';
+          return " === ";
         default:
-          return ' --- ';
+          return " --- ";
       }
     };
 
     // Add class definitions
-    lines.push('classDef completed fill:#90EE90;');
-    lines.push('classDef blocked fill:#FFB6C1;');
-    lines.push('classDef inProgress fill:#87CEEB;');
-    
+    lines.push("classDef completed fill:#90EE90;");
+    lines.push("classDef blocked fill:#FFB6C1;");
+    lines.push("classDef inProgress fill:#87CEEB;");
+
     // Process each task
-    tasks.forEach(task => {
+    tasks.forEach((task) => {
       // Add node with status styling
       lines.push(`${task.id}["${task.title}"]${getNodeStyle(task)}`);
 
       // Process dependencies
       if (task.blocking) {
-        task.blocking.forEach(dep => {
+        task.blocking.forEach((dep) => {
           const edgeKey = `${task.id}-${dep.blockedTaskId}`;
           if (!processedEdges.has(edgeKey)) {
             processedEdges.add(edgeKey);
-            lines.push(`${task.id}${getEdgeStyle(dep.dependencyType as DependencyType)}${dep.blockedTaskId}`);
+            lines.push(
+              `${task.id}${getEdgeStyle(dep.dependencyType as DependencyType)}${dep.blockedTaskId}`,
+            );
           }
         });
       }
     });
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
    * Generate a DOT graph representation for use with GraphViz
    */
   generateDotGraph(tasks: TaskWithRelations[]): string {
-    const lines = ['digraph TaskDependencies {'];
-    lines.push('  rankdir=TB;');
-    lines.push('  node [shape=box, style=rounded];');
-    
+    const lines = ["digraph TaskDependencies {"];
+    lines.push("  rankdir=TB;");
+    lines.push("  node [shape=box, style=rounded];");
+
     // Add nodes
-    tasks.forEach(task => {
-      let color = 'white';
+    tasks.forEach((task) => {
+      let color = "white";
       switch (task.status) {
-        case 'COMPLETED':
-          color = 'lightgreen';
+        case "COMPLETED":
+          color = "lightgreen";
           break;
-        case 'BLOCKED':
-          color = 'lightpink';
+        case "BLOCKED":
+          color = "lightpink";
           break;
-        case 'IN_PROGRESS':
-          color = 'lightskyblue';
+        case "IN_PROGRESS":
+          color = "lightskyblue";
           break;
       }
-      
-      lines.push(`  task${task.id} [label="${task.title}\\n[${task.status}]", fillcolor="${color}", style="filled,rounded"];`);
+
+      lines.push(
+        `  task${task.id} [label="${task.title}\\n[${task.status}]", fillcolor="${color}", style="filled,rounded"];`,
+      );
     });
 
     // Add edges with different styles for different dependency types
-    tasks.forEach(task => {
+    tasks.forEach((task) => {
       if (task.blocking) {
-        task.blocking.forEach(dep => {
-          let edgeStyle = '';
+        task.blocking.forEach((dep) => {
+          let edgeStyle = "";
           switch (dep.dependencyType as DependencyType) {
             case DependencyType.BLOCKS:
-              edgeStyle = '[style=bold]';
+              edgeStyle = "[style=bold]";
               break;
             case DependencyType.SEQUENTIAL:
-              edgeStyle = '[style=solid]';
+              edgeStyle = "[style=solid]";
               break;
             case DependencyType.PARALLEL:
-              edgeStyle = '[style=dashed]';
+              edgeStyle = "[style=dashed]";
               break;
             case DependencyType.REQUIRED:
-              edgeStyle = '[style=dotted]';
+              edgeStyle = "[style=dotted]";
               break;
           }
-          lines.push(`  task${task.id} -> task${dep.blockedTaskId} ${edgeStyle};`);
+          lines.push(
+            `  task${task.id} -> task${dep.blockedTaskId} ${edgeStyle};`,
+          );
         });
       }
     });
 
-    lines.push('}');
-    return lines.join('\n');
+    lines.push("}");
+    return lines.join("\n");
   }
 }

@@ -1,11 +1,16 @@
-import { expect } from 'chai';
-import sinon from 'sinon';
-import { TaskNotificationService } from '../../features/tasks/task-notification.service.js';
-import { NotificationService } from '../../services/notification.service.js';
-import { TaskWithRelations, TaskStatus, TaskPriority, DependencyType } from '../../types/task.js';
-import { PrismaClient } from '@prisma/client';
+import { expect } from "chai";
+import sinon from "sinon";
+import { TaskNotificationService } from "../../features/tasks/task-notification.service.js";
+import { NotificationService } from "../../services/notification.service.js";
+import {
+  TaskWithRelations,
+  TaskStatus,
+  TaskPriority,
+  DependencyType,
+} from "../../types/task.js";
+import { PrismaClient } from "@prisma/client";
 
-describe('TaskNotificationService', () => {
+describe("TaskNotificationService", () => {
   let notificationService: TaskNotificationService;
   let notificationServiceStub: sinon.SinonStubbedInstance<NotificationService>;
   let prismaStub: sinon.SinonStubbedInstance<PrismaClient>;
@@ -36,111 +41,124 @@ describe('TaskNotificationService', () => {
 
   const mockTask: TaskWithRelations = {
     id: 1,
-    title: 'Test Task',
-    description: 'Test Description',
+    title: "Test Task",
+    description: "Test Description",
     status: TaskStatus.OPEN,
     priority: TaskPriority.MEDIUM,
     createdAt: new Date(),
     updatedAt: new Date(),
     dueDate: new Date(),
-    creatorId: 'user1',
+    creatorId: "user1",
     creator: {
-      id: 'user1',
-      username: 'testuser',
+      id: "user1",
+      username: "testuser",
       createdAt: new Date(),
       updatedAt: new Date(),
-      isActive: true
+      isActive: true,
     },
-    assigneeId: 'user1',
+    assigneeId: "user1",
     assignee: {
-      id: 'user1',
-      username: 'testuser',
+      id: "user1",
+      username: "testuser",
       createdAt: new Date(),
       updatedAt: new Date(),
-      isActive: true
+      isActive: true,
     },
     tags: {},
     subTasks: [],
     history: [],
     blockedBy: [],
-    blocking: []
+    blocking: [],
   };
 
-  describe('notifyTaskSpawned', () => {
-    it('should send notification when task is spawned', async () => {
+  describe("notifyTaskSpawned", () => {
+    it("should send notification when task is spawned", async () => {
       await notificationService.notifyTaskSpawned(mockTask);
       expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
-      const message = notificationServiceStub.sendNotification.firstCall.args[1];
-      expect(message).to.include('New recurring task instance created');
+      const message =
+        notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include("New recurring task instance created");
       expect(message).to.include(mockTask.title);
     });
   });
 
-  describe('notifyDependencyStatusChange', () => {
-    it('should notify about unblocked tasks when task is completed', async () => {
+  describe("notifyDependencyStatusChange", () => {
+    it("should notify about unblocked tasks when task is completed", async () => {
       const blockedTask = {
         ...mockTask,
         id: 2,
-        assigneeId: 'user2'
+        assigneeId: "user2",
       };
 
       (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
 
       const taskWithDependencies = {
         ...mockTask,
-        blocking: [{
-          id: 1,
-          blockedTaskId: 2,
-          blockerTaskId: 1,
-          dependencyType: DependencyType.BLOCKS,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }]
+        blocking: [
+          {
+            id: 1,
+            blockedTaskId: 2,
+            blockerTaskId: 1,
+            dependencyType: DependencyType.BLOCKS,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
       };
 
-      await notificationService.notifyDependencyStatusChange(taskWithDependencies, true);
+      await notificationService.notifyDependencyStatusChange(
+        taskWithDependencies,
+        true,
+      );
 
       expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
-      const message = notificationServiceStub.sendNotification.firstCall.args[1];
-      expect(message).to.include('unblocking your task');
+      const message =
+        notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include("unblocking your task");
     });
 
-    it('should notify about parallel tasks', async () => {
+    it("should notify about parallel tasks", async () => {
       const blockedTask = {
         ...mockTask,
         id: 2,
-        assigneeId: 'user2'
+        assigneeId: "user2",
       };
 
       (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
 
       const taskWithParallel = {
         ...mockTask,
-        blocking: [{
-          id: 1,
-          blockedTaskId: 2,
-          blockerTaskId: 1,
-          dependencyType: DependencyType.PARALLEL,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }]
+        blocking: [
+          {
+            id: 1,
+            blockedTaskId: 2,
+            blockerTaskId: 1,
+            dependencyType: DependencyType.PARALLEL,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
       };
 
-      await notificationService.notifyDependencyStatusChange(taskWithParallel, false);
+      await notificationService.notifyDependencyStatusChange(
+        taskWithParallel,
+        false,
+      );
 
       expect(notificationServiceStub.sendNotification.calledTwice).to.be.true;
-      const message = notificationServiceStub.sendNotification.secondCall.args[1];
-      expect(message).to.include('can be worked on in parallel');
+      const message =
+        notificationServiceStub.sendNotification.secondCall.args[1];
+      expect(message).to.include("can be worked on in parallel");
     });
   });
 
-  describe('notifyHealthIssues', () => {
-    it('should identify and notify about approaching deadlines', async () => {
+  describe("notifyHealthIssues", () => {
+    it("should identify and notify about approaching deadlines", async () => {
       const blockedTask = {
         ...mockTask,
         id: 2,
         dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
-        assigneeId: 'user2'
+        assigneeId: "user2",
       };
 
       (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockedTask);
@@ -148,39 +166,44 @@ describe('TaskNotificationService', () => {
       const taskWithBlocking = {
         ...mockTask,
         status: TaskStatus.OPEN,
-        blocking: [{
-          id: 1,
-          blockedTaskId: 2,
-          blockerTaskId: 1,
-          dependencyType: DependencyType.BLOCKS,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }]
+        blocking: [
+          {
+            id: 1,
+            blockedTaskId: 2,
+            blockerTaskId: 1,
+            dependencyType: DependencyType.BLOCKS,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
       };
 
       await notificationService.notifyHealthIssues(taskWithBlocking);
 
       expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
-      const message = notificationServiceStub.sendNotification.firstCall.args[1];
-      expect(message).to.include('blocked and due in 2 days');
+      const message =
+        notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include("blocked and due in 2 days");
     });
 
-    it('should identify and notify about long-running blocked tasks', async () => {
+    it("should identify and notify about long-running blocked tasks", async () => {
       const oneWeekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
-      const blockerTask = { ...mockTask, title: 'Blocker Task' };
-      
+      const blockerTask = { ...mockTask, title: "Blocker Task" };
+
       const taskToCheck = {
         ...mockTask,
         status: TaskStatus.BLOCKED,
         updatedAt: oneWeekAgo,
-        blockedBy: [{
-          id: 1,
-          blockedTaskId: 1,
-          blockerTaskId: 2,
-          dependencyType: DependencyType.BLOCKS,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }]
+        blockedBy: [
+          {
+            id: 1,
+            blockedTaskId: 1,
+            blockerTaskId: 2,
+            dependencyType: DependencyType.BLOCKS,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
       };
 
       (prismaStub.task.findUnique as sinon.SinonStub).resolves(blockerTask);
@@ -188,17 +211,18 @@ describe('TaskNotificationService', () => {
       await notificationService.notifyHealthIssues(taskToCheck);
 
       expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
-      const message = notificationServiceStub.sendNotification.firstCall.args[1];
-      expect(message).to.include('has been blocked for 8 days');
+      const message =
+        notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include("has been blocked for 8 days");
     });
   });
 
-  describe('notifyImpactAnalysis', () => {
-    it('should analyze and notify about task impact', async () => {
+  describe("notifyImpactAnalysis", () => {
+    it("should analyze and notify about task impact", async () => {
       const blockedTask = {
         ...mockTask,
         id: 2,
-        assigneeId: 'user2'
+        assigneeId: "user2",
       };
 
       (prismaStub.task.findUnique as sinon.SinonStub)
@@ -207,28 +231,31 @@ describe('TaskNotificationService', () => {
 
       const taskWithDependencies = {
         ...mockTask,
-        blocking: [{
-          id: 1,
-          blockedTaskId: 2,
-          blockerTaskId: 1,
-          dependencyType: DependencyType.BLOCKS,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }]
+        blocking: [
+          {
+            id: 1,
+            blockedTaskId: 2,
+            blockerTaskId: 1,
+            dependencyType: DependencyType.BLOCKS,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
       };
 
       await notificationService.notifyImpactAnalysis(taskWithDependencies);
 
       expect(notificationServiceStub.sendNotification.calledOnce).to.be.true;
-      const message = notificationServiceStub.sendNotification.firstCall.args[1];
-      expect(message).to.include('Impact Analysis');
-      expect(message).to.include('Blocked Tasks: 1');
-      expect(message).to.include('Affected Users: 1');
+      const message =
+        notificationServiceStub.sendNotification.firstCall.args[1];
+      expect(message).to.include("Impact Analysis");
+      expect(message).to.include("Blocked Tasks: 1");
+      expect(message).to.include("Affected Users: 1");
     });
   });
 
-  describe('cleanup', () => {
-    it('should disconnect from Prisma when cleaned up', async () => {
+  describe("cleanup", () => {
+    it("should disconnect from Prisma when cleaned up", async () => {
       await notificationService.cleanup();
       expect(prismaStub.$disconnect.calledOnce).to.be.true;
     });

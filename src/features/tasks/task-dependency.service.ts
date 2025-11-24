@@ -1,5 +1,11 @@
-import { DependencyType, Task, TaskDependency, TaskStatus, TaskHistoryAction } from '../../types/task.js';
-import { PrismaClient, Prisma } from '@prisma/client';
+import {
+  DependencyType,
+  Task,
+  TaskDependency,
+  TaskStatus,
+  TaskHistoryAction,
+} from "../../types/task.js";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 // Helper function to convert Prisma Task to our Task type
 function convertPrismaTask(prismaTask: any): Task {
@@ -8,7 +14,7 @@ function convertPrismaTask(prismaTask: any): Task {
     tags: prismaTask.tags as Record<string, any>,
     metadata: prismaTask.metadata as Record<string, any> | undefined,
     status: prismaTask.status as TaskStatus,
-    priority: prismaTask.priority as Task['priority'],
+    priority: prismaTask.priority as Task["priority"],
   };
 }
 
@@ -19,7 +25,9 @@ function convertPrismaDependency(prismaDep: any): TaskDependency {
     blockedTaskId: prismaDep.blockedTaskId,
     blockerTaskId: prismaDep.blockerTaskId,
     dependencyType: prismaDep.dependencyType,
-    metadata: prismaDep.metadata ? (prismaDep.metadata as Record<string, any>) : undefined,
+    metadata: prismaDep.metadata
+      ? (prismaDep.metadata as Record<string, any>)
+      : undefined,
     createdAt: prismaDep.createdAt,
     updatedAt: prismaDep.updatedAt,
   };
@@ -36,8 +44,12 @@ export class TaskDependencyService {
     metadata?: Record<string, any>,
   ): Promise<TaskDependency> {
     // Check for circular dependencies
-    if (await this.wouldCreateCircularDependency(blockedTaskId, blockerTaskId)) {
-      throw new Error('Cannot add dependency: would create circular dependency');
+    if (
+      await this.wouldCreateCircularDependency(blockedTaskId, blockerTaskId)
+    ) {
+      throw new Error(
+        "Cannot add dependency: would create circular dependency",
+      );
     }
 
     const dependency = await this.prisma.taskDependency.create({
@@ -45,7 +57,9 @@ export class TaskDependencyService {
         blockedTaskId,
         blockerTaskId,
         dependencyType,
-        metadata: metadata ? (metadata as Prisma.InputJsonValue) : Prisma.JsonNull,
+        metadata: metadata
+          ? (metadata as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
       },
     });
 
@@ -67,7 +81,11 @@ export class TaskDependencyService {
     return convertedDep;
   }
 
-  async removeDependency(blockedTaskId: number, blockerTaskId: number, userId: string): Promise<void> {
+  async removeDependency(
+    blockedTaskId: number,
+    blockerTaskId: number,
+    userId: string,
+  ): Promise<void> {
     await this.prisma.taskDependency.delete({
       where: {
         blockedTaskId_blockerTaskId: {
@@ -101,7 +119,7 @@ export class TaskDependencyService {
 
     while (stack.length > 0) {
       const currentTaskId = stack.pop()!;
-      
+
       if (currentTaskId === blockedTaskId) {
         return true; // Found a cycle
       }
@@ -114,7 +132,7 @@ export class TaskDependencyService {
           select: { blockerTaskId: true },
         });
 
-        stack.push(...dependencies.map(d => d.blockerTaskId));
+        stack.push(...dependencies.map((d) => d.blockerTaskId));
       }
     }
 
@@ -137,27 +155,32 @@ export class TaskDependencyService {
 
     // Group dependencies by type
     const blockingDeps = task.blockedBy.filter(
-      dep => dep.dependencyType === DependencyType.BLOCKS || 
-             dep.dependencyType === DependencyType.SEQUENTIAL
+      (dep) =>
+        dep.dependencyType === DependencyType.BLOCKS ||
+        dep.dependencyType === DependencyType.SEQUENTIAL,
     );
 
     const parallelDeps = task.blockedBy.filter(
-      dep => dep.dependencyType === DependencyType.PARALLEL || 
-             dep.dependencyType === DependencyType.REQUIRED
+      (dep) =>
+        dep.dependencyType === DependencyType.PARALLEL ||
+        dep.dependencyType === DependencyType.REQUIRED,
     );
 
     // Check if any blocking dependencies are incomplete
     const hasActiveBlockers = blockingDeps.some(
-      dependency => dependency.blockerTask.status !== TaskStatus.COMPLETED
+      (dependency) => dependency.blockerTask.status !== TaskStatus.COMPLETED,
     );
 
     // Check if parallel dependencies are satisfied
-    const hasIncompleteParallel = parallelDeps.length > 0 && parallelDeps.some(
-      dependency => dependency.blockerTask.status !== TaskStatus.COMPLETED
-    );
+    const hasIncompleteParallel =
+      parallelDeps.length > 0 &&
+      parallelDeps.some(
+        (dependency) => dependency.blockerTask.status !== TaskStatus.COMPLETED,
+      );
 
     // Block if either blocking deps are active or parallel deps are incomplete
-    const shouldBeBlocked = (hasActiveBlockers && blockingDeps.length > 0) || hasIncompleteParallel;
+    const shouldBeBlocked =
+      (hasActiveBlockers && blockingDeps.length > 0) || hasIncompleteParallel;
 
     // Update task status if needed
     if (shouldBeBlocked && task.status !== TaskStatus.BLOCKED) {
@@ -200,7 +223,7 @@ export class TaskDependencyService {
       include: { blockerTask: true },
     });
 
-    return dependencies.map(d => convertPrismaTask(d.blockerTask));
+    return dependencies.map((d) => convertPrismaTask(d.blockerTask));
   }
 
   async getBlockedTasks(taskId: number): Promise<Task[]> {
@@ -209,7 +232,7 @@ export class TaskDependencyService {
       include: { blockedTask: true },
     });
 
-    return dependencies.map(d => convertPrismaTask(d.blockedTask));
+    return dependencies.map((d) => convertPrismaTask(d.blockedTask));
   }
 
   async propagateStatusUpdate(taskId: number): Promise<void> {
@@ -236,13 +259,13 @@ export class TaskDependencyService {
             // These types require completion before the blocked task can start
             await this.updateTaskBlockedStatus(dependency.blockedTaskId);
             break;
-          
+
           case DependencyType.PARALLEL:
           case DependencyType.REQUIRED:
             // For parallel tasks, check if ALL parallel dependencies are completed
             await this.checkParallelDependencies(dependency.blockedTaskId);
             break;
-          
+
           case DependencyType.RELATED:
             // No status update needed for related tasks
             break;
@@ -260,17 +283,17 @@ export class TaskDependencyService {
         blockedTaskId: taskId,
         OR: [
           { dependencyType: DependencyType.PARALLEL },
-          { dependencyType: DependencyType.REQUIRED }
-        ]
+          { dependencyType: DependencyType.REQUIRED },
+        ],
       },
       include: {
-        blockerTask: true
-      }
+        blockerTask: true,
+      },
     });
 
     // Check if all parallel/required dependencies are completed
     const allParallelComplete = dependencies.every(
-      dep => dep.blockerTask.status === TaskStatus.COMPLETED
+      (dep) => dep.blockerTask.status === TaskStatus.COMPLETED,
     );
 
     if (allParallelComplete) {
@@ -287,15 +310,17 @@ export class TaskDependencyService {
       include: {
         blockedBy: {
           where: { dependencyType: DependencyType.SEQUENTIAL },
-          include: { blockerTask: true }
-        }
-      }
+          include: { blockerTask: true },
+        },
+      },
     });
 
     if (!task) return false;
 
     // For sequential dependencies, ALL previous tasks must be completed
-    return task.blockedBy.every(dep => dep.blockerTask.status === TaskStatus.COMPLETED);
+    return task.blockedBy.every(
+      (dep) => dep.blockerTask.status === TaskStatus.COMPLETED,
+    );
   }
 
   /**
@@ -303,19 +328,19 @@ export class TaskDependencyService {
    */
   async canStartTask(taskId: number): Promise<{
     canStart: boolean;
-    blockedBy: Array<{taskId: number; reason: string}>
+    blockedBy: Array<{ taskId: number; reason: string }>;
   }> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: {
         blockedBy: {
-          include: { blockerTask: true }
-        }
-      }
+          include: { blockerTask: true },
+        },
+      },
     });
 
     if (!task) {
-      throw new Error('Task not found');
+      throw new Error("Task not found");
     }
 
     const blockers = [];
@@ -323,13 +348,13 @@ export class TaskDependencyService {
     // Check each dependency type
     for (const dep of task.blockedBy) {
       const blocker = dep.blockerTask;
-      
+
       switch (dep.dependencyType) {
         case DependencyType.BLOCKS:
           if (blocker.status !== TaskStatus.COMPLETED) {
             blockers.push({
               taskId: blocker.id,
-              reason: `Task ${blocker.id} must be completed first`
+              reason: `Task ${blocker.id} must be completed first`,
             });
           }
           break;
@@ -338,7 +363,7 @@ export class TaskDependencyService {
           if (blocker.status !== TaskStatus.COMPLETED) {
             blockers.push({
               taskId: blocker.id,
-              reason: `Sequential task ${blocker.id} must be completed first`
+              reason: `Sequential task ${blocker.id} must be completed first`,
             });
           }
           break;
@@ -356,7 +381,7 @@ export class TaskDependencyService {
 
     return {
       canStart: blockers.length === 0,
-      blockedBy: blockers
+      blockedBy: blockers,
     };
   }
 }

@@ -1,7 +1,7 @@
 export enum PromptType {
-  BEHAVIORAL = 'behavioral',
-  TOOL_USAGE = 'tool_usage',
-  REASONING = 'reasoning'
+  BEHAVIORAL = "behavioral",
+  TOOL_USAGE = "tool_usage",
+  REASONING = "reasoning",
 }
 
 export interface BasePrompt {
@@ -13,10 +13,10 @@ export interface BasePrompt {
 
 export interface BehavioralPrompt extends BasePrompt {
   type: PromptType.BEHAVIORAL;
-  tone: 'professional' | 'friendly' | 'technical';
+  tone: "professional" | "friendly" | "technical";
   style: {
-    formatting: 'concise' | 'detailed';
-    language: 'formal' | 'casual';
+    formatting: "concise" | "detailed";
+    language: "formal" | "casual";
   };
 }
 
@@ -31,25 +31,25 @@ export interface ToolUsagePrompt extends BasePrompt {
 
 export interface ReasoningPrompt extends BasePrompt {
   type: PromptType.REASONING;
-  complexity: 'basic' | 'advanced';
+  complexity: "basic" | "advanced";
   approaches: string[]; // Different problem-solving approaches
 }
 
 export interface PromptContext {
-  requestType?: 'tool_usage' | 'reasoning' | 'general' | 'react';
+  requestType?: "tool_usage" | "reasoning" | "general" | "react";
   tools?: string[]; // Tools being used in the request
-  complexity?: 'low' | 'medium' | 'high';
+  complexity?: "low" | "medium" | "high";
   afterToolExecution?: boolean; // Whether this context is after a tool execution
   userPreferences?: {
-    tone?: BehavioralPrompt['tone'];
-    formatting?: BehavioralPrompt['style']['formatting'];
+    tone?: BehavioralPrompt["tone"];
+    formatting?: BehavioralPrompt["style"]["formatting"];
   };
 }
 
 // Type guard to check if a prompt matches a specific type
 export function isPromptType<T extends BasePrompt>(
   prompt: BasePrompt,
-  type: PromptType
+  type: PromptType,
 ): prompt is T {
   return prompt.type === type;
 }
