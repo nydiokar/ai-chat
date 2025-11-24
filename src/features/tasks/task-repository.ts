@@ -1,15 +1,15 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-import { DatabaseError } from '../../services/db-service.js';
-import { debug } from '../../utils/logger.js';
-import { 
-  CreateTaskDTO, 
+import { PrismaClient, Prisma } from "@prisma/client";
+import { DatabaseError } from "../../services/db-service.js";
+import { debug } from "../../utils/logger.js";
+import {
+  CreateTaskDTO,
   UpdateTaskDTO,
   TaskStatus,
   TaskPriority,
   TaskWithRelations,
   TaskFilters,
-  TaskHistoryEntry
-} from '../../types/task.js';
+  TaskHistoryEntry,
+} from "../../types/task.js";
 
 const PrismaTaskStatus = TaskStatus;
 const PrismaTaskPriority = TaskPriority;
@@ -18,7 +18,7 @@ type TaskInclude = Prisma.TaskInclude & {
   history?: {
     include: {
       user: true;
-    }
+    };
   };
 };
 
@@ -26,7 +26,7 @@ const defaultTaskInclude: TaskInclude = {
   creator: true,
   assignee: true,
   subTasks: true,
-  parentTask: true
+  parentTask: true,
 };
 
 function mapPrismaTaskToTask(prismaTask: any): TaskWithRelations {
@@ -46,36 +46,47 @@ function mapPrismaTaskToTask(prismaTask: any): TaskWithRelations {
     assigneeId: prismaTask.assigneeId ?? undefined,
     conversationId: prismaTask.conversationId ?? undefined,
     tags: JSON.parse(prismaTask.tags as string),
-    metadata: prismaTask.metadata ? JSON.parse(prismaTask.metadata as string) : undefined,
+    metadata: prismaTask.metadata
+      ? JSON.parse(prismaTask.metadata as string)
+      : undefined,
     parentTaskId: prismaTask.parentTaskId ?? undefined,
     creator: {
       ...prismaTask.creator,
-      preferences: prismaTask.creator.preferences 
+      preferences: prismaTask.creator.preferences
         ? JSON.parse(prismaTask.creator.preferences as string)
-        : undefined
+        : undefined,
     },
-    assignee: prismaTask.assignee ? {
-      ...prismaTask.assignee,
-      preferences: prismaTask.assignee.preferences
-        ? JSON.parse(prismaTask.assignee.preferences as string)
-        : undefined
-    } : undefined,
+    assignee: prismaTask.assignee
+      ? {
+          ...prismaTask.assignee,
+          preferences: prismaTask.assignee.preferences
+            ? JSON.parse(prismaTask.assignee.preferences as string)
+            : undefined,
+        }
+      : undefined,
     subTasks: prismaTask.subTasks.map((subTask: any) => ({
       ...subTask,
       tags: JSON.parse(subTask.tags as string),
-      metadata: subTask.metadata ? JSON.parse(subTask.metadata as string) : undefined
+      metadata: subTask.metadata
+        ? JSON.parse(subTask.metadata as string)
+        : undefined,
     })),
-    parentTask: prismaTask.parentTask ? {
-      ...prismaTask.parentTask,
-      tags: JSON.parse(prismaTask.parentTask.tags as string),
-      metadata: prismaTask.parentTask.metadata ? JSON.parse(prismaTask.parentTask.metadata as string) : undefined
-    } : undefined,
-    history: prismaTask.history?.map((entry: any) => ({
-      ...entry,
-      oldValue: entry.oldValue ?? undefined,
-      newValue: entry.newValue ?? undefined,
-      note: entry.note ?? undefined
-    })) ?? []
+    parentTask: prismaTask.parentTask
+      ? {
+          ...prismaTask.parentTask,
+          tags: JSON.parse(prismaTask.parentTask.tags as string),
+          metadata: prismaTask.parentTask.metadata
+            ? JSON.parse(prismaTask.parentTask.metadata as string)
+            : undefined,
+        }
+      : undefined,
+    history:
+      prismaTask.history?.map((entry: any) => ({
+        ...entry,
+        oldValue: entry.oldValue ?? undefined,
+        newValue: entry.newValue ?? undefined,
+        note: entry.note ?? undefined,
+      })) ?? [],
   };
 }
 
@@ -87,7 +98,7 @@ export class TaskRepository {
 
   private constructor() {
     this.prisma = new PrismaClient({
-      log: ['error', 'warn'],
+      log: ["error", "warn"],
     });
   }
 
@@ -99,36 +110,53 @@ export class TaskRepository {
   }
 
   private validateTaskInput(input: Partial<CreateTaskDTO>): void {
-    if (input.title && (input.title.length === 0 || input.title.length > this.MAX_TITLE_LENGTH)) {
-      throw new DatabaseError(`Title must be between 1 and ${this.MAX_TITLE_LENGTH} characters`);
+    if (
+      input.title &&
+      (input.title.length === 0 || input.title.length > this.MAX_TITLE_LENGTH)
+    ) {
+      throw new DatabaseError(
+        `Title must be between 1 and ${this.MAX_TITLE_LENGTH} characters`,
+      );
     }
 
-    if (input.description && (input.description.length === 0 || input.description.length > this.MAX_DESCRIPTION_LENGTH)) {
-      throw new DatabaseError(`Description must be between 1 and ${this.MAX_DESCRIPTION_LENGTH} characters`);
+    if (
+      input.description &&
+      (input.description.length === 0 ||
+        input.description.length > this.MAX_DESCRIPTION_LENGTH)
+    ) {
+      throw new DatabaseError(
+        `Description must be between 1 and ${this.MAX_DESCRIPTION_LENGTH} characters`,
+      );
     }
   }
 
   private async validateUser(userId: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: userId },
     });
     if (!user) {
       throw new DatabaseError(`User ${userId} not found`);
     }
   }
 
-  private async handlePrismaError(error: unknown, operation: string): Promise<never> {
+  private async handlePrismaError(
+    error: unknown,
+    operation: string,
+  ): Promise<never> {
     const prismaError = error as { code?: string; message?: string };
     if (prismaError.code) {
-      if (prismaError.code === 'P2002') {
-        throw new DatabaseError('Unique constraint violation');
+      if (prismaError.code === "P2002") {
+        throw new DatabaseError("Unique constraint violation");
       }
-      if (prismaError.code === 'P2025') {
-        throw new DatabaseError('Record not found');
+      if (prismaError.code === "P2025") {
+        throw new DatabaseError("Record not found");
       }
     }
-    const errorMessage = prismaError.message || 'Unknown database error';
-    throw new DatabaseError(`Task ${operation} failed: ${errorMessage}`, error as Error);
+    const errorMessage = prismaError.message || "Unknown database error";
+    throw new DatabaseError(
+      `Task ${operation} failed: ${errorMessage}`,
+      error as Error,
+    );
   }
 
   async addTaskHistory(data: TaskHistoryEntry): Promise<void> {
@@ -144,11 +172,11 @@ export class TaskRepository {
           action: data.action,
           oldValue: data.oldValue,
           newValue: data.newValue,
-          note: data.note
-        }
+          note: data.note,
+        },
       });
     } catch (error) {
-      throw this.handlePrismaError(error, 'history creation');
+      throw this.handlePrismaError(error, "history creation");
     }
   }
 
@@ -173,14 +201,14 @@ export class TaskRepository {
           dueDate: data.dueDate,
           tags: JSON.stringify(data.tags || []),
           metadata: JSON.stringify(data.metadata || {}),
-          parentTaskId: data.parentTaskId
+          parentTaskId: data.parentTaskId,
         },
-        include: defaultTaskInclude
+        include: defaultTaskInclude,
       });
 
       return mapPrismaTaskToTask(task);
     } catch (error) {
-      return this.handlePrismaError(error, 'creation');
+      return this.handlePrismaError(error, "creation");
     }
   }
 
@@ -189,7 +217,7 @@ export class TaskRepository {
       debug(`Retrieving task ${id}`);
       const task = await this.prisma.task.findUnique({
         where: { id },
-        include: defaultTaskInclude
+        include: defaultTaskInclude,
       });
 
       if (!task) {
@@ -199,11 +227,14 @@ export class TaskRepository {
       return mapPrismaTaskToTask(task);
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      return this.handlePrismaError(error, 'retrieval');
+      return this.handlePrismaError(error, "retrieval");
     }
   }
 
-  async updateTask(id: number, data: UpdateTaskDTO): Promise<TaskWithRelations> {
+  async updateTask(
+    id: number,
+    data: UpdateTaskDTO,
+  ): Promise<TaskWithRelations> {
     try {
       this.validateTaskInput(data);
       if (data.assigneeId) {
@@ -220,7 +251,7 @@ export class TaskRepository {
         ...(data.assigneeId && { assigneeId: data.assigneeId }),
         ...(data.tags && { tags: JSON.stringify(data.tags) }),
         ...(data.metadata && { metadata: JSON.stringify(data.metadata) }),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       if (data.status === TaskStatus.COMPLETED) {
@@ -230,12 +261,12 @@ export class TaskRepository {
       const updatedTask = await this.prisma.task.update({
         where: { id },
         data: updateData,
-        include: defaultTaskInclude
+        include: defaultTaskInclude,
       });
 
       return mapPrismaTaskToTask(updatedTask);
     } catch (error) {
-      return this.handlePrismaError(error, 'update');
+      return this.handlePrismaError(error, "update");
     }
   }
 
@@ -243,14 +274,16 @@ export class TaskRepository {
     try {
       debug(`Deleting task ${id}`);
       await this.prisma.task.delete({
-        where: { id }
+        where: { id },
       });
     } catch (error) {
-      throw this.handlePrismaError(error, 'deletion');
+      throw this.handlePrismaError(error, "deletion");
     }
   }
 
-  async listTasks(options: TaskFilters = {}): Promise<{ tasks: TaskWithRelations[]; total: number }> {
+  async listTasks(
+    options: TaskFilters = {},
+  ): Promise<{ tasks: TaskWithRelations[]; total: number }> {
     try {
       debug(`Listing tasks with filters: ${JSON.stringify(options)}`);
       const [tasks, total] = await Promise.all([
@@ -259,35 +292,37 @@ export class TaskRepository {
             ...(options.creatorId && { creatorId: options.creatorId }),
             ...(options.assigneeId && { assigneeId: options.assigneeId }),
             ...(options.status && { status: options.status }),
-            ...(options.priority && { priority: options.priority })
+            ...(options.priority && { priority: options.priority }),
           },
           include: defaultTaskInclude,
           take: options.limit ?? 10,
           skip: options.offset ?? 0,
           orderBy: {
-            createdAt: 'desc'
-          }
+            createdAt: "desc",
+          },
         }),
         this.prisma.task.count({
           where: {
             ...(options.creatorId && { creatorId: options.creatorId }),
             ...(options.assigneeId && { assigneeId: options.assigneeId }),
             ...(options.status && { status: options.status }),
-            ...(options.priority && { priority: options.priority })
-          }
-        })
+            ...(options.priority && { priority: options.priority }),
+          },
+        }),
       ]);
 
-      return { 
-        tasks: tasks.map(task => mapPrismaTaskToTask(task)),
-        total 
+      return {
+        tasks: tasks.map((task) => mapPrismaTaskToTask(task)),
+        total,
       };
     } catch (error) {
-      throw this.handlePrismaError(error, 'listing');
+      throw this.handlePrismaError(error, "listing");
     }
   }
 
-  async getTasksByUser(userId: string): Promise<{ created: TaskWithRelations[]; assigned: TaskWithRelations[] }> {
+  async getTasksByUser(
+    userId: string,
+  ): Promise<{ created: TaskWithRelations[]; assigned: TaskWithRelations[] }> {
     try {
       await this.validateUser(userId);
       debug(`Getting tasks for user ${userId}`);
@@ -296,21 +331,21 @@ export class TaskRepository {
         this.prisma.task.findMany({
           where: { creatorId: userId },
           include: defaultTaskInclude,
-          orderBy: { updatedAt: 'desc' }
+          orderBy: { updatedAt: "desc" },
         }),
         this.prisma.task.findMany({
           where: { assigneeId: userId },
           include: defaultTaskInclude,
-          orderBy: { updatedAt: 'desc' }
-        })
+          orderBy: { updatedAt: "desc" },
+        }),
       ]);
 
-      return { 
-        created: created.map(task => mapPrismaTaskToTask(task)),
-        assigned: assigned.map(task => mapPrismaTaskToTask(task))
+      return {
+        created: created.map((task) => mapPrismaTaskToTask(task)),
+        assigned: assigned.map((task) => mapPrismaTaskToTask(task)),
       };
     } catch (error) {
-      throw this.handlePrismaError(error, 'user tasks retrieval');
+      throw this.handlePrismaError(error, "user tasks retrieval");
     }
   }
 }

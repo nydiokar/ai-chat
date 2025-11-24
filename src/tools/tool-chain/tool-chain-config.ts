@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // Define schemas for tool chain configuration
 export const ToolInputSchema = z.object({
@@ -10,9 +10,8 @@ export const ToolInputSchema = z.object({
 });
 
 export const ChainAbortConditionSchema = z.object({
-  type: z.enum(['error', 'result', 'custom']),
-  condition: z.function()
-    .optional(),
+  type: z.enum(["error", "result", "custom"]),
+  condition: z.function().optional(),
 });
 
 export const ToolChainConfigSchema = z.object({
@@ -54,7 +53,9 @@ export class ToolChainConfigBuilder {
 
     // Handle dependencies
     if (tool.dependsOn) {
-      const deps = Array.isArray(tool.dependsOn) ? tool.dependsOn : [tool.dependsOn];
+      const deps = Array.isArray(tool.dependsOn)
+        ? tool.dependsOn
+        : [tool.dependsOn];
       this.dependencies.set(tool.name, deps);
     }
 
@@ -80,8 +81,8 @@ export class ToolChainConfigBuilder {
   }
 
   private validateDependencies(): void {
-    const toolNames = new Set(this.config.tools?.map(t => t.name));
-    
+    const toolNames = new Set(this.config.tools?.map((t) => t.name));
+
     // Check for circular dependencies
     const visited = new Set<string>();
     const recursionStack = new Set<string>();
@@ -106,11 +107,15 @@ export class ToolChainConfigBuilder {
     for (const [toolName, deps] of this.dependencies) {
       for (const dep of deps) {
         if (!toolNames.has(dep)) {
-          throw new Error(`Tool ${toolName} depends on non-existent tool ${dep}`);
+          throw new Error(
+            `Tool ${toolName} depends on non-existent tool ${dep}`,
+          );
         }
       }
       if (hasCycle(toolName)) {
-        throw new Error(`Circular dependency detected in tool chain involving ${toolName}`);
+        throw new Error(
+          `Circular dependency detected in tool chain involving ${toolName}`,
+        );
       }
     }
   }

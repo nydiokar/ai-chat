@@ -1,5 +1,5 @@
-import { DiscordService } from './discord-service.js';
-import { PrismaClient } from '@prisma/client';
+import { DiscordService } from "./discord-service.js";
+import { PrismaClient } from "@prisma/client";
 
 export interface NotificationChannel {
   type: string;
@@ -33,9 +33,11 @@ export class NotificationService {
   /**
    * Gets user's notification preferences from memory system
    */
-  private async getUserMemoryPreferences(userId: string): Promise<{ settings: any } | null> {
+  private async getUserMemoryPreferences(
+    userId: string,
+  ): Promise<{ settings: any } | null> {
     const prefs = await this.prisma.userMemoryPreferences.findUnique({
-      where: { userId }
+      where: { userId },
     });
     return prefs;
   }
@@ -46,35 +48,40 @@ export class NotificationService {
   async sendNotification(userId: string, message: string): Promise<void> {
     try {
       const memoryPrefs = await this.getUserMemoryPreferences(userId);
-      
+
       // Check memory preferences first
       if (memoryPrefs?.settings?.notifications) {
         const notifSettings = memoryPrefs.settings.notifications;
-        
+
         // Send through Discord if configured in memory preferences
         if (notifSettings.discord?.enabled && notifSettings.discord.channelId) {
-          await this.discordService?.sendMessage(notifSettings.discord.channelId, message);
+          await this.discordService?.sendMessage(
+            notifSettings.discord.channelId,
+            message,
+          );
           return;
         }
       }
 
       // Fallback to user preferences if no memory preferences are set
       const user = await this.prisma.user.findUnique({
-        where: { id: userId }
+        where: { id: userId },
       });
 
       // Check legacy user preferences
-      if (user?.preferences && typeof user.preferences === 'object') {
+      if (user?.preferences && typeof user.preferences === "object") {
         const prefs = user.preferences as any;
         if (prefs.discordChannelId) {
-          await this.discordService?.sendMessage(prefs.discordChannelId, message);
+          await this.discordService?.sendMessage(
+            prefs.discordChannelId,
+            message,
+          );
         }
       }
 
       // Future: Add other notification channels (SMS, email, etc.)
-      
     } catch (error) {
-      console.error('Failed to send notification:', error);
+      console.error("Failed to send notification:", error);
     }
   }
 

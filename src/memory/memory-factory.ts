@@ -1,13 +1,13 @@
-import { MemoryProvider } from '../interfaces/memory-provider.js';
-import { InMemoryProvider } from './in-memory-provider.js';
+import { MemoryProvider } from "../interfaces/memory-provider.js";
+import { InMemoryProvider } from "./in-memory-provider.js";
 
 /**
  * Type of memory providers that can be created by the factory
  */
 export enum MemoryProviderType {
-  IN_MEMORY = 'in_memory',
-  MEM0 = 'mem0',  // Placeholder for future Mem0 integration
-  CUSTOM = 'custom'
+  IN_MEMORY = "in_memory",
+  MEM0 = "mem0", // Placeholder for future Mem0 integration
+  CUSTOM = "custom",
 }
 
 /**
@@ -35,7 +35,7 @@ export class MemoryFactory {
    * Default configuration
    */
   private defaultConfig: MemoryProviderConfig = {
-    type: MemoryProviderType.IN_MEMORY
+    type: MemoryProviderType.IN_MEMORY,
   };
 
   private constructor(config?: Partial<MemoryProviderConfig>) {
@@ -45,7 +45,9 @@ export class MemoryFactory {
   /**
    * Get the singleton instance of the factory
    */
-  public static getInstance(config?: Partial<MemoryProviderConfig>): MemoryFactory {
+  public static getInstance(
+    config?: Partial<MemoryProviderConfig>,
+  ): MemoryFactory {
     if (!MemoryFactory.instance) {
       MemoryFactory.instance = new MemoryFactory(config);
     } else if (config) {
@@ -60,9 +62,13 @@ export class MemoryFactory {
    */
   public setConfig(config: Partial<MemoryProviderConfig>): void {
     this.config = { ...this.config, ...config };
-    
+
     // If provider type changes, reset the active provider
-    if (config.type && this.activeProvider && config.type !== this.config.type) {
+    if (
+      config.type &&
+      this.activeProvider &&
+      config.type !== this.config.type
+    ) {
       this.activeProvider = null;
     }
   }
@@ -82,18 +88,20 @@ export class MemoryFactory {
       case MemoryProviderType.IN_MEMORY:
         provider = new InMemoryProvider();
         break;
-        
+
       case MemoryProviderType.MEM0:
         // Placeholder for future Mem0 integration
-        throw new Error('Mem0 integration not yet implemented');
-        
+        throw new Error("Mem0 integration not yet implemented");
+
       case MemoryProviderType.CUSTOM:
         if (!this.config.customProvider) {
-          throw new Error('Custom provider specified but no provider instance provided');
+          throw new Error(
+            "Custom provider specified but no provider instance provided",
+          );
         }
         provider = this.config.customProvider;
         break;
-        
+
       default:
         throw new Error(`Unknown memory provider type: ${this.config.type}`);
     }
@@ -101,7 +109,7 @@ export class MemoryFactory {
     // Initialize the provider
     await provider.initialize();
     this.activeProvider = provider;
-    
+
     return provider;
   }
 
@@ -124,4 +132,4 @@ export class MemoryFactory {
       this.activeProvider = null;
     }
   }
-} 
+}

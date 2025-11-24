@@ -1,18 +1,17 @@
-import { RecurrencePatternService } from './recurrence-pattern.service.js';
-import { TaskRepository } from './task-repository.js';
-import { 
-  RecurrencePattern, 
-  TaskWithRelations, 
-  CreateTaskDTO, 
-  TaskStatus, 
+import { RecurrencePatternService } from "./recurrence-pattern.service.js";
+import { TaskRepository } from "./task-repository.js";
+import {
+  RecurrencePattern,
+  TaskWithRelations,
+  CreateTaskDTO,
+  TaskStatus,
   TaskHistoryEntry,
-  TaskHistoryAction 
-} from '../../types/task.js';
-
+  TaskHistoryAction,
+} from "../../types/task.js";
 
 /**
  * TaskSpawningService manages the creation and tracking of recurring tasks
- * 
+ *
  * Key Responsibilities:
  * - Automatic task instance creation based on recurrence patterns
  * - Parent-child task relationship management
@@ -43,8 +42,8 @@ export class TaskSpawningService {
    * @param occurrenceDate The date for this task instance
    */
   async spawnTaskInstance(
-    parentTask: TaskWithRelations, 
-    occurrenceDate: Date
+    parentTask: TaskWithRelations,
+    occurrenceDate: Date,
   ): Promise<TaskWithRelations> {
     try {
       // Create a new task instance linked to the parent
@@ -59,9 +58,9 @@ export class TaskSpawningService {
         metadata: {
           ...parentTask.metadata,
           originalTaskId: parentTask.id,
-          occurrenceDate: occurrenceDate.toISOString()
+          occurrenceDate: occurrenceDate.toISOString(),
         },
-        tags: Object.values(parentTask.tags)
+        tags: Object.values(parentTask.tags),
       };
 
       const newTask = await this.taskRepository.createTask(taskInstance);
@@ -71,7 +70,7 @@ export class TaskSpawningService {
 
       return newTask;
     } catch (error) {
-      console.error('Task spawning failed:', error);
+      console.error("Task spawning failed:", error);
       throw error;
     }
   }
@@ -80,17 +79,16 @@ export class TaskSpawningService {
    * Logs the task spawning event in task history
    */
   private async logTaskSpawning(
-    newTask: TaskWithRelations, 
-    parentTask: TaskWithRelations
+    newTask: TaskWithRelations,
+    parentTask: TaskWithRelations,
   ): Promise<void> {
     const historyEntry: TaskHistoryEntry = {
       taskId: newTask.id,
       userId: parentTask.creatorId,
       action: TaskHistoryAction.SPAWN,
-      note: 'Recurring task instance created',
+      note: "Recurring task instance created",
       oldValue: JSON.stringify(parentTask),
-      newValue: JSON.stringify(newTask)
-
+      newValue: JSON.stringify(newTask),
     };
 
     await this.taskRepository.addTaskHistory(historyEntry);
@@ -115,8 +113,8 @@ export class TaskSpawningService {
 
         // Calculate next occurrence
         const nextOccurrence = RecurrencePatternService.getNextOccurrence(
-          pattern, 
-          lastOccurrence
+          pattern,
+          lastOccurrence,
         );
 
         if (nextOccurrence) {
@@ -138,12 +136,13 @@ export class TaskSpawningService {
       // Add filtering for recurring tasks
     });
 
-    return tasks.filter(task => 
-      task.metadata?.recurrencePattern && 
-      RecurrencePatternService.shouldSpawnTask(
-        task.metadata.recurrencePattern as RecurrencePattern, 
-        task.dueDate ?? new Date()
-      )
+    return tasks.filter(
+      (task) =>
+        task.metadata?.recurrencePattern &&
+        RecurrencePatternService.shouldSpawnTask(
+          task.metadata.recurrencePattern as RecurrencePattern,
+          task.dueDate ?? new Date(),
+        ),
     );
   }
 
@@ -151,17 +150,17 @@ export class TaskSpawningService {
    * Finds the most recent task instance for a recurring task
    */
   private async findLastTaskInstance(
-    parentTask: TaskWithRelations
+    parentTask: TaskWithRelations,
   ): Promise<TaskWithRelations | null> {
     const { tasks } = await this.taskRepository.listTasks({
-      parentTaskId: parentTask.id
+      parentTaskId: parentTask.id,
     });
 
-    return tasks.length > 0 
-      ? tasks.reduce((latest, current) => 
-          (latest.dueDate ?? new Date(0)) > (current.dueDate ?? new Date(0)) 
-            ? latest 
-            : current
+    return tasks.length > 0
+      ? tasks.reduce((latest, current) =>
+          (latest.dueDate ?? new Date(0)) > (current.dueDate ?? new Date(0))
+            ? latest
+            : current,
         )
       : null;
   }
@@ -170,12 +169,12 @@ export class TaskSpawningService {
    * Handles task completion and potential rescheduling
    */
   async completeTaskInstance(
-    taskId: number, 
-    userId: string
+    taskId: number,
+    userId: string,
   ): Promise<TaskWithRelations> {
     // Update task status
     const completedTask = await this.taskRepository.updateTask(taskId, {
-      status: TaskStatus.COMPLETED
+      status: TaskStatus.COMPLETED,
     });
 
     // Log completion history
@@ -183,9 +182,8 @@ export class TaskSpawningService {
       taskId,
       userId,
       action: TaskHistoryAction.STATUS_CHANGED,
-      note: 'Task instance completed'
+      note: "Task instance completed",
     });
-
 
     return completedTask;
   }

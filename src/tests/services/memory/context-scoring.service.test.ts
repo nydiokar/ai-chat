@@ -1,33 +1,36 @@
-import { expect } from 'chai';
-import { ContextScoringService } from '../../../services/performance/context-scoring.service.js';
-import { ConversationContext, ConversationMessage } from '../../../types/memory.js';
+import { expect } from "chai";
+import { ContextScoringService } from "../../../services/performance/context-scoring.service.js";
+import {
+  ConversationContext,
+  ConversationMessage,
+} from "../../../types/memory.js";
 
-describe('ContextScoringService', () => {
+describe("ContextScoringService", () => {
   let service: ContextScoringService;
 
   beforeEach(() => {
     service = ContextScoringService.getInstance();
   });
 
-  describe('calculateContextScore', () => {
-    it('should calculate accurate relevance scores', () => {
+  describe("calculateContextScore", () => {
+    it("should calculate accurate relevance scores", () => {
       const context: ConversationContext = {
-        id: '1',
+        id: "1",
         conversationId: 1,
-        topics: ['typescript', 'testing', 'nodejs'],
-        entities: ['mocha', 'chai'],
-        summary: 'Discussion about testing',
+        topics: ["typescript", "testing", "nodejs"],
+        entities: ["mocha", "chai"],
+        summary: "Discussion about testing",
         timestamp: new Date(),
-        messages: []
+        messages: [],
       };
 
-      const currentTopics = ['typescript', 'testing'];
-      const currentEntities = ['mocha'];
+      const currentTopics = ["typescript", "testing"];
+      const currentEntities = ["mocha"];
 
       const score = service.calculateContextScore(
         context,
         currentTopics,
-        currentEntities
+        currentEntities,
       );
 
       expect(score.finalScore).to.be.within(0, 1);
@@ -35,183 +38,189 @@ describe('ContextScoringService', () => {
       expect(score.recency).to.equal(1); // Recent context
     });
 
-    it('should apply decay to older contexts', () => {
+    it("should apply decay to older contexts", () => {
       const oldContext: ConversationContext = {
-        id: '1',
+        id: "1",
         conversationId: 1,
-        topics: ['typescript', 'testing'],
-        entities: ['mocha'],
-        summary: 'Old discussion',
+        topics: ["typescript", "testing"],
+        entities: ["mocha"],
+        summary: "Old discussion",
         timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000), // 48 hours old
-        messages: []
+        messages: [],
       };
 
-      const currentTopics = ['typescript', 'testing'];
-      const currentEntities = ['mocha'];
+      const currentTopics = ["typescript", "testing"];
+      const currentEntities = ["mocha"];
 
       const score = service.calculateContextScore(
         oldContext,
         currentTopics,
-        currentEntities
+        currentEntities,
       );
 
       expect(score.recency).to.be.lessThan(0.5); // Significant decay expected
     });
   });
 
-  describe('trackTopicTransitions', () => {
-    it('should track topic transitions across messages', () => {
+  describe("trackTopicTransitions", () => {
+    it("should track topic transitions across messages", () => {
       const messages: ConversationMessage[] = [
         {
-          content: 'Let\'s discuss TypeScript',
-          role: 'user',
+          content: "Let's discuss TypeScript",
+          role: "user",
           tokenCount: 10,
         },
         {
-          content: 'How about testing?',
-          role: 'user',
+          content: "How about testing?",
+          role: "user",
           tokenCount: 8,
-        }
+        },
       ];
 
-      const currentTopics = ['typescript', 'testing'];
+      const currentTopics = ["typescript", "testing"];
 
-      const transitions = service.trackTopicTransitions(messages, currentTopics);
+      const transitions = service.trackTopicTransitions(
+        messages,
+        currentTopics,
+      );
 
       expect(transitions).to.have.lengthOf(2);
-      expect(transitions[0].name).to.equal('typescript');
-      expect(transitions[1].name).to.equal('testing');
+      expect(transitions[0].name).to.equal("typescript");
+      expect(transitions[1].name).to.equal("testing");
       expect(transitions[0].messageReferences).to.have.lengthOf(2);
     });
 
-    it('should maintain topic confidence scores', () => {
+    it("should maintain topic confidence scores", () => {
       const messages: ConversationMessage[] = Array(5).fill({
-        content: 'Message about TypeScript',
-        role: 'user',
+        content: "Message about TypeScript",
+        role: "user",
         tokenCount: 10,
       });
 
-      const currentTopics = ['typescript'];
+      const currentTopics = ["typescript"];
 
-      const transitions = service.trackTopicTransitions(messages, currentTopics);
+      const transitions = service.trackTopicTransitions(
+        messages,
+        currentTopics,
+      );
 
       expect(transitions[0].confidence).to.be.greaterThan(0.5);
     });
   });
 
-  describe('detectTopicTransitions', () => {
-    it('should detect added and removed topics', () => {
+  describe("detectTopicTransitions", () => {
+    it("should detect added and removed topics", () => {
       const previousContext: ConversationContext = {
-        id: '1',
+        id: "1",
         conversationId: 1,
-        topics: ['typescript', 'javascript'],
+        topics: ["typescript", "javascript"],
         entities: [],
-        summary: 'Previous context',
+        summary: "Previous context",
         timestamp: new Date(),
-        messages: []
+        messages: [],
       };
 
       const currentContext: ConversationContext = {
-        id: '2',
+        id: "2",
         conversationId: 1,
-        topics: ['typescript', 'testing'],
+        topics: ["typescript", "testing"],
         entities: [],
-        summary: 'Current context',
+        summary: "Current context",
         timestamp: new Date(),
-        messages: []
+        messages: [],
       };
 
       const transitions = service.detectTopicTransitions(
         previousContext,
-        currentContext
+        currentContext,
       );
 
-      expect(transitions.added).to.deep.equal(['testing']);
-      expect(transitions.removed).to.deep.equal(['javascript']);
-      expect(transitions.continued).to.deep.equal(['typescript']);
+      expect(transitions.added).to.deep.equal(["testing"]);
+      expect(transitions.removed).to.deep.equal(["javascript"]);
+      expect(transitions.continued).to.deep.equal(["typescript"]);
     });
   });
 
-  describe('getRelevantContexts', () => {
-    it('should return most relevant contexts first', () => {
+  describe("getRelevantContexts", () => {
+    it("should return most relevant contexts first", () => {
       const contexts: ConversationContext[] = [
         {
-          id: '1',
+          id: "1",
           conversationId: 1,
-          topics: ['typescript', 'testing'],
-          entities: ['mocha'],
-          summary: 'Recent relevant context',
+          topics: ["typescript", "testing"],
+          entities: ["mocha"],
+          summary: "Recent relevant context",
           timestamp: new Date(),
-          messages: []
+          messages: [],
         },
         {
-          id: '2',
+          id: "2",
           conversationId: 1,
-          topics: ['python', 'django'],
-          entities: ['pytest'],
-          summary: 'Recent unrelated context',
+          topics: ["python", "django"],
+          entities: ["pytest"],
+          summary: "Recent unrelated context",
           timestamp: new Date(),
-          messages: []
+          messages: [],
         },
         {
-          id: '3',
+          id: "3",
           conversationId: 1,
-          topics: ['typescript', 'testing'],
-          entities: ['mocha'],
-          summary: 'Old relevant context',
+          topics: ["typescript", "testing"],
+          entities: ["mocha"],
+          summary: "Old relevant context",
           timestamp: new Date(Date.now() - 72 * 60 * 60 * 1000), // 72 hours old
-          messages: []
-        }
+          messages: [],
+        },
       ];
 
-      const currentTopics = ['typescript', 'testing'];
-      const currentEntities = ['mocha'];
+      const currentTopics = ["typescript", "testing"];
+      const currentEntities = ["mocha"];
 
       const relevantContexts = service.getRelevantContexts(
         contexts,
         currentTopics,
         currentEntities,
-        2
+        2,
       );
 
       expect(relevantContexts).to.have.lengthOf(2);
-      expect(relevantContexts[0].id).to.equal('1'); // Most recent and relevant
-      expect(relevantContexts[1].id).to.equal('3'); // Old but relevant
+      expect(relevantContexts[0].id).to.equal("1"); // Most recent and relevant
+      expect(relevantContexts[1].id).to.equal("3"); // Old but relevant
     });
 
-    it('should handle multi-topic contexts', () => {
+    it("should handle multi-topic contexts", () => {
       const contexts: ConversationContext[] = [
         {
-          id: '1',
+          id: "1",
           conversationId: 1,
-          topics: ['typescript', 'testing', 'nodejs', 'express'],
-          entities: ['mocha', 'chai', 'supertest'],
-          summary: 'Complex context',
+          topics: ["typescript", "testing", "nodejs", "express"],
+          entities: ["mocha", "chai", "supertest"],
+          summary: "Complex context",
           timestamp: new Date(),
-          messages: []
+          messages: [],
         },
         {
-          id: '2',
+          id: "2",
           conversationId: 1,
-          topics: ['typescript'],
-          entities: ['tsc'],
-          summary: 'Simple context',
+          topics: ["typescript"],
+          entities: ["tsc"],
+          summary: "Simple context",
           timestamp: new Date(),
-          messages: []
-        }
+          messages: [],
+        },
       ];
 
-      const currentTopics = ['typescript', 'testing', 'express'];
-      const currentEntities = ['mocha', 'supertest'];
+      const currentTopics = ["typescript", "testing", "express"];
+      const currentEntities = ["mocha", "supertest"];
 
       const relevantContexts = service.getRelevantContexts(
         contexts,
         currentTopics,
-        currentEntities
+        currentEntities,
       );
 
-      expect(relevantContexts[0].id).to.equal('1');
-      expect(relevantContexts[1].id).to.equal('2');
+      expect(relevantContexts[0].id).to.equal("1");
+      expect(relevantContexts[1].id).to.equal("2");
     });
   });
 });

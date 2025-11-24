@@ -1,6 +1,6 @@
-import { TaskStatus, TaskWithRelations } from '../../types/task.js';
-import { NotificationService } from '../../services/notification.service.js';
-import { PrismaClient } from '@prisma/client';
+import { TaskStatus, TaskWithRelations } from "../../types/task.js";
+import { NotificationService } from "../../services/notification.service.js";
+import { PrismaClient } from "@prisma/client";
 
 /**
  * TaskNotificationService handles task-specific notifications
@@ -32,7 +32,7 @@ export class TaskNotificationService {
 
     const message = `🔄 New recurring task instance created:
 Title: ${task.title}
-Due: ${task.dueDate?.toLocaleDateString() ?? 'Not set'}
+Due: ${task.dueDate?.toLocaleDateString() ?? "Not set"}
 Description: ${task.description}`;
 
     await this.notificationService.sendNotification(task.assigneeId, message);
@@ -41,10 +41,13 @@ Description: ${task.description}`;
   /**
    * Sends a notification when a task is approaching its due date
    */
-  async notifyTaskDueSoon(task: TaskWithRelations, daysUntilDue: number): Promise<void> {
+  async notifyTaskDueSoon(
+    task: TaskWithRelations,
+    daysUntilDue: number,
+  ): Promise<void> {
     if (!task.assigneeId || !task.dueDate) return;
 
-    const message = `⚠️ Task due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}:
+    const message = `⚠️ Task due in ${daysUntilDue} day${daysUntilDue !== 1 ? "s" : ""}:
 Title: ${task.title}
 Due: ${task.dueDate.toLocaleDateString()}
 Description: ${task.description}`;
@@ -75,27 +78,33 @@ Completion time: ${new Date().toLocaleString()}`;
   /**
    * Notifies users when their tasks are blocked or unblocked by dependency changes
    */
-  async notifyDependencyStatusChange(task: TaskWithRelations, statusChanged: boolean): Promise<void> {
+  async notifyDependencyStatusChange(
+    task: TaskWithRelations,
+    statusChanged: boolean,
+  ): Promise<void> {
     // Get all tasks blocked by this one
     const blockedTasks = task.blocking || [];
     for (const dependency of blockedTasks) {
       const blockedTask = await this.prisma.task.findUnique({
-        where: { id: dependency.blockedTaskId }
+        where: { id: dependency.blockedTaskId },
       });
 
       if (!blockedTask?.assigneeId) continue;
 
-      const message = statusChanged 
+      const message = statusChanged
         ? `🔓 Task "${task.title}" has been completed, unblocking your task #${dependency.blockedTaskId}`
         : `🔒 Task "${task.title}" is blocking your task #${dependency.blockedTaskId}`;
 
-      await this.notificationService.sendNotification(blockedTask.assigneeId, message);
+      await this.notificationService.sendNotification(
+        blockedTask.assigneeId,
+        message,
+      );
 
-      if (dependency.dependencyType === 'PARALLEL') {
+      if (dependency.dependencyType === "PARALLEL") {
         // For parallel tasks, notify that they can work simultaneously
         await this.notificationService.sendNotification(
           blockedTask.assigneeId,
-          `ℹ️ Task #${dependency.blockedTaskId} can be worked on in parallel with "${task.title}"`
+          `ℹ️ Task #${dependency.blockedTaskId} can be worked on in parallel with "${task.title}"`,
         );
       }
     }
@@ -106,31 +115,34 @@ Completion time: ${new Date().toLocaleString()}`;
    */
   private async notifyDependentTasks(task: TaskWithRelations): Promise<void> {
     const blockedTasks = task.blocking || [];
-    
+
     for (const dependency of blockedTasks) {
-      let message = '';
+      let message = "";
       switch (dependency.dependencyType) {
-        case 'BLOCKS':
+        case "BLOCKS":
           message = `🔓 Blocking task "${task.title}" has been completed. You can proceed with task #${dependency.blockedTaskId}`;
           break;
-        case 'SEQUENTIAL':
+        case "SEQUENTIAL":
           message = `⏩ Previous task "${task.title}" completed. Task #${dependency.blockedTaskId} is next in sequence`;
           break;
-        case 'PARALLEL':
+        case "PARALLEL":
           message = `🔄 Related parallel task "${task.title}" has been completed`;
           break;
-        case 'REQUIRED':
+        case "REQUIRED":
           message = `✔️ Required task "${task.title}" has been completed`;
           break;
       }
 
       if (message) {
         const blockedTask = await this.prisma.task.findUnique({
-          where: { id: dependency.blockedTaskId }
+          where: { id: dependency.blockedTaskId },
         });
 
         if (blockedTask?.assigneeId) {
-          await this.notificationService.sendNotification(blockedTask.assigneeId, message);
+          await this.notificationService.sendNotification(
+            blockedTask.assigneeId,
+            message,
+          );
         }
       }
     }
@@ -146,15 +158,20 @@ Completion time: ${new Date().toLocaleString()}`;
     const blockedTasks = task.blocking || [];
     for (const dependency of blockedTasks) {
       const blockedTask = await this.prisma.task.findUnique({
-        where: { id: dependency.blockedTaskId }
+        where: { id: dependency.blockedTaskId },
       });
 
       if (blockedTask?.dueDate && blockedTask.assigneeId) {
-        const daysUntilDue = Math.ceil((blockedTask.dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        
+        const daysUntilDue = Math.ceil(
+          (blockedTask.dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        );
+
         if (daysUntilDue < 3 && task.status !== TaskStatus.COMPLETED) {
           const message = `⚠️ Task "${blockedTask.title}" is blocked and due in ${daysUntilDue} days`;
-          await this.notificationService.sendNotification(blockedTask.assigneeId, message);
+          await this.notificationService.sendNotification(
+            blockedTask.assigneeId,
+            message,
+          );
         }
       }
     }
@@ -163,17 +180,19 @@ Completion time: ${new Date().toLocaleString()}`;
     if (task.status === TaskStatus.BLOCKED) {
       const blockedByTasks = task.blockedBy || [];
       for (const dependency of blockedByTasks) {
-        if (dependency.dependencyType === 'BLOCKS') {
-          const daysBlocked = Math.ceil((Date.now() - task.updatedAt.getTime()) / (1000 * 60 * 60 * 24));
-          
+        if (dependency.dependencyType === "BLOCKS") {
+          const daysBlocked = Math.ceil(
+            (Date.now() - task.updatedAt.getTime()) / (1000 * 60 * 60 * 24),
+          );
+
           const blockerTask = await this.prisma.task.findUnique({
-            where: { id: dependency.blockerTaskId }
+            where: { id: dependency.blockerTaskId },
           });
-          
+
           if (daysBlocked > 7) {
             await this.notificationService.sendNotification(
               task.assigneeId,
-              `🚫 Task has been blocked for ${daysBlocked} days by "${blockerTask?.title}"`
+              `🚫 Task has been blocked for ${daysBlocked} days by "${blockerTask?.title}"`,
             );
           }
         }
@@ -190,16 +209,16 @@ Completion time: ${new Date().toLocaleString()}`;
     const impactAnalysis = {
       blockedTasksCount: 0,
       criticalPathDelay: 0,
-      affectedUsers: new Set<string>()
+      affectedUsers: new Set<string>(),
     };
 
     // Analyze impact on blocked tasks
     const blockedTasks = task.blocking || [];
     for (const dependency of blockedTasks) {
       impactAnalysis.blockedTasksCount++;
-      
+
       const blockedTask = await this.prisma.task.findUnique({
-        where: { id: dependency.blockedTaskId }
+        where: { id: dependency.blockedTaskId },
       });
 
       if (blockedTask?.assigneeId) {
@@ -207,9 +226,17 @@ Completion time: ${new Date().toLocaleString()}`;
       }
 
       // Calculate potential delays based on dependency type
-      if (dependency.dependencyType === 'BLOCKS' || dependency.dependencyType === 'SEQUENTIAL') {
-        const potentialDelay = Math.ceil((Date.now() - task.updatedAt.getTime()) / (1000 * 60 * 60 * 24));
-        impactAnalysis.criticalPathDelay = Math.max(impactAnalysis.criticalPathDelay, potentialDelay);
+      if (
+        dependency.dependencyType === "BLOCKS" ||
+        dependency.dependencyType === "SEQUENTIAL"
+      ) {
+        const potentialDelay = Math.ceil(
+          (Date.now() - task.updatedAt.getTime()) / (1000 * 60 * 60 * 24),
+        );
+        impactAnalysis.criticalPathDelay = Math.max(
+          impactAnalysis.criticalPathDelay,
+          potentialDelay,
+        );
       }
     }
 
@@ -217,12 +244,15 @@ Completion time: ${new Date().toLocaleString()}`;
     if (impactAnalysis.blockedTasksCount > 0) {
       const message = `📊 Impact Analysis for "${task.title}":
 - Blocked Tasks: ${impactAnalysis.blockedTasksCount}
-- Affected Users: ${impactAnalysis.affectedUsers.size}${impactAnalysis.criticalPathDelay > 0 ? `\n- Potential Critical Path Delay: ${impactAnalysis.criticalPathDelay} days` : ''}`;
+- Affected Users: ${impactAnalysis.affectedUsers.size}${impactAnalysis.criticalPathDelay > 0 ? `\n- Potential Critical Path Delay: ${impactAnalysis.criticalPathDelay} days` : ""}`;
 
       // Send to creator and assignee
       await this.notificationService.sendNotification(task.creatorId, message);
       if (task.assigneeId !== task.creatorId) {
-        await this.notificationService.sendNotification(task.assigneeId, message);
+        await this.notificationService.sendNotification(
+          task.assigneeId,
+          message,
+        );
       }
     }
   }

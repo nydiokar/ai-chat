@@ -1,4 +1,4 @@
-import { ReasoningStep } from './react-types.js';
+import { ReasoningStep } from "./react-types.js";
 
 /**
  * Memory entry structure for storing agent memories
@@ -19,12 +19,12 @@ export interface MemoryEntry {
  * Types of memory that can be stored
  */
 export enum MemoryType {
-  CONVERSATION = 'conversation',
-  TOOL_USAGE = 'tool_usage',
-  USER_PREFERENCE = 'user_preference',
-  FACT = 'fact',
-  THOUGHT_PROCESS = 'thought_process',
-  SYSTEM = 'system'
+  CONVERSATION = "conversation",
+  TOOL_USAGE = "tool_usage",
+  USER_PREFERENCE = "user_preference",
+  FACT = "fact",
+  THOUGHT_PROCESS = "thought_process",
+  SYSTEM = "system",
 }
 
 /**
@@ -42,8 +42,8 @@ export interface MemorySearchOptions {
   minImportance?: number;
   exactMatch?: boolean;
   metadata?: Record<string, any>;
-  sortBy?: 'timestamp' | 'importance';
-  sortDirection?: 'asc' | 'desc';
+  sortBy?: "timestamp" | "importance";
+  sortDirection?: "asc" | "desc";
 }
 
 /**
@@ -64,57 +64,71 @@ export interface MemoryProvider {
    * Initialize the memory provider
    */
   initialize(): Promise<void>;
-  
+
   /**
    * Store a memory
    */
-  store(entry: Omit<MemoryEntry, 'id' | 'timestamp'>): Promise<MemoryEntry>;
-  
+  store(entry: Omit<MemoryEntry, "id" | "timestamp">): Promise<MemoryEntry>;
+
   /**
    * Store a reasoning step in memory
    * This is the preferred method to store reasoning steps during the ReAct process
    */
-  storeThoughtProcess(reasoningStep: ReasoningStep, userId: string, metadata?: Record<string, any>): Promise<MemoryEntry>;
-  
+  storeThoughtProcess(
+    reasoningStep: ReasoningStep,
+    userId: string,
+    metadata?: Record<string, any>,
+  ): Promise<MemoryEntry>;
+
   /**
    * Retrieve memories based on search criteria
    */
   search(options: MemorySearchOptions): Promise<MemorySearchResult>;
-  
+
   /**
    * Get memory by ID
    */
   getById(id: string): Promise<MemoryEntry | null>;
-  
+
   /**
    * Update an existing memory
    */
-  update(id: string, updates: Partial<Omit<MemoryEntry, 'id'>>): Promise<MemoryEntry>;
-  
+  update(
+    id: string,
+    updates: Partial<Omit<MemoryEntry, "id">>,
+  ): Promise<MemoryEntry>;
+
   /**
    * Delete a memory by ID
    */
   delete(id: string): Promise<boolean>;
-  
+
   /**
    * Get summary of memories for a user
    * Useful for providing context to LLMs
    */
-  getSummary(userId: string, options?: Partial<MemorySearchOptions>): Promise<string>;
-  
+  getSummary(
+    userId: string,
+    options?: Partial<MemorySearchOptions>,
+  ): Promise<string>;
+
   /**
    * Clear all memories for a user
    */
   clearUserMemories(userId: string): Promise<void>;
-  
+
   /**
    * Get relevant memories for a given input/context
    * This may use semantic search or other relevance algorithms
    */
-  getRelevantMemories(input: string, userId: string, limit?: number): Promise<MemoryEntry[]>;
-  
+  getRelevantMemories(
+    input: string,
+    userId: string,
+    limit?: number,
+  ): Promise<MemoryEntry[]>;
+
   /**
    * Clean up resources when no longer needed
    */
   cleanup(): Promise<void>;
-} 
+}

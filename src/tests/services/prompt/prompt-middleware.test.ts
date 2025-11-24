@@ -1,8 +1,8 @@
 import { expect } from "chai";
-import { 
-  BehavioralPrompt, 
-  PromptType, 
-  ToolUsagePrompt 
+import {
+  BehavioralPrompt,
+  PromptType,
+  ToolUsagePrompt,
 } from "../../../types/prompts.js";
 import { PromptRepository } from "../../../services/prompt/prompt-repository.js";
 import { PromptMiddleware } from "../../../services/prompt/prompt-middleware.js";
@@ -20,23 +20,28 @@ describe("PromptMiddleware", () => {
     it("should detect tool usage requests", async () => {
       const request = "Please [Calling tool github_search with args {}]";
       const result = await middleware.processRequest(request);
-      
+
       expect(result).to.include("Tool Usage Guidelines");
-      expect(result).to.include(repository.getFallbackPrompt(PromptType.TOOL_USAGE).content);
+      expect(result).to.include(
+        repository.getFallbackPrompt(PromptType.TOOL_USAGE).content,
+      );
     });
 
     it("should detect reasoning requests", async () => {
       const request = "Can you help me understand how this algorithm works?";
       const result = await middleware.processRequest(request);
-      
+
       expect(result).to.include("Problem-Solving Approach");
-      expect(result).to.include(repository.getFallbackPrompt(PromptType.REASONING).content);
+      expect(result).to.include(
+        repository.getFallbackPrompt(PromptType.REASONING).content,
+      );
     });
 
     it("should detect complex requests with both tool usage and reasoning", async () => {
-      const request = "Can you analyze this code and [Using tool git_blame] to find who made these changes?";
+      const request =
+        "Can you analyze this code and [Using tool git_blame] to find who made these changes?";
       const result = await middleware.processRequest(request);
-      
+
       expect(result).to.include("Tool Usage Guidelines");
       expect(result).to.include("Problem-Solving Approach");
     });
@@ -44,9 +49,11 @@ describe("PromptMiddleware", () => {
     it("should always include behavioral prompts", async () => {
       const request = "Simple request";
       const result = await middleware.processRequest(request);
-      
+
       expect(result).to.include("Behavior and Communication");
-      expect(result).to.include(repository.getFallbackPrompt(PromptType.BEHAVIORAL).content);
+      expect(result).to.include(
+        repository.getFallbackPrompt(PromptType.BEHAVIORAL).content,
+      );
     });
   });
 
@@ -60,9 +67,9 @@ describe("PromptMiddleware", () => {
         tone: "technical",
         style: {
           formatting: "concise",
-          language: "formal"
+          language: "formal",
         },
-        shouldApply: () => true
+        shouldApply: () => true,
       };
 
       const toolUsage: ToolUsagePrompt = {
@@ -72,9 +79,9 @@ describe("PromptMiddleware", () => {
         tools: ["test"],
         usagePatterns: {
           bestPractices: [],
-          commonErrors: []
+          commonErrors: [],
         },
-        shouldApply: () => true
+        shouldApply: () => true,
       };
 
       repository.addPrompt(behavioral);
@@ -82,11 +89,11 @@ describe("PromptMiddleware", () => {
 
       const request = "[Using tool test] with some parameters";
       const result = await middleware.processRequest(request);
-      
+
       // Check ordering and sections
       const behaviorIndex = result.indexOf("Behavior and Communication");
       const toolUsageIndex = result.indexOf("Tool Usage Guidelines");
-      
+
       expect(behaviorIndex).to.be.greaterThan(-1);
       expect(toolUsageIndex).to.be.greaterThan(-1);
       expect(behaviorIndex).to.be.lessThan(toolUsageIndex);
@@ -96,7 +103,9 @@ describe("PromptMiddleware", () => {
   describe("Error Handling", () => {
     it("should handle empty requests", async () => {
       const result = await middleware.processRequest("");
-      expect(result).to.include(repository.getFallbackPrompt(PromptType.BEHAVIORAL).content);
+      expect(result).to.include(
+        repository.getFallbackPrompt(PromptType.BEHAVIORAL).content,
+      );
     });
 
     it("should use fallbacks when no prompts match", async () => {
@@ -108,15 +117,17 @@ describe("PromptMiddleware", () => {
         tone: "professional",
         style: {
           formatting: "concise",
-          language: "formal"
+          language: "formal",
         },
-        shouldApply: () => false
+        shouldApply: () => false,
       };
 
       repository.addPrompt(customPrompt);
-      
+
       const result = await middleware.processRequest("test request");
-      expect(result).to.include(repository.getFallbackPrompt(PromptType.BEHAVIORAL).content);
+      expect(result).to.include(
+        repository.getFallbackPrompt(PromptType.BEHAVIORAL).content,
+      );
     });
   });
 });

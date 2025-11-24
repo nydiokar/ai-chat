@@ -59,14 +59,53 @@ jobs:
           echo "✅ No high/critical security vulnerabilities found"
         fi
 
-    - name: Validate commit messages
+    - name: PR Quality Analysis
       if: github.event_name == 'pull_request'
       run: |
-        # Check if PR title follows conventional commit format
+        echo "🔍 Analyzing pull request quality..."
+
         PR_TITLE="${{ github.event.pull_request.title }}"
-        if echo "$PR_TITLE" | grep -E "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,}"; then
+        PR_BODY="${{ github.event.pull_request.body }}"
+        CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | wc -l)
+
+        echo "📋 PR Analysis:"
+        echo "   • Title: $PR_TITLE"
+        echo "   • Files changed: $CHANGED_FILES"
+
+        # Check PR title format
+        if echo "$PR_TITLE" | grep -E "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,}" >/dev/null; then
           echo "✅ PR title follows conventional commit format"
         else
-          echo "⚠️  PR title should follow conventional commit format: 'type(scope): description'"
-          echo "Examples: 'feat: add new feature', 'fix: resolve bug', 'docs: update README'"
+          echo "💡 PR title suggestion (conventional commits):"
+          echo "   Format: type(scope): description"
+          echo "   Examples:"
+          echo "     • feat: add user authentication"
+          echo "     • fix: resolve memory leak in service"
+          echo "     • docs: update API documentation"
+          echo "     • refactor: simplify error handling"
+        fi
+
+        # Check PR description
+        if [ ${#PR_BODY} -gt 10 ]; then
+          echo "✅ PR has description"
+        else
+          echo "💡 Consider adding a description explaining the changes"
+        fi
+
+        # Analyze changed files
+        if [ "$CHANGED_FILES" -gt 50 ]; then
+          echo "⚠️  Large PR detected ($CHANGED_FILES files)"
+          echo "💡 Consider breaking into smaller, focused PRs"
+        elif [ "$CHANGED_FILES" -eq 1 ]; then
+          echo "✅ Small, focused PR (1 file changed)"
+        else
+          echo "ℹ️  Medium PR ($CHANGED_FILES files)"
+        fi
+
+        # Check for test changes
+        TEST_CHANGES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -c "\.test\.\|\.spec\.\|__tests__" || echo "0")
+        if [ "$TEST_CHANGES" -gt 0 ]; then
+          echo "✅ Includes test changes ($TEST_CHANGES test files)"
+        else
+          echo "💡 Consider adding tests for your changes"
         fi

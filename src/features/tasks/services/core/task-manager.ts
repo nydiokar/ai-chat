@@ -1,6 +1,6 @@
-import { TaskRepository } from '../../../tasks/task-repository.js'; 
+import { TaskRepository } from "../../../tasks/task-repository.js";
 
-import { debug } from '../../../../config.js';
+import { debug } from "../../../../config.js";
 import {
   CreateTaskDTO,
   UpdateTaskDTO,
@@ -10,26 +10,29 @@ import {
   TaskListResult,
   UserTasks,
   TaskHistoryAction,
-} from '../../types/task.js';
+} from "../../types/task.js";
 
 export class TaskManagerError extends Error {
-  constructor(message: string, public cause?: Error) {
+  constructor(
+    message: string,
+    public cause?: Error,
+  ) {
     super(message);
-    this.name = 'TaskManagerError';
+    this.name = "TaskManagerError";
   }
 }
 
 export class TaskNotFoundError extends TaskManagerError {
   constructor(taskId: number) {
     super(`Task ${taskId} not found`);
-    this.name = 'TaskNotFoundError';
+    this.name = "TaskNotFoundError";
   }
 }
 
 export class UnauthorizedTaskActionError extends TaskManagerError {
-  constructor(message: string = 'User not authorized for this action') {
+  constructor(message: string = "User not authorized for this action") {
     super(message);
-    this.name = 'UnauthorizedTaskActionError';
+    this.name = "UnauthorizedTaskActionError";
   }
 }
 
@@ -50,9 +53,9 @@ export class TaskManager {
 
   async createTask(taskData: CreateTaskDTO): Promise<TaskWithRelations> {
     try {
-      debug('Creating task through TaskManager');
+      debug("Creating task through TaskManager");
       const task = await this.taskRepository.createTask(taskData);
-      
+
       // Add creation history
       await this.taskRepository.addTaskHistory({
         taskId: task.id,
@@ -62,13 +65,13 @@ export class TaskManager {
           title: task.title,
           description: task.description,
           status: task.status,
-          priority: task.priority
-        })
+          priority: task.priority,
+        }),
       });
 
       return task;
     } catch (error) {
-      throw new TaskManagerError('Failed to create task', error as Error);
+      throw new TaskManagerError("Failed to create task", error as Error);
     }
   }
 
@@ -81,18 +84,22 @@ export class TaskManager {
    * @throws {UnauthorizedTaskActionError} If the user isn't authorized
    * @returns {Promise<TaskWithRelations>} The updated task
    */
-  async updateTaskStatus(taskId: number, status: TaskStatus, userId: string): Promise<TaskWithRelations> {
+  async updateTaskStatus(
+    taskId: number,
+    status: TaskStatus,
+    userId: string,
+  ): Promise<TaskWithRelations> {
     try {
       debug(`Updating task ${taskId} status to ${status}`);
       const task = await this.taskRepository.getTask(taskId);
-      
+
       if (!task) {
         throw new TaskManagerError(`Task ${taskId} not found`);
       }
 
       // Verify user has permission to update the task
       if (task.creatorId !== userId && task.assigneeId !== userId) {
-        throw new TaskManagerError('User not authorized to update this task');
+        throw new TaskManagerError("User not authorized to update this task");
       }
 
       // Add completion date if task is being marked as completed
@@ -106,42 +113,54 @@ export class TaskManager {
         userId,
         action: TaskHistoryAction.STATUS_CHANGED,
         oldValue: task.status,
-        newValue: status
+        newValue: status,
       });
 
       return await this.taskRepository.updateTask(taskId, updateData);
     } catch (error) {
-      throw new TaskManagerError(`Failed to update task status: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to update task status: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 
-  async assignTask(taskId: number, assigneeId: string, userId: string): Promise<TaskWithRelations> {
+  async assignTask(
+    taskId: number,
+    assigneeId: string,
+    userId: string,
+  ): Promise<TaskWithRelations> {
     try {
       debug(`Assigning task ${taskId} to user ${assigneeId}`);
       const task = await this.taskRepository.getTask(taskId);
-      
+
       if (!task) {
         throw new TaskManagerError(`Task ${taskId} not found`);
       }
 
       // Verify user has permission to assign the task
       if (task.creatorId !== userId) {
-        throw new TaskManagerError('Only task creator can assign tasks');
+        throw new TaskManagerError("Only task creator can assign tasks");
       }
 
       // Add assignment history
-      const action = assigneeId ? TaskHistoryAction.ASSIGNED : TaskHistoryAction.UNASSIGNED;
+      const action = assigneeId
+        ? TaskHistoryAction.ASSIGNED
+        : TaskHistoryAction.UNASSIGNED;
       await this.taskRepository.addTaskHistory({
         taskId,
         userId,
         action,
-        oldValue: task.assigneeId || 'unassigned',
-        newValue: assigneeId || 'unassigned'
+        oldValue: task.assigneeId || "unassigned",
+        newValue: assigneeId || "unassigned",
       });
 
       return await this.taskRepository.updateTask(taskId, { assigneeId });
     } catch (error) {
-      throw new TaskManagerError(`Failed to assign task: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to assign task: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 
@@ -149,23 +168,29 @@ export class TaskManager {
     try {
       debug(`Getting details for task ${taskId}`);
       const task = await this.taskRepository.getTask(taskId);
-      
+
       if (!task) {
         throw new TaskManagerError(`Task ${taskId} not found`);
       }
 
       return task;
     } catch (error) {
-      throw new TaskManagerError(`Failed to get task details: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to get task details: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 
   async listTasks(filters: TaskFilters): Promise<TaskListResult> {
     try {
-      debug('Listing tasks with filters');
+      debug("Listing tasks with filters");
       return await this.taskRepository.listTasks(filters);
     } catch (error) {
-      throw new TaskManagerError(`Failed to list tasks: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to list tasks: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 
@@ -174,7 +199,10 @@ export class TaskManager {
       debug(`Getting tasks for user ${userId}`);
       return await this.taskRepository.getTasksByUser(userId);
     } catch (error) {
-      throw new TaskManagerError(`Failed to get user tasks: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to get user tasks: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 
@@ -182,7 +210,7 @@ export class TaskManager {
     try {
       debug(`Deleting task ${taskId}`);
       const task = await this.taskRepository.getTask(taskId);
-      
+
       if (!task) {
         throw new TaskNotFoundError(taskId);
       }
@@ -200,13 +228,16 @@ export class TaskManager {
         oldValue: JSON.stringify({
           title: task.title,
           status: task.status,
-          assignee: task.assigneeId
-        })
+          assignee: task.assigneeId,
+        }),
       });
 
       await this.taskRepository.deleteTask(taskId);
     } catch (error) {
-      throw new TaskManagerError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error'}`, error as Error);
+      throw new TaskManagerError(
+        `Failed to delete task: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error as Error,
+      );
     }
   }
 }

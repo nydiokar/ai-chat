@@ -1,6 +1,6 @@
-import { createHash } from 'crypto';
-import { DatabaseService } from '../db-service.js';
-import { debug } from '../../utils/logger.js';
+import { createHash } from "crypto";
+import { DatabaseService } from "../db-service.js";
+import { debug } from "../../utils/logger.js";
 
 interface QueryMonitoringData {
   queryString: string;
@@ -41,17 +41,25 @@ export class QueryOptimizationService {
     // Note: Prisma v6 no longer supports middleware via $use()
     // Query optimization now relies on manual tracking and caching
     // Consider using query extensions or manual operation wrapping for future enhancements
-    debug('Query optimization initialized without middleware (Prisma v6 compatibility)');
+    debug(
+      "Query optimization initialized without middleware (Prisma v6 compatibility)",
+    );
   }
 
   private generateQueryHash(queryString: string, params?: any): string {
     const content = JSON.stringify({ query: queryString, params });
-    return createHash('sha256').update(content).digest('hex');
+    return createHash("sha256").update(content).digest("hex");
   }
 
-  private async trackQueryMetrics(monitoring: QueryMonitoringData): Promise<void> {
-    const executionTime = monitoring.endTime!.getTime() - monitoring.startTime.getTime();
-    const queryHash = this.generateQueryHash(monitoring.queryString, monitoring.params);
+  private async trackQueryMetrics(
+    monitoring: QueryMonitoringData,
+  ): Promise<void> {
+    const executionTime =
+      monitoring.endTime!.getTime() - monitoring.startTime.getTime();
+    const queryHash = this.generateQueryHash(
+      monitoring.queryString,
+      monitoring.params,
+    );
 
     await this.dbService.prisma.queryMetrics.create({
       data: {
@@ -66,7 +74,7 @@ export class QueryOptimizationService {
 
   async getCachedResult<T>(
     queryHash: string,
-    queryFn: () => Promise<T>
+    queryFn: () => Promise<T>,
   ): Promise<T> {
     const cached = this.queryCache.get(queryHash);
     const now = Date.now();
@@ -78,7 +86,7 @@ export class QueryOptimizationService {
 
     await this.updateCacheMetrics(queryHash, false);
     const result = await queryFn();
-    
+
     // Cache the new result
     this.queryCache.set(queryHash, {
       data: result,
@@ -87,8 +95,9 @@ export class QueryOptimizationService {
 
     // Cleanup old cache entries if needed
     if (this.queryCache.size > this.cacheConfig.maxSize) {
-      const oldestKey = [...this.queryCache.entries()]
-        .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
+      const oldestKey = [...this.queryCache.entries()].sort(
+        (a, b) => a[1].timestamp - b[1].timestamp,
+      )[0][0];
       this.queryCache.delete(oldestKey);
     }
 
@@ -104,12 +113,14 @@ export class QueryOptimizationService {
     });
   }
 
-  async getQueryMetrics(options: {
-    startDate?: Date;
-    endDate?: Date;
-    minExecutionTime?: number;
-    limit?: number;
-  } = {}): Promise<any> {
+  async getQueryMetrics(
+    options: {
+      startDate?: Date;
+      endDate?: Date;
+      minExecutionTime?: number;
+      limit?: number;
+    } = {},
+  ): Promise<any> {
     const {
       startDate = new Date(0),
       endDate = new Date(),
@@ -128,13 +139,16 @@ export class QueryOptimizationService {
         },
       },
       orderBy: {
-        executionTime: 'desc',
+        executionTime: "desc",
       },
       take: limit,
     });
   }
 
-  async getSlowQueries(threshold: number = 1000, limit: number = 10): Promise<any> {
+  async getSlowQueries(
+    threshold: number = 1000,
+    limit: number = 10,
+  ): Promise<any> {
     return this.getQueryMetrics({
       minExecutionTime: threshold,
       limit,
@@ -148,7 +162,7 @@ export class QueryOptimizationService {
     averageAccessTime: number;
   }> {
     const metrics = await this.dbService.prisma.cacheMetrics.findMany();
-    
+
     const totalHits = metrics.reduce((sum, metric) => sum + metric.hits, 0);
     const totalMisses = metrics.reduce((sum, metric) => sum + metric.misses, 0);
     const total = totalHits + totalMisses;
@@ -157,9 +171,11 @@ export class QueryOptimizationService {
       totalEntries: this.queryCache.size,
       hitRate: total > 0 ? (totalHits / total) * 100 : 0,
       missRate: total > 0 ? (totalMisses / total) * 100 : 0,
-      averageAccessTime: metrics.length > 0 
-        ? metrics.reduce((sum, m) => sum + (m.hits + m.misses), 0) / metrics.length
-        : 0,
+      averageAccessTime:
+        metrics.length > 0
+          ? metrics.reduce((sum, m) => sum + (m.hits + m.misses), 0) /
+            metrics.length
+          : 0,
     };
   }
 

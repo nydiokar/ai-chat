@@ -1,6 +1,6 @@
 // Quick test script for the ReActStepParser and ReActToolHandler components
-import { ReActStepParser } from '../agents/react-step-parser.js';
-import { ReActToolHandler } from '../agents/react-tool-handler.js';
+import { ReActStepParser } from "../agents/react-step-parser.js";
+import { ReActToolHandler } from "../agents/react-tool-handler.js";
 
 console.log("=======================================");
 console.log("Testing ReAct components");
@@ -40,21 +40,24 @@ console.log("\n\nTesting ReActToolHandler components...");
 const mockToolManager = {
   getAvailableTools: async () => [
     {
-      name: 'test_tool',
-      description: 'A test tool',
+      name: "test_tool",
+      description: "A test tool",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
-          query: { type: 'string' }
+          query: { type: "string" },
         },
-        required: ['query']
-      }
-    }
+        required: ["query"],
+      },
+    },
   ],
-  executeTool: async (name, args) => ({ success: true, data: `Result for ${name} with args ${JSON.stringify(args)}` }),
+  executeTool: async (name, args) => ({
+    success: true,
+    data: `Result for ${name} with args ${JSON.stringify(args)}`,
+  }),
   registerTool: async () => true,
   getToolByName: async () => null,
-  refreshToolInformation: async () => {}
+  refreshToolInformation: async () => {},
 };
 
 // Create a mock tool executor
@@ -62,8 +65,8 @@ const mockToolExecutor = {
   execute: async (config, registry, context) => ({
     success: true,
     data: "Test execution result",
-    metadata: { executionTime: 100, toolName: 'test_tool' }
-  })
+    metadata: { executionTime: 100, toolName: "test_tool" },
+  }),
 };
 
 // Create tool handler instance
@@ -74,7 +77,11 @@ const observation = handler.createObservationStep("Test observation result");
 console.log("\nObservation step result:");
 console.log(JSON.stringify(observation, null, 2));
 
-if (observation && observation.observation && observation.observation.result === "Test observation result") {
+if (
+  observation &&
+  observation.observation &&
+  observation.observation.result === "Test observation result"
+) {
   console.log("\n✅ Observation step creation successful!");
 } else {
   console.log("\n❌ Observation step creation failed!");
@@ -82,8 +89,12 @@ if (observation && observation.observation && observation.observation.result ===
 
 // Test tool result formatting
 const formattedResult = handler.formatToolResult(
-  { success: true, data: "Test formatted result", metadata: { executionTime: 100, toolName: 'test_tool' } },
-  { tool: "test_tool", params: { query: "test query" } }
+  {
+    success: true,
+    data: "Test formatted result",
+    metadata: { executionTime: 100, toolName: "test_tool" },
+  },
+  { tool: "test_tool", params: { query: "test query" } },
 );
 
 console.log("\nFormatted tool result:");
@@ -97,4 +108,4 @@ if (formattedResult && formattedResult.includes("Test formatted result")) {
 
 console.log("\n=======================================");
 console.log("Components test completed");
-console.log("======================================="); 
+console.log("=======================================");

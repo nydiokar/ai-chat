@@ -10,35 +10,43 @@ export interface RequestAnalysisResult {
 }
 
 export class PromptMiddleware {
-  private readonly toolPattern = /\[(Calling tool|Using tool|Execute tool|Run tool)\s+(\w+)\s*]/i;
+  private readonly toolPattern =
+    /\[(Calling tool|Using tool|Execute tool|Run tool)\s+(\w+)\s*]/i;
   private readonly reasoningPatterns = [
     /how|why|explain|analyze|compare|evaluate|solve/i,
     /what (is|are) the (reasons|benefits|drawbacks|implications)/i,
-    /can you (help|assist) .* (understand|figure out|determine)/i
+    /can you (help|assist) .* (understand|figure out|determine)/i,
   ];
 
   constructor(private promptRepository: PromptRepository) {}
 
   private extractTools(request: string): string[] {
-    return request.match(/\b(tool|using|execute|run)\s+(\w+)/gi)
-      ?.map(match => match.split(/\s+/).pop() as string)
-      .filter(Boolean) ?? [];
+    return (
+      request
+        .match(/\b(tool|using|execute|run)\s+(\w+)/gi)
+        ?.map((match) => match.split(/\s+/).pop() as string)
+        .filter(Boolean) ?? []
+    );
   }
 
   private calculateComplexity(
     request: string,
     hasToolUsage: boolean,
     hasReasoning: boolean,
-    tools: string[]
+    tools: string[],
   ): "low" | "medium" | "high" {
     const metrics = {
       length: request.length,
       conditions: (request.match(/\band\b|\bor\b|\bbut\b/g) ?? []).length,
       tools: tools.length,
-      hasComplexPatterns: hasReasoning && hasToolUsage
+      hasComplexPatterns: hasReasoning && hasToolUsage,
     };
 
-    if (metrics.length > 500 || metrics.tools > 4 || metrics.hasComplexPatterns) {
+    if (
+      metrics.length > 500 ||
+      metrics.tools > 4 ||
+      metrics.hasComplexPatterns
+    ) {
       return "high";
     }
     if (metrics.length > 200 || metrics.conditions > 3 || metrics.tools > 2) {
@@ -49,18 +57,31 @@ export class PromptMiddleware {
 
   private analyzeRequest(request: string): RequestAnalysisResult {
     const hasToolUsage = this.toolPattern.test(request);
-    const hasReasoning = this.reasoningPatterns.some(pattern => pattern.test(request));
+    const hasReasoning = this.reasoningPatterns.some((pattern) =>
+      pattern.test(request),
+    );
     const tools = this.extractTools(request);
-    const complexity = this.calculateComplexity(request, hasToolUsage, hasReasoning, tools);
+    const complexity = this.calculateComplexity(
+      request,
+      hasToolUsage,
+      hasReasoning,
+      tools,
+    );
 
     return {
-      type: hasToolUsage ? "tool_usage" : hasReasoning ? "reasoning" : "general",
+      type: hasToolUsage
+        ? "tool_usage"
+        : hasReasoning
+          ? "reasoning"
+          : "general",
       complexity,
-      tools: tools.length > 0 ? tools : undefined
+      tools: tools.length > 0 ? tools : undefined,
     };
   }
 
-  async analyzeRequestType(request: string): Promise<"tool_usage" | "reasoning" | "general"> {
+  async analyzeRequestType(
+    request: string,
+  ): Promise<"tool_usage" | "reasoning" | "general"> {
     return this.analyzeRequest(request).type;
   }
 
@@ -73,13 +94,16 @@ export class PromptMiddleware {
    */
   private combinePrompts(prompts: BasePrompt[]): string {
     // Group prompts by type to ensure logical ordering
-    const grouped = prompts.reduce((acc, prompt) => {
-      if (!acc[prompt.type]) {
-        acc[prompt.type] = [];
-      }
-      acc[prompt.type].push(prompt);
-      return acc;
-    }, {} as Record<string, BasePrompt[]>);
+    const grouped = prompts.reduce(
+      (acc, prompt) => {
+        if (!acc[prompt.type]) {
+          acc[prompt.type] = [];
+        }
+        acc[prompt.type].push(prompt);
+        return acc;
+      },
+      {} as Record<string, BasePrompt[]>,
+    );
 
     const sections: string[] = [];
 
@@ -87,7 +111,7 @@ export class PromptMiddleware {
     if (grouped["behavioral"]) {
       sections.push(
         "# Behavior and Communication",
-        ...grouped["behavioral"].map(p => p.content)
+        ...grouped["behavioral"].map((p) => p.content),
       );
     }
 
@@ -95,7 +119,7 @@ export class PromptMiddleware {
     if (grouped["tool_usage"]) {
       sections.push(
         "# Tool Usage Guidelines",
-        ...grouped["tool_usage"].map(p => p.content)
+        ...grouped["tool_usage"].map((p) => p.content),
       );
     }
 
@@ -103,7 +127,7 @@ export class PromptMiddleware {
     if (grouped["reasoning"]) {
       sections.push(
         "# Problem-Solving Approach",
-        ...grouped["reasoning"].map(p => p.content)
+        ...grouped["reasoning"].map((p) => p.content),
       );
     }
 
@@ -113,13 +137,16 @@ export class PromptMiddleware {
   /**
    * Process a request and generate appropriate prompts
    */
-  async processRequest(request: string, context?: PromptContext): Promise<string> {
+  async processRequest(
+    request: string,
+    context?: PromptContext,
+  ): Promise<string> {
     try {
       // If no context provided, analyze the request
       const requestContext = context || {
-        requestType: (await this.analyzeRequestType(request)),
-        complexity: (await this.analyzeComplexity(request)),
-        tools: this.analyzeRequest(request).tools
+        requestType: await this.analyzeRequestType(request),
+        complexity: await this.analyzeComplexity(request),
+        tools: this.analyzeRequest(request).tools,
       };
 
       // Get applicable prompts
@@ -131,8 +158,10 @@ export class PromptMiddleware {
         prompts = [
           this.promptRepository.getFallbackPrompt(PromptType.BEHAVIORAL),
           this.promptRepository.getFallbackPrompt(
-            requestContext.requestType === "tool_usage" ? PromptType.TOOL_USAGE : PromptType.REASONING
-          )
+            requestContext.requestType === "tool_usage"
+              ? PromptType.TOOL_USAGE
+              : PromptType.REASONING,
+          ),
         ];
       }
 
@@ -141,7 +170,8 @@ export class PromptMiddleware {
     } catch (error) {
       console.error("Error in prompt middleware:", error);
       // Return a safe fallback prompt in case of errors
-      return this.promptRepository.getFallbackPrompt(PromptType.BEHAVIORAL).content;
+      return this.promptRepository.getFallbackPrompt(PromptType.BEHAVIORAL)
+        .content;
     }
   }
 }
