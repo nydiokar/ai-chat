@@ -6,7 +6,7 @@ import { getLogger } from '../utils/shared-logger.js';
 import type { Logger } from 'winston';
 import { ReasoningStep } from '../interfaces/react-types.js';
 import { PromptRepository } from '../services/prompt/prompt-repository.js';
-import { BasePrompt, PromptContext, PromptType, ReasoningPrompt, ToolUsagePrompt } from '../types/prompts.js';
+import { PromptContext, PromptType, ReasoningPrompt, ToolUsagePrompt } from '../types/prompts.js';
 import { ToolFormatter } from '../tools/tool-formatter.js';
 
 /**

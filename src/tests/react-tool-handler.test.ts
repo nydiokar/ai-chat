@@ -5,7 +5,6 @@ import { ReActToolHandler } from '../agents/react-tool-handler.js';
 import { ToolExecutionResult } from '../tools/tool-chain/tool-chain-executor.js';
 import { ReasoningStep } from '../interfaces/react-types.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
-import { ToolDefinition, ToolResponse } from '../tools/mcp/types/tools.js';
 
 describe('ReActToolHandler', () => {
   let toolHandler: ReActToolHandler;

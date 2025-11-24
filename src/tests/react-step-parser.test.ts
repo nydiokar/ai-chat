@@ -1,7 +1,6 @@
 import { describe, it, beforeEach } from 'mocha';
 import { expect } from 'chai';
 import { ReActStepParser } from '../agents/react-step-parser.js';
-import { ReasoningStep } from '../interfaces/react-types.js';
 
 describe('ReActStepParser', () => {
   let parser: ReActStepParser;

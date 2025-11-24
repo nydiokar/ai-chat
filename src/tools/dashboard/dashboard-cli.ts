@@ -4,7 +4,6 @@
  * Command-line tool to display basic MCP status
  */
 
-import { Container } from 'inversify';
 import { BaseServerManager } from '../mcp/base/base-server-manager.js';
 import { MCPContainer } from '../mcp/di/container.js';
 import { ServerState } from '../mcp/types/server.js';

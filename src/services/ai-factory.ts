@@ -1,6 +1,5 @@
 import { Agent } from '../interfaces/base-agent.js';
 import { OpenAIProvider } from '../providers/openai.js';
-import { ReActAgent } from '../agents/react-agent.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer, MCPConfig } from '../tools/mcp/di/container.js';
 import { MCPError, ErrorType } from '../types/errors.js';
@@ -9,7 +8,7 @@ import { createLogContext, createErrorContext } from '../utils/log-utils.js';
 import { mcpConfig } from '../mcp_config.js';
 import { defaultConfig } from '../utils/config.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
-import { MemoryProvider, MemoryType } from '../interfaces/memory-provider.js';
+import { MemoryProvider } from '../interfaces/memory-provider.js';
 import { AgentFactory } from '../agents/agent-factory.js';
 import { PromptRepository } from '../services/prompt/prompt-repository.js';
 

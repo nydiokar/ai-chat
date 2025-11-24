@@ -1,7 +1,6 @@
 import { PulseAPIService, PulseMCPServer } from './pulse-api-service.js';
 import { MCPConfig } from '../../../tools/mcp/di/container.js';
 import { ServerConfig } from '../../../tools/mcp/types/server.js';
-import path from 'path';
 import { GitRepoLoader } from './git-repo-loader.js';
 
 export class PulseMCPManager {

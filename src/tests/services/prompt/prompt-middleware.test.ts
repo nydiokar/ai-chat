@@ -2,8 +2,7 @@ import { expect } from "chai";
 import { 
   BehavioralPrompt, 
   PromptType, 
-  ToolUsagePrompt, 
-  ReasoningPrompt 
+  ToolUsagePrompt 
 } from "../../../types/prompts.js";
 import { PromptRepository } from "../../../services/prompt/prompt-repository.js";
 import { PromptMiddleware } from "../../../services/prompt/prompt-middleware.js";

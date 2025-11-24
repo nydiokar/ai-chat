@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { describe, it, beforeEach, afterEach } from 'mocha';
+import { describe, it, beforeEach } from 'mocha';
 import sinon from 'sinon';
 import { BaseMCPClient } from '../../../tools/mcp/base/base-mcp-client.js';
 import { ServerConfig } from '../../../tools/mcp/types/server.js';

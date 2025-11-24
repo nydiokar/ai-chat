@@ -1,4 +1,3 @@
-import { ThoughtProcess } from './base-agent.js';
 import { ReasoningStep } from './react-types.js';
 
 /**

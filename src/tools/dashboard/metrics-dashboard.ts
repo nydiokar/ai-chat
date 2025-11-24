@@ -1,9 +1,7 @@
 import { EventEmitter } from 'events';
 import { IServerManager } from '../mcp/interfaces/core.js';
-import { EnhancedMCPClient } from '../mcp/enhanced/enhanced-mcp-client.js';
 import { Server, ServerState } from '../mcp/types/server.js';
 import { ClientMetrics, ServerMetrics } from '../mcp/types/metrics.js';
-import { MCPErrorRecord } from '../mcp/types/errors.js';
 
 /**
  * Dashboard service that collects and exposes metrics from all servers and clients

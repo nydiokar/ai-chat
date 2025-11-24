@@ -5,10 +5,8 @@ import { TaskRepository } from '../../features/tasks/task-repository.js';
 import { RecurrencePatternService } from '../../features/tasks/recurrence-pattern.service.js';
 import { 
   TaskWithRelations, 
-  RecurrencePattern, 
   RecurrenceType, 
   TaskStatus,
-  TaskHistoryAction,
   CreateTaskDTO,
   TaskPriority
 } from '../../types/task.js';

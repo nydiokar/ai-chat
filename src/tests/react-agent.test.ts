@@ -4,8 +4,6 @@ import { ReActAgent } from '../agents/react-agent.js';
 import { ReActPromptGenerator } from '../prompt/react-prompt-generator.js';
 import { MCPContainer } from '../tools/mcp/di/container.js';
 import { AgentFactory } from '../agents/agent-factory.js';
-import { ReActEngine } from '../agents/react-engine.js';
-import { ToolChainExecutor } from '../tools/tool-chain/tool-chain-executor.js';
 import sinon from 'sinon';
 
 describe('ReActAgent', () => {

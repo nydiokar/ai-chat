@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { ChatInputCommandInteraction, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, MessageActionRowComponentBuilder, StringSelectMenuOptionBuilder, Message, ComponentType, MessageComponentInteraction } from 'discord.js';
+import { ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageActionRowComponentBuilder } from 'discord.js';
 import { PulseMCPManager } from '../services/pulse-mcp-manager.js';
 import { PulseMCPServer } from '../services/pulse-api-service.js';
 import fs from 'fs/promises';

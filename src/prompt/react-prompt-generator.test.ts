@@ -2,7 +2,6 @@ import { expect } from 'chai';
 import { describe, it, beforeEach } from 'mocha';
 import sinon from 'sinon';
 import { ReActPromptGenerator } from './react-prompt-generator.js';
-import { ToolFormatter } from '../tools/tool-formatter.js';
 import { IToolManager } from '../tools/mcp/interfaces/core.js';
 import { ToolDefinition } from '../tools/mcp/types/tools.js';
 import { ReasoningStep } from '../interfaces/react-types.js';

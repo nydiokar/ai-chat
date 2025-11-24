@@ -1,4 +1,4 @@
-import { AIModel, Model } from './types/index.js';
+import { AIModel } from './types/index.js';
 
 // Base configuration interface
 export interface BaseConfig {

@@ -2,7 +2,6 @@ import { expect } from 'chai';
 import { describe, it, beforeEach } from 'mocha';
 import { ToolFormatter } from '../../tools/tool-formatter.js';
 import { ToolDefinition } from '../../tools/mcp/types/tools.js';
-import { ReasoningStep } from '../../interfaces/react-types.js';
 import { ToolExecutionResult } from '../../tools/tool-chain/tool-chain-executor.js';
 
 describe('ToolFormatter', () => {

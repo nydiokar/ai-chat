@@ -5,12 +5,11 @@
  * GitHub repositories. This allows for dynamic loading without requiring application restarts.
  */
 
-import { exec, execSync } from 'child_process';
+import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { PulseMCPServer } from './pulse-api-service.js';
 import { ServerConfig } from '../../../tools/mcp/types/server.js';
-import { clearRequireCache } from './module-utils.js';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);

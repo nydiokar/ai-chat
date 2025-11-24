@@ -1,4 +1,3 @@
-import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import { DatabaseService } from '../db-service.js';
 import { debug } from '../../utils/logger.js';

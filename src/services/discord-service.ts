@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, Message as DiscordMessage, TextChannel, Message, REST, Routes } from 'discord.js';
 import { DatabaseService } from './db-service.js';
-import { AIModel, MessageRole, Message as DBMessage, Role, Model } from '../types/index.js';
+import { AIModel, MessageRole, Model } from '../types/index.js';
 import { AIFactory } from './ai-factory.js';
 import { defaultConfig } from '../utils/config.js';
 import { debug, error as logError } from '../utils/logger.js';

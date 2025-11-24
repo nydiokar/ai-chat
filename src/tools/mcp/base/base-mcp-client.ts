@@ -4,11 +4,10 @@ import { ServerConfig } from '../types/server.js';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCPError } from '../types/errors.js';
-import { injectable, inject } from 'inversify';
+import { injectable } from 'inversify';
 import { 
     CallToolResultSchema,
-    ListToolsResultSchema,
-    ListResourcesResultSchema
+    ListToolsResultSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { 
     Resource, 

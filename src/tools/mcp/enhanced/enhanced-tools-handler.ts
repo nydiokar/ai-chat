@@ -1,10 +1,10 @@
 import { BaseToolManager } from '../base/base-tool-manager.js';
-import { ToolDefinition, ToolResponse, ToolHandler, ToolUsage, ToolContext, ToolAnalytics } from '../types/tools.js';
+import { ToolDefinition, ToolResponse, ToolUsage, ToolContext, ToolAnalytics } from '../types/tools.js';
 import { EventEmitter } from 'events';
 import { inject, injectable } from 'inversify';
 import { Container } from 'inversify';
 import { ServerConfig } from '../types/server.js';
-import { MCPError, ErrorType } from '../types/errors.js';
+import { MCPError } from '../types/errors.js';
 import { EnhancedMCPClient } from './enhanced-mcp-client.js';
 import { info, warn, error, debug } from '../../../utils/logger.js';
 import { createLogContext, createErrorContext } from '../../../utils/log-utils.js';

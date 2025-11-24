@@ -7,9 +7,9 @@
 
 import dotenv from 'dotenv';
 import { createLogContext, createErrorContext } from '../../utils/log-utils.js';
-import { MCPContainer, MCPConfig } from '../mcp/di/container.js';
+import { MCPContainer } from '../mcp/di/container.js';
 import { getLogger } from '../../utils/shared-logger.js';
-import { error, info } from '../../utils/logger.js';
+import { error } from '../../utils/logger.js';
 import { mcpConfig } from '../../mcp_config.js';
 import { fileURLToPath } from 'url';
 
