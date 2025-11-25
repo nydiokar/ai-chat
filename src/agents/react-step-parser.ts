@@ -49,6 +49,28 @@ export class ReActStepParser {
           }
 
           if (parsed.action) {
+            // VALIDATE AND NORMALIZE params to ensure it's always an object
+            if (parsed.action.params) {
+              if (Array.isArray(parsed.action.params)) {
+                // Try to intelligently convert array to object
+                if (parsed.action.params.length === 1 && typeof parsed.action.params[0] === 'object') {
+                  // Unwrap single object from array
+                  parsed.action.params = parsed.action.params[0];
+                  this.logger.warn(`Params array unwrapped for ${parsed.action.tool}`);
+                } else {
+                  // Create object with array as value (fallback)
+                  const originalParams = parsed.action.params;
+                  parsed.action.params = { values: originalParams };
+                  this.logger.warn(`Params array wrapped for ${parsed.action.tool}`);
+                }
+              } else if (typeof parsed.action.params !== 'object') {
+                // If it's a primitive, wrap it
+                const originalValue = parsed.action.params;
+                parsed.action.params = { value: originalValue };
+                this.logger.warn(`Params primitive wrapped for ${parsed.action.tool}`);
+              }
+            }
+
             step.action = parsed.action;
           }
 

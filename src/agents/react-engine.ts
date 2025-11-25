@@ -13,6 +13,7 @@ import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
 import { ReActStepParser } from "./react-step-parser.js";
 import { ReActToolHandler } from "./react-tool-handler.js";
 import { ReActTrace } from "./react-trace.js";
+import { ToTPlanner } from "./planning/tot-planner.js";
 
 // Adapter function to convert ToolResponse to ToolExecutionResult
 function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
@@ -52,6 +53,7 @@ export class ReActEngine {
     private readonly toolManager: IToolManager,
     toolExecutor: ToolChainExecutor,
     private readonly promptGenerator: PromptGenerator,
+    private readonly totPlanner?: ToTPlanner,
   ) {
     this.logger = getLogger("ReActEngine");
     this.stepParser = new ReActStepParser();
@@ -155,6 +157,24 @@ export class ReActEngine {
       tools: tools.availableTools.map((t) => t.name).join(", "),
     });
 
+    // NEW: Tree-of-Thought Pre-Planning (Simple!)
+    let toolsToUse: ToolDefinition[] = tools.availableTools;
+
+    if (this.shouldUseTotPlanning()) {
+      try {
+        this.logger.info("Executing ToT planning");
+        toolsToUse = await this.totPlanner!.planAndFilter(
+          userMessage,
+          tools.availableTools,
+        );
+      } catch (error) {
+        this.logger.error("ToT planning error, falling back to all tools", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toolsToUse = tools.availableTools; // Fallback
+      }
+    }
+
     // Main ReAct loop - use MAX_STEPS to limit iterations
     while (!trace.isReasoningComplete() && iterationCount < maxIterations) {
       iterationCount++;
@@ -165,7 +185,7 @@ export class ReActEngine {
       const prompt = await this.generateContextualPrompt(
         userMessage,
         optimizedSteps,
-        tools.availableTools,
+        toolsToUse, // Use filtered tools instead of all tools
         iterationCount,
       );
 
@@ -533,5 +553,15 @@ Please provide the next step in reasoning or a final answer.`;
 
       return null;
     }
+  }
+
+  /**
+   * Check if ToT planning should be used
+   */
+  private shouldUseTotPlanning(): boolean {
+    return (
+      this.totPlanner !== undefined &&
+      process.env.ENABLE_TOT_PLANNING === "true"
+    );
   }
 }
