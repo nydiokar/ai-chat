@@ -5,9 +5,7 @@ import { warn } from "./utils/logger.js";
 // Load environment variables based on DOTENV_CONFIG_PATH or NODE_ENV
 const envPath =
   process.env.DOTENV_CONFIG_PATH ||
-  (process.env.NODE_ENV === "production"
-    ? ".env.production"
-    : ".env");
+  (process.env.NODE_ENV === "production" ? ".env.production" : ".env");
 
 // Load environment variables (optional for CI/development)
 const result = dotenv.config({ path: envPath });

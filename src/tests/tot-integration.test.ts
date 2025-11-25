@@ -1,7 +1,6 @@
 import { describe, it, before } from "mocha";
 import { expect } from "chai";
 import { ToTPlanner } from "../agents/planning/tot-planner.js";
-import { ReActEngine } from "../agents/react-engine.js";
 import { AIFactory } from "../services/ai-factory.js";
 import { mcpConfig } from "../mcp_config.js";
 import { InMemoryProvider } from "../memory/in-memory-provider.js";
@@ -53,7 +52,10 @@ decomposition:
     tools: ["github_topics"]
 strategy: "Fetch trending repos and extract topics"
 \`\`\``;
-            console.log("📤 Stage 1 Response:", response.substring(0, 100) + "...");
+            console.log(
+              "📤 Stage 1 Response:",
+              response.substring(0, 100) + "...",
+            );
             return { content: response, tokenCount: 50 };
           } else if (prompt.includes("Review and refine")) {
             // Stage 2: Reflection
@@ -64,7 +66,10 @@ refined_plan:
     - "Parse repository topics"
   tools_needed: ["github_trending", "github_topics"]
 \`\`\``;
-            console.log("📤 Stage 2 Response:", response.substring(0, 100) + "...");
+            console.log(
+              "📤 Stage 2 Response:",
+              response.substring(0, 100) + "...",
+            );
             return { content: response, tokenCount: 40 };
           } else if (prompt.includes("Extract the exact tools")) {
             // Stage 3: Tool extraction
@@ -92,13 +97,18 @@ refined_plan:
 
       // Execute
       console.log("\n🧪 Testing ToT Planner...");
-      const filteredTools = await planner.planAndFilter(testQuery, mockTools as any);
+      const filteredTools = await planner.planAndFilter(
+        testQuery,
+        mockTools as any,
+      );
 
       // Validate
       console.log("\n✅ Results:");
       console.log(`- Total tools available: ${mockTools.length}`);
       console.log(`- Tools after filtering: ${filteredTools.length}`);
-      console.log(`- Filtered tools: ${filteredTools.map((t) => t.name).join(", ")}`);
+      console.log(
+        `- Filtered tools: ${filteredTools.map((t) => t.name).join(", ")}`,
+      );
 
       expect(filteredTools).to.be.an("array");
       expect(filteredTools.length).to.be.lessThan(mockTools.length);
@@ -130,7 +140,11 @@ refined_plan:
         const memoryProvider = new InMemoryProvider();
         await memoryProvider.initialize();
 
-        const agent = await AIFactory.create("gpt-3.5-turbo", "ToT Test Agent", memoryProvider);
+        const agent = await AIFactory.create(
+          "gpt-3.5-turbo",
+          "ToT Test Agent",
+          memoryProvider,
+        );
 
         // Process a test message
         console.log("\n📨 Processing test query...");
@@ -168,7 +182,11 @@ refined_plan:
         const memoryProvider = new InMemoryProvider();
         await memoryProvider.initialize();
 
-        const agent = await AIFactory.create("gpt-3.5-turbo", "Non-ToT Test Agent", memoryProvider);
+        const agent = await AIFactory.create(
+          "gpt-3.5-turbo",
+          "Non-ToT Test Agent",
+          memoryProvider,
+        );
 
         console.log("\n📨 Processing test query...");
         const response = await agent.processMessage(testQuery);
@@ -204,7 +222,11 @@ refined_plan:
         const memoryProvider = new InMemoryProvider();
         await memoryProvider.initialize();
 
-        const agent = await AIFactory.create("gpt-3.5-turbo", "Diagnostic Agent", memoryProvider);
+        const agent = await AIFactory.create(
+          "gpt-3.5-turbo",
+          "Diagnostic Agent",
+          memoryProvider,
+        );
 
         // Use a query that REQUIRES tool usage
         const diagnosticQuery = "What is the current time in UTC?";
@@ -214,7 +236,9 @@ refined_plan:
 
         console.log("\n📊 Diagnostic Results:");
         console.log(`- Response length: ${response.content.length}`);
-        console.log(`- Response preview: ${response.content.substring(0, 150)}...`);
+        console.log(
+          `- Response preview: ${response.content.substring(0, 150)}...`,
+        );
 
         // Get last thought process
         const thoughtProcess = agent.getLastThoughtProcess();
@@ -227,7 +251,9 @@ refined_plan:
           console.log(`- Has conclusion: ${!!thoughtProcess.conclusion}`);
 
           if (thoughtProcess.thought) {
-            console.log(`- Reasoning: ${thoughtProcess.thought.reasoning?.substring(0, 100)}...`);
+            console.log(
+              `- Reasoning: ${thoughtProcess.thought.reasoning?.substring(0, 100)}...`,
+            );
           }
 
           if (thoughtProcess.action) {

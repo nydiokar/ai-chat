@@ -7,9 +7,7 @@ const COMPONENT = "DiscordBot";
 // Load environment variables based on DOTENV_CONFIG_PATH or NODE_ENV
 const envPath =
   process.env.DOTENV_CONFIG_PATH ||
-  (process.env.NODE_ENV === "production"
-    ? ".env.production"
-    : ".env");
+  (process.env.NODE_ENV === "production" ? ".env.production" : ".env");
 const instanceId =
   process.env.INSTANCE_ID || process.env.NODE_ENV || "development";
 

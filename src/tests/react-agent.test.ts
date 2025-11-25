@@ -120,7 +120,9 @@ describe("ReActAgent", () => {
       // Mock the ReActEngine to return the expected result
       // In a real scenario, the engine would execute the tool and return the final answer
       const mockEngine = {
-        process: sinon.stub().resolves("Here is the tool result: Test tool result"),
+        process: sinon
+          .stub()
+          .resolves("Here is the tool result: Test tool result"),
         getLastReasoningStep: sinon.stub().resolves(null),
         executeToolDirectly: sinon.stub().resolves("Test tool result"),
       };
