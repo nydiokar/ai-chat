@@ -86,9 +86,7 @@ export class ToTPlanner {
     }
 
     if (filteredTools.length > allTools.length * 0.8) {
-      this.logger.warn(
-        "Filter ineffective (>80% tools kept), using all tools",
-      );
+      this.logger.warn("Filter ineffective (>80% tools kept), using all tools");
       return allTools;
     }
 

@@ -56,8 +56,9 @@ export class OllamaProvider implements LLMProvider {
 
       // Mark as initialized immediately
       this.bridgeInitialized = true;
-      debug(`OllamaProvider initialized: ${this.model} with ${clients.size} MCP clients`);
-
+      debug(
+        `OllamaProvider initialized: ${this.model} with ${clients.size} MCP clients`,
+      );
     } catch (error) {
       throw new MCPError(
         "Failed to initialize OllamaProvider",
@@ -133,14 +134,16 @@ export class OllamaProvider implements LLMProvider {
 
     try {
       // Get tools from tool manager and update bridge
-      const toolManager = this.bridge['toolManager'] as any;
+      const toolManager = this.bridge["toolManager"] as any;
       if (toolManager) {
         const tools = await toolManager.getAvailableTools();
         await this.bridge.updateAvailableTools(tools);
         debug(`OllamaProvider loaded ${tools.length} tools`);
       }
     } catch (error) {
-      debug(`OllamaProvider failed to load tools: ${error instanceof Error ? error.message : String(error)}`);
+      debug(
+        `OllamaProvider failed to load tools: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Non-fatal - can proceed without tools
     }
   }

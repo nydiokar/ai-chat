@@ -177,7 +177,8 @@ export class AIFactory {
 
       if (providerType === AIProviders.OLLAMA) {
         const ollamaModel = process.env.OLLAMA_MODEL || "llama3.2:latest";
-        const ollamaEndpoint = process.env.OLLAMA_ENDPOINT || "http://127.0.0.1:11434";
+        const ollamaEndpoint =
+          process.env.OLLAMA_ENDPOINT || "http://127.0.0.1:11434";
         info(
           "Creating Ollama provider",
           createLogContext("AIFactory", "create", {
@@ -185,7 +186,11 @@ export class AIFactory {
             endpoint: ollamaEndpoint,
           }),
         );
-        provider = new OllamaProvider(this.container, ollamaModel, ollamaEndpoint);
+        provider = new OllamaProvider(
+          this.container,
+          ollamaModel,
+          ollamaEndpoint,
+        );
 
         // Load tools asynchronously (non-blocking)
         (provider as OllamaProvider).ensureToolsLoaded().catch((error) => {
@@ -227,7 +232,10 @@ export class AIFactory {
         info(
           "ToT Planning enabled",
           createLogContext("AIFactory", "create", {
-            timeoutMs: parseInt(process.env.TOT_PLANNING_TIMEOUT_MS || "5000", 10),
+            timeoutMs: parseInt(
+              process.env.TOT_PLANNING_TIMEOUT_MS || "5000",
+              10,
+            ),
           }),
         );
         totPlanner = new ToTPlanner(provider);

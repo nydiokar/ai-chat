@@ -29,7 +29,9 @@ describe("ToT Diagnostic Test", function () {
       // Spy LLM to capture prompts
       const mockLLM = {
         generateResponse: sinon.stub().callsFake(async (prompt: string) => {
-          console.log(`\n📝 CAPTURED PROMPT (${capturedPrompts.length + 1}/3):`);
+          console.log(
+            `\n📝 CAPTURED PROMPT (${capturedPrompts.length + 1}/3):`,
+          );
           console.log(prompt.substring(0, 300) + "...\n");
           capturedPrompts.push(prompt);
 
@@ -68,7 +70,10 @@ refined_plan:
       ];
 
       const planner = new ToTPlanner(mockLLM as any);
-      const result = await planner.planAndFilter("What's trending on GitHub?", mockTools as any);
+      const result = await planner.planAndFilter(
+        "What's trending on GitHub?",
+        mockTools as any,
+      );
 
       // VALIDATION 1: All 3 stages called
       expect(mockLLM.generateResponse.callCount).to.equal(3);
@@ -85,7 +90,9 @@ refined_plan:
       expect(result[0].name).to.equal("github_trending");
 
       console.log("\n✅ All 3 stages executed with valid prompts");
-      console.log(`✅ Tool filtering worked: ${mockTools.length} → ${result.length} tools\n`);
+      console.log(
+        `✅ Tool filtering worked: ${mockTools.length} → ${result.length} tools\n`,
+      );
     });
 
     it("should fallback to all tools if parsing fails", async () => {
@@ -102,11 +109,16 @@ refined_plan:
       const mockTools = [{ name: "tool1", description: "Test" }];
 
       const planner = new ToTPlanner(mockLLM as any);
-      const result = await planner.planAndFilter("test query", mockTools as any);
+      const result = await planner.planAndFilter(
+        "test query",
+        mockTools as any,
+      );
 
       // Should return all tools on failure
       expect(result).to.deep.equal(mockTools);
-      console.log("\n✅ Fallback mechanism works (returns all tools on error)\n");
+      console.log(
+        "\n✅ Fallback mechanism works (returns all tools on error)\n",
+      );
     });
   });
 
@@ -118,18 +130,24 @@ refined_plan:
       try {
         let totWasCalled = false;
         const mockTotPlanner = {
-          planAndFilter: sinon.stub().callsFake(async (query: string, tools: any[]) => {
-            console.log(`\n🎯 ToT PLANNER CALLED with query: "${query}"`);
-            console.log(`🎯 Available tools: ${tools.map((t) => t.name).join(", ")}`);
-            totWasCalled = true;
-            // Return filtered tools
-            return [tools[0]];
-          }),
+          planAndFilter: sinon
+            .stub()
+            .callsFake(async (query: string, tools: any[]) => {
+              console.log(`\n🎯 ToT PLANNER CALLED with query: "${query}"`);
+              console.log(
+                `🎯 Available tools: ${tools.map((t) => t.name).join(", ")}`,
+              );
+              totWasCalled = true;
+              // Return filtered tools
+              return [tools[0]];
+            }),
         };
 
         const mockLLM = {
           generateResponse: sinon.stub().callsFake(async (prompt: string) => {
-            console.log(`\n📤 ReActEngine sending prompt with tools count: ${(prompt.match(/name:/g) || []).length}`);
+            console.log(
+              `\n📤 ReActEngine sending prompt with tools count: ${(prompt.match(/name:/g) || []).length}`,
+            );
             // Return conclusion to end loop
             return {
               content: `\`\`\`yaml
@@ -159,7 +177,10 @@ conclusion:
           refreshToolInformation: sinon.stub(),
         };
 
-        const mockPromptGen = new ReActPromptGenerator(mockToolManager, undefined);
+        const mockPromptGen = new ReActPromptGenerator(
+          mockToolManager,
+          undefined,
+        );
         const toolExecutor = new ToolChainExecutor();
 
         const engine = new ReActEngine(
@@ -193,7 +214,9 @@ conclusion:
 
       try {
         const mockTotPlanner = {
-          planAndFilter: sinon.stub().rejects(new Error("Should not be called!")),
+          planAndFilter: sinon
+            .stub()
+            .rejects(new Error("Should not be called!")),
         };
 
         const mockLLM = {
@@ -213,14 +236,19 @@ conclusion:
         await mockMemory.initialize();
 
         const mockToolManager = {
-          getAvailableTools: sinon.stub().resolves([{ name: "tool1", description: "Tool 1" }]),
+          getAvailableTools: sinon
+            .stub()
+            .resolves([{ name: "tool1", description: "Tool 1" }]),
           executeTool: sinon.stub().resolves({ success: true, data: "result" }),
           registerTool: sinon.stub(),
           getToolByName: sinon.stub(),
           refreshToolInformation: sinon.stub(),
         };
 
-        const mockPromptGen = new ReActPromptGenerator(mockToolManager, undefined);
+        const mockPromptGen = new ReActPromptGenerator(
+          mockToolManager,
+          undefined,
+        );
         const toolExecutor = new ToolChainExecutor();
 
         const engine = new ReActEngine(
@@ -284,20 +312,30 @@ refined_plan:
       }));
 
       const planner = new ToTPlanner(mockLLM as any);
-      const filtered = await planner.planAndFilter("Test query", allTools as any);
+      const filtered = await planner.planAndFilter(
+        "Test query",
+        allTools as any,
+      );
 
-      const reductionPercent = ((1 - filtered.length / allTools.length) * 100).toFixed(1);
+      const reductionPercent = (
+        (1 - filtered.length / allTools.length) *
+        100
+      ).toFixed(1);
 
       console.log(`\n📊 Tool Filtering Results:`);
       console.log(`- Before: ${allTools.length} tools`);
       console.log(`- After: ${filtered.length} tools`);
       console.log(`- Reduction: ${reductionPercent}%`);
-      console.log(`- Filtered tools: ${filtered.map((t) => t.name).join(", ")}\n`);
+      console.log(
+        `- Filtered tools: ${filtered.map((t) => t.name).join(", ")}\n`,
+      );
 
       expect(filtered.length).to.be.lessThan(allTools.length);
       expect(filtered.length).to.be.greaterThan(0);
 
-      console.log(`✅ Tool filtering achieved ${reductionPercent}% reduction\n`);
+      console.log(
+        `✅ Tool filtering achieved ${reductionPercent}% reduction\n`,
+      );
     });
   });
 
@@ -335,7 +373,10 @@ action:
     location: "Paris"
 \`\`\``;
             console.log("  → Decided to use weather_forecast tool");
-            reasoningSteps.push({ type: "thought_action", tool: "weather_forecast" });
+            reasoningSteps.push({
+              type: "thought_action",
+              tool: "weather_forecast",
+            });
             return { content: response, tokenCount: 100 };
           } else if (stepCount === 2) {
             // Second step: Observation (would be injected by ReActEngine)
@@ -378,23 +419,30 @@ conclusion:
             },
           },
         ]),
-        executeTool: sinon.stub().callsFake(async (name: string, params: any) => {
-          console.log(`  ⚙️  Tool executed: ${name}(${JSON.stringify(params)})`);
-          return {
-            success: true,
-            data: JSON.stringify({
-              location: "Paris",
-              forecast: "Rainy",
-              precipitation: "80%",
-            }),
-          };
-        }),
+        executeTool: sinon
+          .stub()
+          .callsFake(async (name: string, params: any) => {
+            console.log(
+              `  ⚙️  Tool executed: ${name}(${JSON.stringify(params)})`,
+            );
+            return {
+              success: true,
+              data: JSON.stringify({
+                location: "Paris",
+                forecast: "Rainy",
+                precipitation: "80%",
+              }),
+            };
+          }),
         registerTool: sinon.stub(),
         getToolByName: sinon.stub(),
         refreshToolInformation: sinon.stub(),
       };
 
-      const mockPromptGen = new ReActPromptGenerator(mockToolManager, undefined);
+      const mockPromptGen = new ReActPromptGenerator(
+        mockToolManager,
+        undefined,
+      );
       const toolExecutor = new ToolChainExecutor();
 
       const engine = new ReActEngine(
@@ -406,7 +454,10 @@ conclusion:
         undefined, // No ToT for baseline test
       );
 
-      const result = await engine.process("What's the weather in Paris and should I bring an umbrella?", "test-user");
+      const result = await engine.process(
+        "What's the weather in Paris and should I bring an umbrella?",
+        "test-user",
+      );
 
       console.log(`\n📊 Reasoning Analysis:`);
       console.log(`- Total steps: ${stepCount}`);

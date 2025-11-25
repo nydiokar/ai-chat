@@ -67,13 +67,18 @@ export class OllamaBridge {
     let normalizedArgs = toolCall.function.arguments;
     if (Array.isArray(normalizedArgs)) {
       // If it's an array with one object, unwrap it
-      if (normalizedArgs.length === 1 && typeof normalizedArgs[0] === 'object') {
+      if (
+        normalizedArgs.length === 1 &&
+        typeof normalizedArgs[0] === "object"
+      ) {
         normalizedArgs = normalizedArgs[0];
       } else {
         // Otherwise, create an object with the array as params
         normalizedArgs = { params: normalizedArgs };
       }
-      console.warn(`[OllamaBridge] Normalized array params for ${toolCall.function.name}`);
+      console.warn(
+        `[OllamaBridge] Normalized array params for ${toolCall.function.name}`,
+      );
     }
 
     // Try each client until one successfully executes the tool
