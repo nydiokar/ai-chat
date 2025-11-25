@@ -9,6 +9,10 @@ import {
   createLogContext,
   createErrorContext,
 } from "../../../utils/log-utils.js";
+import {
+  getCurrentDateTimeTool,
+  executeGetCurrentDateTime,
+} from "../../builtin/datetime-tool.js";
 
 @injectable()
 export class BaseToolManager implements IToolManager {
@@ -32,6 +36,34 @@ export class BaseToolManager implements IToolManager {
     }
     this.toolsCache = new Map();
     this.handlers = new Map();
+
+    // Register built-in tools
+    this.registerBuiltInTools();
+  }
+
+  /**
+   * Register built-in tools that are always available
+   */
+  private registerBuiltInTools(): void {
+    // Register datetime tool
+    this.registerTool(getCurrentDateTimeTool.name, async (params: any) => {
+      const result = await executeGetCurrentDateTime(params);
+      return {
+        success: true,
+        data: result,
+        error: undefined,
+      };
+    });
+
+    // Add tool definition to cache so it appears in available tools
+    this.toolsCache.set(getCurrentDateTimeTool.name, getCurrentDateTimeTool);
+
+    this.logger.info(
+      "Built-in tools registered",
+      createLogContext("BaseToolManager", "registerBuiltInTools", {
+        tools: [getCurrentDateTimeTool.name],
+      }),
+    );
   }
 
   public registerTool(name: string, handler: ToolHandler): void {

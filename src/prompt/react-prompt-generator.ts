@@ -21,13 +21,7 @@ import { ToolFormatter } from "../tools/tool-formatter.js";
 export class ReActPromptGenerator implements PromptGenerator {
   private readonly logger: Logger;
   private readonly toolFormatter: ToolFormatter;
-  private readonly defaultIdentity = `You are an intelligent AI assistant with access to external tools to help users. Always respond directly unless a tool would clearly help solve the user's request.
-
-When using tools:
-1. Always use tools when they would help complete the user's request
-2. You can use multiple tools in sequence if needed
-3. Always respond to the user with the results of the tool after using it
-4. If a tool fails, try an alternative approach or explain the issue to the user`;
+  private readonly defaultIdentity = `You are a task orchestrator. Use tools to complete requests efficiently.`;
 
   constructor(
     private readonly toolManager: IToolManager,
@@ -35,163 +29,52 @@ When using tools:
   ) {
     this.logger = getLogger("ReActPromptGenerator");
     this.toolFormatter = new ToolFormatter(2000); // Initialize ToolFormatter
-
-    // Register prompts if repository is provided
-    if (this.promptRepository) {
-      this.registerReActPrompts();
-    }
+    // Note: No longer registering ReAct-specific prompts in repository
+    // ReAct YAML format is kept framework-specific, not in universal repository
   }
 
   /**
-   * Register ReAct-specific prompts in the prompt repository
+   * Get ReAct-specific YAML format instructions
+   * This is framework-specific and not part of the universal repository
    */
-  private registerReActPrompts(): void {
-    try {
-      // Register main ReAct reasoning prompt
-      this.promptRepository!.addPrompt({
-        type: PromptType.REASONING,
-        content: `You are an intelligent assistant that uses systematic reasoning and tools when necessary.
-
-When solving a problem:
-1. THINK about what needs to be done
-2. Use TOOLS when they would help answer the question
-3. Always read tool descriptions carefully and use EXACT parameter names
-4. Provide a clear final answer once you have enough information
-
-Format your response as:
+  private getReActFormatInstructions(): string {
+    return `Format your response using this YAML structure:
 \`\`\`yaml
 thought:
   reasoning: "Brief analysis of what you need to do next"
   plan: "Step-by-step approach to solve this part"
-  
+
 action:
   tool: "tool_name"
   purpose: "Why you're using this tool"
   params:
     param1: "value1"
     param2: "value2"
-    
+
 # OR if you've completed the task
 conclusion:
-  final_answer: "Your complete, comprehensive answer to the request. Include multiple paragraphs with specific facts, examples, and detailed information from your tool results."
+  final_answer: "Your complete answer to the request"
   explanation: "Brief summary of how you arrived at this answer"
-\`\`\``,
-        priority: 10,
-        complexity: "advanced",
-        approaches: [
-          "Structured reasoning",
-          "Tool selection",
-          "Solution synthesis",
-        ],
-        shouldApply: (context: PromptContext) =>
-          context.requestType === "react" && !context.afterToolExecution,
-      } as ReasoningPrompt);
-
-      // Register follow-up prompt for after tool execution
-      this.promptRepository!.addPrompt({
-        type: PromptType.TOOL_USAGE,
-        content: `Analyze the tool results and decide on next steps.
-
-Based on the tool results you received:
-1. Determine if the information answers the user's question
-2. Decide if you need additional information from another tool
-3. If you have sufficient information, provide a comprehensive final answer
-
-Format your response as:
-\`\`\`yaml
-thought:
-  reasoning: "Analysis of the tool results and what to do next"
-  plan: "How to proceed based on the results"
-  
-action:
-  tool: "tool_name"
-  purpose: "Why you need additional information"
-  params:
-    param1: "value1"
-    param2: "value2"
-    
-# OR if you've completed the task
-conclusion:
-  final_answer: "Your complete, detailed answer to the request, incorporating the tool results"
-  explanation: "Brief summary of how the tool results led to this answer"
-\`\`\``,
-        priority: 10,
-        tools: ["*"],
-        usagePatterns: {
-          bestPractices: [
-            "Analyze tool results thoroughly",
-            "Connect tool results to the original question",
-            "Decide when you have sufficient information",
-          ],
-          commonErrors: [
-            "Ignoring tool results",
-            "Repeatedly using the same tool with same parameters",
-            "Not providing a final answer when sufficient information is available",
-          ],
-        },
-        shouldApply: (context: PromptContext) =>
-          context.requestType === "react" &&
-          context.afterToolExecution === true,
-      } as ToolUsagePrompt);
-
-      this.logger.info("Registered ReAct-specific prompts in repository");
-    } catch (error) {
-      this.logger.error("Failed to register ReAct prompts", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+\`\`\``;
   }
 
   /**
-   * Generate a simple prompt with current time context and available tools
+   * Generate a simple prompt without date/time (use get_current_datetime tool if needed)
    */
   async generateSimplePrompt(): Promise<string> {
-    // Get current date and time information
-    const now = new Date();
-    const currentDate = now.toDateString();
-    const currentTime = now.toTimeString().split(" ")[0];
-    const currentYear = now.getFullYear();
-    const currentMonth = now.toLocaleString("default", { month: "long" });
-    const currentDay = now.getDate();
-
-    const promptParts = [
-      this.defaultIdentity,
-      `Current date: ${currentDate}`,
-      `Current time: ${currentTime}`,
-      `Current year: ${currentYear}`,
-      `Current month: ${currentMonth}`,
-      `Current day: ${currentDay}`,
-    ];
-
-    return promptParts.join("\n\n");
+    return this.defaultIdentity;
   }
 
   /**
    * Standard prompt generation method required by PromptGenerator interface
+   * Date/time removed - use get_current_datetime tool if needed
    */
   async generatePrompt(
     input: string,
     tools: ToolDefinition[],
     history?: Input[],
   ): Promise<string> {
-    // Get current date and time information
-    const now = new Date();
-    const currentDate = now.toDateString();
-    const currentTime = now.toTimeString().split(" ")[0];
-    const currentYear = now.getFullYear();
-    const currentMonth = now.toLocaleString("default", { month: "long" });
-    const currentDay = now.getDate();
-
-    const promptParts = [
-      this.defaultIdentity,
-
-      // Add current date/time information
-      `Current date: ${currentDate}`,
-      `Current time: ${currentTime}`,
-      `Current year: ${currentYear}`,
-      `Current month: ${currentMonth}`,
-      `Current day: ${currentDay}`,
-    ];
+    const promptParts = [this.defaultIdentity];
 
     if (tools.length > 0) {
       const toolsList = tools
@@ -283,11 +166,6 @@ conclusion:
     currentStep: number = 0,
   ): Promise<string> {
     try {
-      // Get current date and time information
-      const now = new Date();
-      const currentDate = now.toDateString();
-      const currentTime = now.toTimeString().split(" ")[0];
-
       // Build the prompt with components
       const promptParts: string[] = [];
 
@@ -331,10 +209,8 @@ conclusion:
         promptParts.push(this.defaultIdentity);
       }
 
-      // Add current date/time context
-      promptParts.push(
-        `Current date: ${currentDate}\nCurrent time: ${currentTime}`,
-      );
+      // Add ReAct-specific YAML format instructions (framework-specific)
+      promptParts.push(this.getReActFormatInstructions());
 
       // Add user input with clear formatting
       promptParts.push(`User request: ${input}`);

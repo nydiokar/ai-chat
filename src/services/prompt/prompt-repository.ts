@@ -11,11 +11,7 @@ import {
 export const defaultPrompts: Record<PromptType, BasePrompt> = {
   [PromptType.BEHAVIORAL]: {
     type: PromptType.BEHAVIORAL,
-    content: `Maintain a professional and clear communication style.
-- Use concise language
-- Provide structured responses
-- Stay focused on the task
-- Be direct but courteous`,
+    content: `You are a task orchestrator. Use tools to complete requests efficiently.`,
     priority: 1,
     tone: "professional",
     style: {
@@ -28,23 +24,19 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
   [PromptType.TOOL_USAGE]: {
     type: PromptType.TOOL_USAGE,
     content: `When using tools:
-1. Always explain your intention before using a tool
-2. Use the exact tool name as specified
-3. Verify input parameters match the schema
-4. Handle errors gracefully
-5. Report results clearly`,
+- Use exact tool names and parameter formats
+- Verify parameters match the schema
+- Report results clearly`,
     priority: 2,
     tools: ["*"], // Applies to all tools
     usagePatterns: {
       bestPractices: [
         "Verify tool availability before use",
         "Use specific tools over general ones",
-        "Include error handling in your approach",
       ],
       commonErrors: [
         "Using incorrect parameter formats",
         "Missing required parameters",
-        "Not handling errors",
       ],
     },
     shouldApply: (context: PromptContext) =>
@@ -54,17 +46,14 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
   [PromptType.REASONING]: {
     type: PromptType.REASONING,
     content: `Problem-solving approach:
-1. Analyze the problem thoroughly
-2. Break down complex issues into smaller parts
-3. Consider multiple approaches
-4. Validate assumptions
-5. Explain your reasoning process`,
+- Break down complex problems into steps
+- Consider multiple approaches
+- Validate assumptions`,
     priority: 3,
     complexity: "basic",
     approaches: [
       "Step-by-step analysis",
       "Problem decomposition",
-      "Solution validation",
     ],
     shouldApply: (context: PromptContext) =>
       context.requestType === "reasoning" ||
