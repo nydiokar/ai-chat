@@ -119,14 +119,44 @@
 
 ---
 
+### ToT-ReAct Contract Enforcement ✅ (2025-11-26)
+- ✅ Created **PlanArtifact** interface with structured contract:
+  - `complexity`: Task complexity assessment ("trivial" | "low" | "medium" | "high")
+  - `selected_tools`: Array of tools with `max_calls` limits and `purpose`
+  - `steps`: Suggested execution steps with tool hints
+  - `rationale`: Why this plan was chosen
+- ✅ Completely rewrote **ToTPlanner** to return PlanArtifact instead of filtered ToolDefinition[]
+  - Single method: `plan(query, tools)` returns structured plan
+  - LLM generates JSON with tools, limits, and steps
+  - Fallback plan if LLM fails (3 tools, max_calls=2)
+  - Removed old 3-stage YAML approach (was complex, unreliable)
+- ✅ Updated **ReActEngine** to enforce plan constraints:
+  - Tracks tool usage counts in `toolUsageCounts` Map
+  - Before each tool call: checks if `currentUsage >= maxCalls`
+  - If limit exceeded: forces LLM to conclude with available data
+  - Passes compressed plan summary to LLM prompt (strategy + tool limits)
+- ✅ **Enforcement in execution loop** (react-engine.ts:329-355):
+  - Blocks tool calls that exceed max_calls
+  - Injects observation: "You already used this tool X times (limit: Y). Answer now."
+  - Prevents brave_web_search spam (was the original problem)
+- ✅ Updated all tests to work with PlanArtifact API
+- ✅ TypeScript compilation passing
+
+**What This Fixes**:
+- **Problem**: ToT planned, but ReAct ignored it and called tools freely
+- **Solution**: Hard contract enforced in code, not just prompts
+- **Example**: Plan says "brave_web_search: max 1 call" → Engine blocks 2nd attempt
+- **Next**: Add orchestrator to skip ToT for trivial queries (later optimization)
+
 ## Active Tasks
 
-**Current Focus**: Prompt Performance & Token Optimization
+**Current Focus**: ToT-ReAct Integration Complete ✅
 
+**Prompt Optimization** (DEFERRED until ToT working):
 **Phase 1 (Quick Wins)**: ✅ COMPLETE (143 tokens/iteration saved)
 **Deduplication**: ✅ COMPLETE (35 tokens saved, clean architecture)
-**Phase 2 (Structural)**: Ready to start - Compress step history (180 tokens potential)
-**Phase 3 (Caching)**: Pending - Biggest impact (1,174 tokens potential)
+**Phase 2 (Structural)**: ✅ COMPLETE (~30-50 tokens/step saved)
+**Phase 3 (Caching)**: DEFERRED - Will do after ToT validated in production
 
 **Available Next Steps** (from implementation roadmap):
 
@@ -272,13 +302,14 @@ None currently identified
 - **NEW**: Built-in tools registered in BaseToolManager, not AIFactory (2025-11-25) ✅ DONE
 
 ### Key Implementation Files
-- `src/agents/planning/tot-planner.ts` - ToT planning logic
-- `src/agents/react-engine.ts` - Core reasoning orchestration
+- `src/agents/planning/plan-artifact.ts` - **NEW**: Structured plan contract interface
+- `src/agents/planning/tot-planner.ts` - ToT planner (REWRITTEN to return PlanArtifact)
+- `src/agents/react-engine.ts` - Core reasoning orchestration (UPDATED with max_calls enforcement)
 - `src/agents/react/` - Modular ReAct components
 - `src/providers/ollama-provider.ts` - Fixed Ollama integration
 - `src/prompt/react-prompt-generator.ts` - ReAct prompt assembly (optimized)
 - `src/services/prompt/prompt-repository.ts` - Universal prompt storage (slimmed)
-- `src/tools/builtin/datetime-tool.ts` - Built-in datetime tool (NEW)
+- `src/tools/builtin/datetime-tool.ts` - Built-in datetime tool
 - `src/tools/mcp/base/base-tool-manager.ts` - Tool registration with built-ins
 
 ---

@@ -13,7 +13,8 @@ import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
 import { ReActStepParser } from "./react-step-parser.js";
 import { ReActToolHandler } from "./react-tool-handler.js";
 import { ReActTrace } from "./react-trace.js";
-import { ToTPlanner, ToTPlanContext } from "./planning/tot-planner.js";
+import { ToTPlanner } from "./planning/tot-planner.js";
+import { PlanArtifact, createPlanSummary } from "./planning/plan-artifact.js";
 
 // Adapter function to convert ToolResponse to ToolExecutionResult
 function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
@@ -50,7 +51,8 @@ export class ReActEngine {
   private currentUserMessage: string | null = null;
   private ungroundedConclusionAttempts = 0;
   private readonly MAX_UNGROUNDED_ATTEMPTS = 2;
-  private currentTotPlan: ToTPlanContext | null = null;
+  private currentPlan: PlanArtifact | null = null;
+  private toolUsageCounts: Map<string, number> = new Map();
 
   constructor(
     private readonly memory: MemoryProvider,
@@ -141,7 +143,8 @@ export class ReActEngine {
     const trace = new ReActTrace(this.memory, userId);
     this.currentUserMessage = userMessage;
     this.ungroundedConclusionAttempts = 0;
-    this.currentTotPlan = null;
+    this.currentPlan = null;
+    this.toolUsageCounts.clear();
 
     // Add previous steps to the trace if provided
     if (previousSteps.length > 0) {
@@ -165,26 +168,37 @@ export class ReActEngine {
       tools: tools.availableTools.map((t) => t.name).join(", "),
     });
 
-    // NEW: Tree-of-Thought Pre-Planning (Simple!)
+    // NEW: Tree-of-Thought Pre-Planning with PlanArtifact
     let toolsToUse: ToolDefinition[] = tools.availableTools;
 
     if (this.shouldUseTotPlanning()) {
       try {
         this.logger.info("Executing ToT planning");
-        toolsToUse = await this.totPlanner!.planAndFilter(
+        this.currentPlan = await this.totPlanner!.plan(
           userMessage,
           tools.availableTools,
         );
-        this.currentTotPlan = this.totPlanner!.getLastPlan();
+
+        // Extract only selected tools from the plan
+        const selectedToolNames = this.currentPlan.selected_tools.map(t => t.name);
+        toolsToUse = tools.availableTools.filter(t =>
+          selectedToolNames.includes(t.name)
+        );
+
+        this.logger.info("Plan created", {
+          complexity: this.currentPlan.complexity,
+          selectedTools: selectedToolNames,
+          maxSteps: this.currentPlan.steps.length,
+        });
       } catch (error) {
         this.logger.error("ToT planning error, falling back to all tools", {
           error: error instanceof Error ? error.message : String(error),
         });
         toolsToUse = tools.availableTools; // Fallback
-        this.currentTotPlan = null;
+        this.currentPlan = null;
       }
     } else {
-      this.currentTotPlan = null;
+      this.currentPlan = null;
     }
 
     toolsToUse = this.filterToolsForQuery(
@@ -290,8 +304,9 @@ export class ReActEngine {
 
         // Handle tool execution only if no conclusion
         if (nextStep.action?.tool) {
-          // Validate tool is in allowed list (respects ToT filtering)
           const requestedTool = nextStep.action.tool;
+
+          // Validate tool is in allowed list (respects ToT filtering)
           const isAllowed = toolsToUse.some((t) => t.name === requestedTool);
 
           if (!isAllowed) {
@@ -309,6 +324,34 @@ export class ReActEngine {
             );
             await trace.addStep(errorObservation);
             continue; // Skip to next iteration
+          }
+
+          // NEW: Enforce max_calls from plan
+          if (this.currentPlan) {
+            const currentUsage = this.toolUsageCounts.get(requestedTool) || 0;
+            const toolLimit = this.currentPlan.selected_tools.find(t => t.name === requestedTool);
+            const maxCalls = toolLimit?.max_calls || 999;
+
+            if (currentUsage >= maxCalls) {
+              this.logger.warn(
+                `Tool '${requestedTool}' has reached max_calls limit (${maxCalls}). Forcing conclusion.`,
+                {
+                  requestedTool,
+                  currentUsage,
+                  maxCalls,
+                },
+              );
+
+              // Force LLM to conclude with what it has
+              const limitObservation = this.toolHandler.createObservationStep(
+                `You have already used ${requestedTool} ${currentUsage} times (limit: ${maxCalls}). You must now provide a final answer based on the information you've gathered.`,
+              );
+              await trace.addStep(limitObservation);
+              continue; // Skip to next iteration, LLM should conclude
+            }
+
+            // Increment usage count
+            this.toolUsageCounts.set(requestedTool, currentUsage + 1);
           }
 
           await this.executeToolAndStoreResult(nextStep.action, trace);
@@ -331,7 +374,8 @@ export class ReActEngine {
     this.pendingFollowUpPrompt = null;
     this.currentUserMessage = null;
     this.ungroundedConclusionAttempts = 0;
-    this.currentTotPlan = null;
+    this.currentPlan = null;
+    this.toolUsageCounts.clear();
     return finalResponse;
   }
 
@@ -762,49 +806,26 @@ Please provide the next step in reasoning or a final answer.`;
    * Formats the latest Tree-of-Thought plan for prompt injection
    */
   private formatTotPlanSummary(): string | null {
-    if (!this.currentTotPlan) return null;
+    if (!this.currentPlan) return null;
+
+    const summary = createPlanSummary(this.currentPlan);
 
     const sections: string[] = [];
 
-    if (
-      this.currentTotPlan.decomposition &&
-      this.currentTotPlan.decomposition.length > 0
-    ) {
-      const lines = this.currentTotPlan.decomposition.map((item, index) => {
-        const tools =
-          item.tools && item.tools.length > 0
-            ? ` (tools: ${item.tools.join(", ")})`
-            : "";
-        return `${index + 1}. ${item.step}${tools}`;
-      });
-      sections.push(lines.join("\n"));
+    // Add strategy/rationale
+    sections.push(`Strategy: ${summary.strategy}`);
+
+    // Add steps
+    if (summary.steps.length > 0) {
+      sections.push(`Steps:\n${summary.steps.join("\n")}`);
     }
 
-    if (this.currentTotPlan.strategy) {
-      sections.push(`Strategy: ${this.currentTotPlan.strategy}`);
-    }
-
-    if (
-      this.currentTotPlan.refinedSteps &&
-      this.currentTotPlan.refinedSteps.length > 0
-    ) {
-      const lines = this.currentTotPlan.refinedSteps.map(
-        (step, index) => `${index + 1}. ${step}`,
-      );
-      sections.push(`Refined steps:\n${lines.join("\n")}`);
-    }
-
-    if (
-      this.currentTotPlan.refinedTools &&
-      this.currentTotPlan.refinedTools.length > 0
-    ) {
-      sections.push(
-        `Focused tools: ${this.currentTotPlan.refinedTools.join(", ")}`,
-      );
-    }
-
-    if (sections.length === 0) {
-      return null;
+    // Add tool limits
+    const limitLines = Object.entries(summary.tool_limits)
+      .map(([tool, limit]) => `- ${tool}: max ${limit} calls`)
+      .join("\n");
+    if (limitLines) {
+      sections.push(`Tool limits:\n${limitLines}`);
     }
 
     return sections.join("\n\n");

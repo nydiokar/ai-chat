@@ -70,7 +70,7 @@ refined_plan:
       ];
 
       const planner = new ToTPlanner(mockLLM as any);
-      const result = await planner.planAndFilter(
+      const result = await planner.plan(
         "What's trending on GitHub?",
         mockTools as any,
       );
@@ -85,13 +85,16 @@ refined_plan:
       expect(capturedPrompts[1]).to.include("Review and refine");
       expect(capturedPrompts[2]).to.include("Extract the exact tools");
 
-      // VALIDATION 3: Tool filtering worked
-      expect(result.length).to.equal(1);
-      expect(result[0].name).to.equal("github_trending");
+      // VALIDATION 3: Tool filtering worked (now returns PlanArtifact)
+      expect(result).to.have.property("selected_tools");
+      expect(result.selected_tools).to.be.an("array");
+      expect(result.selected_tools.length).to.equal(1);
+      expect(result.selected_tools[0].name).to.equal("github_trending");
+      expect(result.selected_tools[0]).to.have.property("max_calls");
 
       console.log("\n✅ All 3 stages executed with valid prompts");
       console.log(
-        `✅ Tool filtering worked: ${mockTools.length} → ${result.length} tools\n`,
+        `✅ Tool filtering worked: ${mockTools.length} → ${result.selected_tools.length} tools\n`,
       );
     });
 
@@ -109,7 +112,7 @@ refined_plan:
       const mockTools = [{ name: "tool1", description: "Test" }];
 
       const planner = new ToTPlanner(mockLLM as any);
-      const result = await planner.planAndFilter(
+      const result = await planner.plan(
         "test query",
         mockTools as any,
       );
@@ -130,7 +133,7 @@ refined_plan:
       try {
         let totWasCalled = false;
         const mockTotPlanner = {
-          planAndFilter: sinon
+          plan: sinon
             .stub()
             .callsFake(async (query: string, tools: any[]) => {
               console.log(`\n🎯 ToT PLANNER CALLED with query: "${query}"`);
@@ -197,7 +200,7 @@ conclusion:
 
         // VALIDATION: ToT was called
         expect(totWasCalled).to.be.true;
-        expect(mockTotPlanner.planAndFilter.calledOnce).to.be.true;
+        expect(mockTotPlanner.plan.calledOnce).to.be.true;
 
         // VALIDATION: LLM received prompt (with filtered tools)
         expect(mockLLM.generateResponse.called).to.be.true;
@@ -214,7 +217,7 @@ conclusion:
 
       try {
         const mockTotPlanner = {
-          planAndFilter: sinon
+          plan: sinon
             .stub()
             .rejects(new Error("Should not be called!")),
         };
@@ -263,7 +266,7 @@ conclusion:
         await engine.process("Test query", "test-user");
 
         // VALIDATION: ToT was NOT called
-        expect(mockTotPlanner.planAndFilter.called).to.be.false;
+        expect(mockTotPlanner.plan.called).to.be.false;
         console.log("\n✅ ToT planner correctly disabled when flag is false\n");
       } finally {
         delete process.env.ENABLE_TOT_PLANNING;
@@ -312,26 +315,26 @@ refined_plan:
       }));
 
       const planner = new ToTPlanner(mockLLM as any);
-      const filtered = await planner.planAndFilter(
+      const filtered = await planner.plan(
         "Test query",
         allTools as any,
       );
 
       const reductionPercent = (
-        (1 - filtered.length / allTools.length) *
+        (1 - filtered.selected_tools.length / allTools.length) *
         100
       ).toFixed(1);
 
       console.log(`\n📊 Tool Filtering Results:`);
       console.log(`- Before: ${allTools.length} tools`);
-      console.log(`- After: ${filtered.length} tools`);
+      console.log(`- After: ${filtered.selected_tools.length} tools`);
       console.log(`- Reduction: ${reductionPercent}%`);
       console.log(
-        `- Filtered tools: ${filtered.map((t) => t.name).join(", ")}\n`,
+        `- Filtered tools: ${filtered.selected_tools.map((t: any) => t.name).join(", ")}\n`,
       );
 
-      expect(filtered.length).to.be.lessThan(allTools.length);
-      expect(filtered.length).to.be.greaterThan(0);
+      expect(filtered.selected_tools.length).to.be.lessThan(allTools.length);
+      expect(filtered.selected_tools.length).to.be.greaterThan(0);
 
       console.log(
         `✅ Tool filtering achieved ${reductionPercent}% reduction\n`,
@@ -494,7 +497,7 @@ conclusion:
         const mockTools = [{ name: "tool1", description: "Test" }];
 
         const planner = new ToTPlanner(mockLLM as any);
-        const result = await planner.planAndFilter("test", mockTools as any);
+        const result = await planner.plan("test", mockTools as any);
 
         // Should fallback to all tools
         expect(result).to.deep.equal(mockTools);

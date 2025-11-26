@@ -98,7 +98,7 @@ refined_plan:
 
       // Execute
       console.log("\n🧪 Testing ToT Planner...");
-      const filteredTools = await planner.planAndFilter(
+      const filteredTools = await planner.plan(
         testQuery,
         mockTools as any,
       );
@@ -106,17 +106,17 @@ refined_plan:
       // Validate
       console.log("\n✅ Results:");
       console.log(`- Total tools available: ${mockTools.length}`);
-      console.log(`- Tools after filtering: ${filteredTools.length}`);
+      console.log(`- Tools after filtering: ${filteredTools.selected_tools.length}`);
       console.log(
-        `- Filtered tools: ${filteredTools.map((t) => t.name).join(", ")}`,
+        `- Filtered tools: ${filteredTools.selected_tools.map((t: any) => t.name).join(", ")}`,
       );
 
-      expect(filteredTools).to.be.an("array");
-      expect(filteredTools.length).to.be.lessThan(mockTools.length);
-      expect(filteredTools.length).to.be.greaterThan(0);
+      expect(filteredTools.selected_tools).to.be.an("array");
+      expect(filteredTools.selected_tools.length).to.be.lessThan(mockTools.length);
+      expect(filteredTools.selected_tools.length).to.be.greaterThan(0);
 
       // Should have filtered out irrelevant tools
-      const toolNames = filteredTools.map((t) => t.name);
+      const toolNames = filteredTools.selected_tools.map((t: any) => t.name);
       expect(toolNames).to.include("github_trending");
       expect(toolNames).to.not.include("weather_api");
 

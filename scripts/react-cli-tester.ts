@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { MemoryType } from "../src/interfaces/memory-provider.js";
 import { ReActAgent } from "../src/agents/react-agent.js";
+import chalk from 'chalk';
 
 // Get directory name in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -18,57 +19,86 @@ const envPath = process.env.NODE_ENV === 'production' ? '.env.production' : '.en
 console.log(`Loading environment from ${envPath}`);
 dotenv.config({ path: path.join(__dirname, '..', envPath) });
 
+// Enable verbose logging to see ALL prompts and LLM responses
+// This is already logged by ReActEngine, we just enable it here
+process.env.REACT_VERBOSE_LOGGING = 'true';
+
+/**
+ * Truncate long text for readability
+ */
+function truncate(text: string, maxLength: number = 500): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + chalk.dim(` ... [+${text.length - maxLength} chars]`);
+}
+
+/**
+ * Format JSON nicely
+ */
+function formatJSON(obj: any): string {
+  return JSON.stringify(obj, null, 2)
+    .split('\n')
+    .map(line => {
+      if (line.includes(':')) {
+        const [key, ...value] = line.split(':');
+        return chalk.cyan(key) + ':' + chalk.white(value.join(':'));
+      }
+      return chalk.gray(line);
+    })
+    .join('\n');
+}
+
 /**
  * Format the reasoning step for display
  */
-function formatStep(step: ReasoningStep): string {
-  let output = `\n${step.stepId} [${new Date(step.timestamp).toLocaleTimeString()}]\n`;
-  output += '='.repeat(80) + '\n';
-  
+function formatStep(step: ReasoningStep, iteration: number): string {
+  let output = '\n';
+  output += chalk.bgBlue.white.bold(` ITERATION ${iteration} `) + chalk.blue(` ${step.stepId} `) + chalk.dim(`[${new Date(step.timestamp).toLocaleTimeString()}]`) + '\n';
+  output += chalk.blue('═'.repeat(80)) + '\n\n';
+
   if (step.thought) {
-    output += `?? THOUGHT\n`;
-    output += `---------\n`;
-    output += `Reasoning: ${step.thought.reasoning}\n`;
+    output += chalk.yellow.bold(`💭 THOUGHT\n`);
+    output += chalk.yellow('─'.repeat(40)) + '\n';
+    output += chalk.white(`Reasoning: `) + chalk.gray(truncate(step.thought.reasoning, 300)) + '\n';
     if (step.thought.plan) {
-      output += `Plan: ${step.thought.plan}\n`;
+      output += chalk.white(`Plan: `) + chalk.gray(truncate(step.thought.plan, 200)) + '\n';
     }
     output += '\n';
   }
-  
+
   if (step.action) {
-    output += `?? ACTION\n`;
-    output += `--------\n`;
-    output += `Tool: ${step.action.tool}\n`;
+    output += chalk.green.bold(`⚡ ACTION\n`);
+    output += chalk.green('─'.repeat(40)) + '\n';
+    output += chalk.white(`Tool: `) + chalk.greenBright.bold(step.action.tool) + '\n';
     if (step.action.purpose) {
-      output += `Purpose: ${step.action.purpose}\n`;
+      output += chalk.white(`Purpose: `) + chalk.gray(step.action.purpose) + '\n';
     }
-    output += `Params: ${JSON.stringify(step.action.params, null, 2)}\n\n`;
+    output += chalk.white(`Params:\n`) + formatJSON(step.action.params) + '\n\n';
   }
-  
+
   if (step.observation) {
-    output += `??? OBSERVATION\n`;
-    output += `-------------\n`;
-    output += `${step.observation.result}\n\n`;
+    output += chalk.cyan.bold(`👁️  OBSERVATION\n`);
+    output += chalk.cyan('─'.repeat(40)) + '\n';
+    output += chalk.white(truncate(step.observation.result, 600)) + '\n\n';
   }
-  
+
   if (step.conclusion) {
-    output += `?? CONCLUSION\n`;
-    output += `------------\n`;
-    output += `Final Answer: ${step.conclusion.final_answer}\n`;
+    output += chalk.magenta.bold(`✅ CONCLUSION\n`);
+    output += chalk.magenta('─'.repeat(40)) + '\n';
+    output += chalk.white(`Final Answer: `) + chalk.greenBright(truncate(step.conclusion.final_answer, 800)) + '\n';
     if (step.conclusion.explanation) {
-      output += `Explanation: ${step.conclusion.explanation}\n`;
+      output += chalk.white(`Explanation: `) + chalk.gray(truncate(step.conclusion.explanation, 300)) + '\n';
     }
     output += '\n';
   }
-  
+
   if (step.error_handling) {
-    output += `? ERROR\n`;
-    output += `--------\n`;
-    output += `Error: ${step.error_handling.error}\n`;
-    output += `Recovery: ${step.error_handling.recovery.log_error}\n`;
-    output += `Alternate plan: ${step.error_handling.recovery.alternate_plan}\n\n`;
+    output += chalk.red.bold(`❌ ERROR\n`);
+    output += chalk.red('─'.repeat(40)) + '\n';
+    output += chalk.white(`Error: `) + chalk.redBright(step.error_handling.error) + '\n';
+    output += chalk.white(`Recovery: `) + chalk.gray(step.error_handling.recovery.log_error) + '\n';
+    output += chalk.white(`Alternate plan: `) + chalk.gray(step.error_handling.recovery.alternate_plan) + '\n\n';
   }
-  
+
   return output;
 }
 
@@ -147,12 +177,15 @@ async function main() {
         }
         
         try {
-          console.log("\nProcessing request...");
-          console.log("====================\n");
-          
+          console.log("\n" + chalk.bgCyan.black.bold(" 🚀 PROCESSING REQUEST "));
+          console.log(chalk.cyan('═'.repeat(80)));
+          console.log(chalk.white.bold("User Query: ") + chalk.yellow(trimmedInput));
+          console.log(chalk.cyan('═'.repeat(80)) + "\n");
+          console.log(chalk.dim("💡 Tip: Watch for 'CONTEXTUAL PROMPT' and 'LLM RAW RESPONSE' logs below\n"));
+
           // Process with agent
           const response = await agent.processMessage(trimmedInput);
-          
+
           // Get reasoning steps from memory
           const memories = await memoryProvider.search({
             userId,
@@ -161,35 +194,42 @@ async function main() {
             sortBy: 'timestamp',
             sortDirection: 'asc'
           });
-          
+
           // Get the last thought process directly from the agent
           const lastThought = agent.getLastThoughtProcess();
-          
+
           // Display reasoning process
           if (memories.entries.length > 0) {
-            console.log("\nReasoning Process:");
-            console.log("==================");
-            
+            console.log("\n" + chalk.bgMagenta.white.bold(" 🧠 REASONING PROCESS "));
+            console.log(chalk.magenta('═'.repeat(80)) + "\n");
+
+            let iteration = 1;
             for (const entry of memories.entries) {
               if (entry.content && entry.content.step) {
-                console.log(formatStep(entry.content.step));
+                console.log(formatStep(entry.content.step, iteration));
+                iteration++;
               }
             }
             
-            console.log("\nFinal Answer:");
-            console.log("=============");
-            console.log(response.content);
+            console.log("\n" + chalk.bgGreen.white.bold(" ✨ FINAL ANSWER "));
+            console.log(chalk.green('═'.repeat(80)));
+            console.log(chalk.white(response.content));
+            console.log(chalk.green('═'.repeat(80)));
           } else if (lastThought) {
-            console.log("\nLast Thought Process:");
-            console.log("=====================");
-            console.log(formatStep(lastThought));
-            
-            console.log("\nFinal Answer:");
-            console.log("=============");
-            console.log(response.content);
+            console.log("\n" + chalk.bgMagenta.white.bold(" 🧠 REASONING PROCESS "));
+            console.log(chalk.magenta('═'.repeat(80)) + "\n");
+            console.log(formatStep(lastThought, 1));
+
+            console.log("\n" + chalk.bgGreen.white.bold(" ✨ FINAL ANSWER "));
+            console.log(chalk.green('═'.repeat(80)));
+            console.log(chalk.white(response.content));
+            console.log(chalk.green('═'.repeat(80)));
           } else {
-            console.log("No reasoning steps were recorded.");
-            console.log("\nResult:", response.content);
+            console.log(chalk.yellow("⚠️  No reasoning steps were recorded."));
+            console.log("\n" + chalk.bgGreen.white.bold(" ✨ RESULT "));
+            console.log(chalk.green('═'.repeat(80)));
+            console.log(chalk.white(response.content));
+            console.log(chalk.green('═'.repeat(80)));
           }
         } catch (error) {
           console.error("Error processing request:", error);

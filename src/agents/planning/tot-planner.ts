@@ -2,29 +2,16 @@ import { LLMProvider } from "../../interfaces/llm-provider.js";
 import { ToolDefinition } from "../../tools/mcp/types/tools.js";
 import { getLogger } from "../../utils/shared-logger.js";
 import type { Logger } from "winston";
-import yaml from "js-yaml";
-
+import { PlanArtifact, SelectedTool, PlanStep, TaskComplexity } from "./plan-artifact.js";
 
 /**
- * Simple Tree-of-Thought planner inspired by LightAgent
- * Does 3-stage planning and returns filtered tools
+ * Tree-of-Thought planner that returns a structured PlanArtifact
+ * This enforces the contract between planner and executor
  */
-export interface ToTPlanContext {
-  decomposition?: Array<{ step: string; tools?: string[] }>;
-  strategy?: string;
-  refinedSteps?: string[];
-  refinedTools?: string[];
-}
-
-interface ToTPlanningOutcome {
-  tools: ToolDefinition[];
-  plan: ToTPlanContext | null;
-}
-
 export class ToTPlanner {
   private readonly logger: Logger;
   private readonly timeout: number;
-  private lastPlan: ToTPlanContext | null = null;
+  private lastPlanArtifact: PlanArtifact | null = null;
 
   constructor(private readonly llm: LLMProvider) {
     this.logger = getLogger("ToTPlanner");
@@ -32,18 +19,16 @@ export class ToTPlanner {
   }
 
   /**
-   * Main entry point: plan and filter tools
-   * Returns filtered tools or all tools if planning fails
+   * Main entry point: plan and return structured PlanArtifact
    */
-  async planAndFilter(
+  async plan(
     userQuery: string,
     allTools: ToolDefinition[],
-  ): Promise<ToolDefinition[]> {
+  ): Promise<PlanArtifact> {
     const startTime = Date.now();
 
     try {
-      // Execute with timeout
-      const result = await Promise.race<ToTPlanningOutcome>([
+      const artifact = await Promise.race<PlanArtifact>([
         this.executePlanning(userQuery, allTools),
         this.createTimeout(),
       ]);
@@ -51,285 +36,229 @@ export class ToTPlanner {
       const duration = Date.now() - startTime;
       this.logger.info("ToT planning completed", {
         duration,
-        toolsFiltered: result.tools.length,
+        complexity: artifact.complexity,
+        selectedTools: artifact.selected_tools.length,
         totalTools: allTools.length,
-        efficiency: `${(((allTools.length - result.tools.length) / allTools.length) * 100).toFixed(1)}%`,
+        steps: artifact.steps.length,
       });
 
-      this.lastPlan = this.hasPlanContent(result.plan) ? result.plan : null;
-      return result.tools;
+      this.lastPlanArtifact = artifact;
+      return artifact;
     } catch (error) {
-      this.logger.error("ToT planning failed, using all tools", {
+      this.logger.error("ToT planning failed, using fallback plan", {
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
         duration: Date.now() - startTime,
       });
-      this.lastPlan = null;
-      return allTools; // Fallback to all tools
+
+      // Return a fallback plan that allows all tools with high limits
+      return this.createFallbackPlan(allTools);
     }
   }
 
-  public getLastPlan(): ToTPlanContext | null {
-    return this.lastPlan;
+  public getLastPlanArtifact(): PlanArtifact | null {
+    return this.lastPlanArtifact;
   }
 
   /**
-   * Execute the 3-stage planning process
+   * Execute the planning process and build PlanArtifact
    */
   private async executePlanning(
     userQuery: string,
     allTools: ToolDefinition[],
-  ): Promise<ToTPlanningOutcome> {
-    // Stage 1: Initial decomposition
-    this.logger.debug("Stage 1: Problem decomposition");
-    const stage1Response = await this.stage1Decompose(userQuery, allTools);
-    const planContext: ToTPlanContext = this.parseDecomposition(stage1Response);
+  ): Promise<PlanArtifact> {
+    // Assess complexity
+    const complexity = this.assessComplexity(userQuery);
 
-    // Stage 2: Reflection and refinement
-    this.logger.debug("Stage 2: Reflection");
-    const stage2Response = await this.stage2Reflect(
-      userQuery,
-      stage1Response,
-      allTools,
-    );
-    const refinedUpdates = this.parseRefinedPlan(stage2Response);
-    Object.assign(planContext, refinedUpdates);
+    // Ask LLM to create a plan
+    const planResponse = await this.requestPlan(userQuery, allTools, complexity);
 
-    // Stage 3: Tool extraction
-    this.logger.debug("Stage 3: Tool filtering");
-    const toolNames = await this.stage3ExtractTools(stage2Response, allTools);
+    // Parse the response into a PlanArtifact
+    const artifact = this.parsePlanResponse(planResponse, allTools, complexity);
 
-    // Match tool names to actual tool definitions
-    const filteredTools = this.matchTools(toolNames, allTools);
-
-    // Sanity check: if we filtered too few or too many, use all tools
-    if (filteredTools.length === 0) {
-      this.logger.warn("No tools filtered, using all tools");
-      return { tools: allTools, plan: planContext };
-    }
-
-    if (filteredTools.length > allTools.length * 0.8) {
-      this.logger.warn("Filter ineffective (>80% tools kept), using all tools");
-      return { tools: allTools, plan: planContext };
-    }
-
-    return { tools: filteredTools, plan: planContext };
+    return artifact;
   }
 
   /**
-   * Stage 1: Decompose the problem
+   * Assess task complexity based on query characteristics
    */
-  private async stage1Decompose(
+  private assessComplexity(query: string): TaskComplexity {
+    const length = query.length;
+    const hasMultipleQuestions = (query.match(/\?/g) || []).length > 1;
+    const complexKeywords = /multi-step|pipeline|architecture|orchestrate|complex|analyze.*and/i.test(query);
+
+    if (length < 50 && !hasMultipleQuestions && !complexKeywords) {
+      return "low";
+    } else if (length > 150 || hasMultipleQuestions || complexKeywords) {
+      return "high";
+    } else {
+      return "medium";
+    }
+  }
+
+  /**
+   * Request a structured plan from the LLM
+   */
+  private async requestPlan(
     query: string,
     tools: ToolDefinition[],
+    complexity: TaskComplexity,
   ): Promise<string> {
     const toolSummary = tools
       .map((t) => `- ${t.name}: ${t.description}`)
       .join("\n");
 
-    const prompt = `Analyze this query and break it into sub-problems.
+    const prompt = `You are a task planner. Create a structured plan for this query.
 
 Query: ${query}
+Assessed complexity: ${complexity}
 
 Available tools:
 ${toolSummary}
 
-Respond with YAML:
-\`\`\`yaml
-decomposition:
-  - step: "What to do first"
-    tools: ["tool_name"]
-  - step: "What to do next"
-    tools: ["tool_name"]
-strategy: "Overall approach"
-\`\`\``;
+Create a plan with:
+1. Rationale (why this approach)
+2. Selected tools with max_calls limit (how many times each tool can be called)
+3. Steps to execute
+
+Respond with JSON:
+{
+  "rationale": "Brief explanation of the approach",
+  "selected_tools": [
+    {
+      "name": "tool_name",
+      "max_calls": 1,
+      "purpose": "What this tool accomplishes"
+    }
+  ],
+  "steps": [
+    {
+      "id": 1,
+      "type": "tool",
+      "tool": "tool_name",
+      "input_hint": {"param": "example value"}
+    },
+    {
+      "id": 2,
+      "type": "answer",
+      "instruction": "Summarize results and answer user"
+    }
+  ]
+}
+
+Guidelines:
+- For simple queries: 1-2 tools, max_calls=1
+- For complex queries: 2-4 tools, max_calls=1-3
+- Always end with a step of type "answer"
+- Keep max_calls realistic to prevent spam`;
 
     const response = await this.llm.generateResponse(prompt);
     return response.content;
   }
 
   /**
-   * Stage 2: Reflect and refine
+   * Parse LLM response into PlanArtifact
    */
-  private async stage2Reflect(
-    query: string,
-    stage1Output: string,
-    tools: ToolDefinition[],
-  ): Promise<string> {
-    const toolNames = tools.map((t) => t.name).join(", ");
-
-    const prompt = `Review and refine this plan. Ensure all tools mentioned actually exist.
-
-Query: ${query}
-
-Initial plan:
-${stage1Output}
-
-Available tools: ${toolNames}
-
-Provide refined YAML:
-\`\`\`yaml
-refined_plan:
-  steps:
-    - "Step 1"
-    - "Step 2"
-  tools_needed: ["tool1", "tool2"]
-\`\`\``;
-
-    const response = await this.llm.generateResponse(prompt);
-    return response.content;
-  }
-
-  /**
-   * Stage 3: Extract tool names as JSON
-   */
-  private async stage3ExtractTools(
-    stage2Output: string,
-    tools: ToolDefinition[],
-  ): Promise<string[]> {
-    const toolNames = tools.map((t) => t.name).join(", ");
-
-    const prompt = `Extract the exact tools needed from this plan.
-
-Plan:
-${stage2Output}
-
-Available tools: ${toolNames}
-
-Respond with JSON only (no markdown):
-{"tools": ["tool1", "tool2"]}`;
-
-    const response = await this.llm.generateResponse(prompt);
-
+  private parsePlanResponse(
+    response: string,
+    allTools: ToolDefinition[],
+    complexity: TaskComplexity,
+  ): PlanArtifact {
     try {
-      // Parse JSON (handle markdown code blocks)
-      let jsonText = response.content.trim();
+      // Extract JSON from response (handle markdown code blocks)
+      let jsonText = response.trim();
       const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (match) {
         jsonText = match[1].trim();
       }
 
       const parsed = JSON.parse(jsonText);
-      return Array.isArray(parsed.tools)
-        ? parsed.tools.map((t: any) => String(t).trim())
-        : [];
+
+      // Validate and build PlanArtifact
+      const selectedTools: SelectedTool[] = [];
+      if (Array.isArray(parsed.selected_tools)) {
+        for (const tool of parsed.selected_tools) {
+          if (tool.name && typeof tool.max_calls === "number") {
+            // Verify tool exists
+            const exists = allTools.some((t) => t.name === tool.name);
+            if (exists) {
+              selectedTools.push({
+                name: tool.name,
+                max_calls: Math.max(1, Math.min(tool.max_calls, 5)), // Cap at 5
+                purpose: tool.purpose || "Tool usage",
+              });
+            } else {
+              this.logger.warn(`Tool ${tool.name} in plan does not exist, skipping`);
+            }
+          }
+        }
+      }
+
+      // If no valid tools, use fallback
+      if (selectedTools.length === 0) {
+        this.logger.warn("No valid tools in plan, using fallback");
+        return this.createFallbackPlan(allTools);
+      }
+
+      const steps: PlanStep[] = [];
+      if (Array.isArray(parsed.steps)) {
+        for (const step of parsed.steps) {
+          if (step.id && step.type) {
+            steps.push({
+              id: step.id,
+              type: step.type,
+              tool: step.tool,
+              input_hint: step.input_hint,
+              instruction: step.instruction,
+            });
+          }
+        }
+      }
+
+      return {
+        complexity,
+        rationale: parsed.rationale || "Executing plan",
+        selected_tools: selectedTools,
+        steps,
+      };
     } catch (error) {
-      this.logger.error("Failed to parse tool list", {
+      this.logger.error("Failed to parse plan response, using fallback", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return [];
+      return this.createFallbackPlan(allTools);
     }
   }
 
   /**
-   * Match tool names to actual ToolDefinition objects
+   * Create a fallback plan when planning fails
    */
-  private matchTools(
-    toolNames: string[],
-    allTools: ToolDefinition[],
-  ): ToolDefinition[] {
-    const toolMap = new Map<string, ToolDefinition>();
-    allTools.forEach((tool) => {
-      toolMap.set(tool.name.toLowerCase(), tool);
-    });
-
-    const matched: ToolDefinition[] = [];
-    const notFound: string[] = [];
-
-    for (const name of toolNames) {
-      const normalized = name.toLowerCase();
-      const tool = toolMap.get(normalized);
-      if (tool) {
-        matched.push(tool);
-      } else {
-        notFound.push(name);
-      }
-    }
-
-    if (notFound.length > 0) {
-      this.logger.warn("Some tools not found (hallucinated)", { notFound });
-    }
-
-    return matched;
-  }
-
-  private safeParseYaml<T>(raw: string): T | null {
-    if (!raw) return null;
-    let text = raw.trim();
-    const match = text.match(/```(?:yaml)?\s*([\s\S]*?)```/i);
-    if (match) {
-      text = match[1].trim();
-    }
-
-    try {
-      const parsed = yaml.load(text);
-      return (parsed ?? null) as T | null;
-    } catch (error) {
-      this.logger.warn("Failed to parse YAML during planning", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private parseDecomposition(response: string): ToTPlanContext {
-    const plan: ToTPlanContext = {};
-    const parsed = this.safeParseYaml<any>(response);
-    if (!parsed || typeof parsed !== "object") {
-      return plan;
-    }
-
-    if (Array.isArray((parsed as any).decomposition)) {
-      plan.decomposition = (parsed as any).decomposition
-        .map((item: any) => ({
-          step: typeof item?.step === "string" ? item.step : "",
-          tools: Array.isArray(item?.tools)
-            ? item.tools.map((t: any) => String(t)).filter(Boolean)
-            : undefined,
-        }))
-        .filter((item: any) => item.step);
-    }
-
-    if (parsed && typeof (parsed as any).strategy === "string") {
-      plan.strategy = (parsed as any).strategy;
-    }
-
-    return plan;
-  }
-
-  private parseRefinedPlan(response: string): Partial<ToTPlanContext> {
-    const parsed = this.safeParseYaml<any>(response);
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-
-    const result: Partial<ToTPlanContext> = {};
-    const refined = (parsed as any).refined_plan;
-    if (refined) {
-      if (Array.isArray(refined.steps)) {
-        result.refinedSteps = refined.steps
-          .map((step: any) => String(step))
-          .filter((step: string) => !!step);
-      }
-
-      if (Array.isArray(refined.tools_needed)) {
-        result.refinedTools = refined.tools_needed
-          .map((tool: any) => String(tool))
-          .filter((tool: string) => !!tool);
-      }
-    }
-
-    return result;
-  }
-
-  private hasPlanContent(plan: ToTPlanContext | null): boolean {
-    if (!plan) return false;
-    return Boolean(
-      (plan.decomposition && plan.decomposition.length > 0) ||
-        plan.strategy ||
-        (plan.refinedSteps && plan.refinedSteps.length > 0) ||
-        (plan.refinedTools && plan.refinedTools.length > 0),
+  private createFallbackPlan(allTools: ToolDefinition[]): PlanArtifact {
+    // Select up to 3 tools, prefer search/web tools
+    const searchTools = allTools.filter((t) =>
+      /search|web|brave/i.test(t.name + " " + t.description)
     );
+    const selectedTools = (searchTools.length > 0 ? searchTools : allTools).slice(0, 3);
+
+    return {
+      complexity: "medium",
+      rationale: "Fallback plan: allowing multiple tools with reasonable limits",
+      selected_tools: selectedTools.map((tool) => ({
+        name: tool.name,
+        max_calls: 2,
+        purpose: "General purpose tool",
+      })),
+      steps: [
+        {
+          id: 1,
+          type: "tool",
+          tool: selectedTools[0]?.name || "unknown",
+        },
+        {
+          id: 2,
+          type: "answer",
+          instruction: "Summarize results and answer user",
+        },
+      ],
+    };
   }
 
   /**
