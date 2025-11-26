@@ -8,11 +8,13 @@
 
 ---
 
-## Current Issues (2025-11-26)
-- ReAct CLI still allows empty prompts and proceeds into ToT reasoning; need upfront validation.
-- ToT planner outputs include hallucinated/irrelevant GitHub tools for research tasks. Must post-filter against registry + query intent and clamp to research-only set unless repo work requested.
-- After tool execution we now queue follow-up prompts, but conclusions are still accepted without checking that tool observations were cited; need response validation & stronger logging of prompts/steps.
-- Tool failure observations (e.g., GitHub 404/403) should guide the model away from repo-manipulation loops; currently it keeps re-trying destructive tools.
+## Active Tasks (2025-11-26)
+1. **CLI Guardrails**: Reject empty/whitespace queries before invoking ToT/ReAct to avoid useless planning cycles.
+2. **Tool Filtering**: Clamp planner output to relevant tools (warn & drop hallucinated GitHub actions) and enforce research-only subsets unless the user mentions repo work.
+3. **Observation Grounding**: Keep logging prompts/responses and require conclusions to cite latest observations, but allow fallbacks when there are no URLs/distinct keywords.
+4. **Structured ToT Artifact**: Change planner to emit JSON with `selected_tools`, `max_calls`, and ordered `steps`; use that as the contract for ReAct.
+5. **Executor Enforcement**: Pass only the planner-approved tools/limits to ReAct, track tool usage, block calls that exceed `max_calls`, and inject guidance when limits are hit.
+6. **Orchestrator Layer**: Add a simple intent check (length/keywords) to skip ToT for trivial “single search” queries and run ReAct with a tiny manual tool set.
 
 ## Recently Completed
 
