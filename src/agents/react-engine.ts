@@ -1,4 +1,4 @@
-import { LLMProvider } from "../interfaces/llm-provider.js";
+﻿import { LLMProvider } from "../interfaces/llm-provider.js";
 import { MemoryProvider, MemoryType } from "../interfaces/memory-provider.js";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import { ReasoningStep } from "../interfaces/react-types.js";
@@ -13,7 +13,7 @@ import { ToolDefinition, ToolResponse } from "../tools/mcp/types/tools.js";
 import { ReActStepParser } from "./react-step-parser.js";
 import { ReActToolHandler } from "./react-tool-handler.js";
 import { ReActTrace } from "./react-trace.js";
-import { ToTPlanner } from "./planning/tot-planner.js";
+import { ToTPlanner, ToTPlanContext } from "./planning/tot-planner.js";
 
 // Adapter function to convert ToolResponse to ToolExecutionResult
 function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
@@ -48,6 +48,9 @@ export class ReActEngine {
   private readonly toolHandler: ReActToolHandler;
   private pendingFollowUpPrompt: string | null = null;
   private currentUserMessage: string | null = null;
+  private ungroundedConclusionAttempts = 0;
+  private readonly MAX_UNGROUNDED_ATTEMPTS = 2;
+  private currentTotPlan: ToTPlanContext | null = null;
 
   constructor(
     private readonly memory: MemoryProvider,
@@ -137,6 +140,8 @@ export class ReActEngine {
     // Create a reasoning trace to track all steps and manage state
     const trace = new ReActTrace(this.memory, userId);
     this.currentUserMessage = userMessage;
+    this.ungroundedConclusionAttempts = 0;
+    this.currentTotPlan = null;
 
     // Add previous steps to the trace if provided
     if (previousSteps.length > 0) {
@@ -170,13 +175,23 @@ export class ReActEngine {
           userMessage,
           tools.availableTools,
         );
+        this.currentTotPlan = this.totPlanner!.getLastPlan();
       } catch (error) {
         this.logger.error("ToT planning error, falling back to all tools", {
           error: error instanceof Error ? error.message : String(error),
         });
         toolsToUse = tools.availableTools; // Fallback
+        this.currentTotPlan = null;
       }
+    } else {
+      this.currentTotPlan = null;
     }
+
+    toolsToUse = this.filterToolsForQuery(
+      userMessage,
+      toolsToUse,
+      tools.availableTools,
+    );
 
     // Main ReAct loop - use MAX_STEPS to limit iterations
     while (!trace.isReasoningComplete() && iterationCount < maxIterations) {
@@ -221,10 +236,56 @@ export class ReActEngine {
 
         // Check if step has conclusion (should end reasoning)
         if (nextStep.conclusion?.final_answer) {
-          // Mark complete and stop (don't execute action if present)
-          trace.markComplete(nextStep.conclusion.final_answer);
-          this.logVerbose("info", "Reasoning complete with conclusion");
-          break; // Exit the loop immediately
+          if (this.isConclusionGrounded(nextStep.conclusion.final_answer, trace)) {
+            trace.markComplete(nextStep.conclusion.final_answer);
+            this.ungroundedConclusionAttempts = 0;
+            this.logVerbose("info", "Reasoning complete with grounded conclusion");
+            break; // Exit the loop immediately
+          }
+
+          if (this.ungroundedConclusionAttempts < this.MAX_UNGROUNDED_ATTEMPTS) {
+            this.ungroundedConclusionAttempts += 1;
+            const reminder = this.buildUngroundedConclusionReminder(trace);
+            const reminderObservation =
+              this.toolHandler.createObservationStep(reminder);
+            await trace.addStep(reminderObservation);
+
+            if (
+              this.promptGenerator.generateFollowUpPrompt &&
+              this.currentUserMessage
+            ) {
+              try {
+                const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
+                this.pendingFollowUpPrompt =
+                  await this.promptGenerator.generateFollowUpPrompt(
+                    this.currentUserMessage,
+                    stepsSnapshot,
+                    reminder,
+                  );
+              } catch (followUpError) {
+                this.logger.error(
+                  "Failed to generate grounding follow-up prompt",
+                  {
+                    error:
+                      followUpError instanceof Error
+                        ? followUpError.message
+                        : String(followUpError),
+                  },
+                );
+              }
+            }
+
+            continue;
+          } else {
+            this.logger.warn(
+              "Accepting ungrounded conclusion after multiple retries",
+              {
+                attempts: this.ungroundedConclusionAttempts,
+              },
+            );
+            trace.markComplete(nextStep.conclusion.final_answer);
+            break;
+          }
         }
 
         // Handle tool execution only if no conclusion
@@ -269,6 +330,8 @@ export class ReActEngine {
     const finalResponse = trace.getFinalResponse();
     this.pendingFollowUpPrompt = null;
     this.currentUserMessage = null;
+    this.ungroundedConclusionAttempts = 0;
+    this.currentTotPlan = null;
     return finalResponse;
   }
 
@@ -331,7 +394,22 @@ export class ReActEngine {
   ): Promise<ReasoningStep | null> {
     try {
       const llmResponse = await this.llm.generateResponse(prompt);
-
+      if (this.VERBOSE_LOGGING) {
+        const content = llmResponse?.content ?? "";
+        const maxLen = 2000;
+        const preview =
+          content.length > maxLen ? content.substring(0, maxLen) + "…" : content;
+        const divider = "-".repeat(60);
+        this.logger.debug(
+          [
+            divider,
+            "LLM RAW RESPONSE",
+            divider,
+            preview,
+            divider,
+          ].join("\n"),
+        );
+      }
       if (!llmResponse || !llmResponse.content) {
         this.logger.error("LLM returned empty response");
         return null;
@@ -427,10 +505,18 @@ export class ReActEngine {
       });
 
       // Create an error observation with formatted error message from the tool handler
-      const errorMessage = this.toolHandler.formatErrorResult(
+      let errorMessage = this.toolHandler.formatErrorResult(
         error instanceof Error ? error : new Error(String(error)),
         action,
       );
+      const failureGuidance = this.buildToolFailureGuidance(
+        tool,
+        params || {},
+        this.currentUserMessage,
+      );
+      if (failureGuidance) {
+        errorMessage = `${errorMessage}\n\n${failureGuidance}`;
+      }
       const observationStep =
         this.toolHandler.createObservationStep(errorMessage);
 
@@ -575,25 +661,54 @@ export class ReActEngine {
     currentStep: number,
   ): Promise<string> {
     try {
-      // Let the prompt generator create the appropriate prompt with existing method
+      const planSummary = this.formatTotPlanSummary();
+      const augmentedInput = planSummary
+        ? "Tree-of-Thought Plan:\n" + planSummary + "\n\nUser request: " + userMessage
+        : userMessage;
+
+      let prompt: string;
       if (this.promptGenerator.generateReActPrompt) {
-        return await this.promptGenerator.generateReActPrompt(
-          userMessage,
+        prompt = await this.promptGenerator.generateReActPrompt(
+          augmentedInput,
           steps,
           tools,
           currentStep,
         );
       } else {
-        // Fallback to basic prompt generation if method not available
-        return await this.promptGenerator.generatePrompt(userMessage, tools);
+        prompt = await this.promptGenerator.generatePrompt(
+          augmentedInput,
+          tools,
+        );
       }
+
+      if (this.VERBOSE_LOGGING) {
+        const maxLen = 2000;
+        const promptPreview =
+          prompt.length > maxLen ? `${prompt.substring(0, maxLen)}…` : prompt;
+        const divider = '-'.repeat(60);
+        this.logger.debug(
+          [
+            divider,
+            'CONTEXTUAL PROMPT',
+            divider,
+            promptPreview,
+            divider,
+          ].join('\n'),
+        );
+      }
+
+      return prompt;
     } catch (error) {
-      this.logger.error("Error generating contextual prompt", {
+      this.logger.error('Error generating contextual prompt', {
         error: String(error),
       });
 
-      // Fallback to a simple prompt if the generator fails
-      return `You are a helpful AI assistant. The user has requested: "${userMessage}".
+      const fallbackPlan = this.formatTotPlanSummary();
+      const fallbackHeader = fallbackPlan
+        ? `Tree-of-Thought Plan:\n${fallbackPlan}\n\n`
+        : '';
+
+      return `${fallbackHeader}You are a helpful AI assistant. The user has requested: "${userMessage}".
       
 Previous steps: ${JSON.stringify(steps, null, 2)}
 
@@ -644,6 +759,57 @@ Please provide the next step in reasoning or a final answer.`;
   }
 
   /**
+   * Formats the latest Tree-of-Thought plan for prompt injection
+   */
+  private formatTotPlanSummary(): string | null {
+    if (!this.currentTotPlan) return null;
+
+    const sections: string[] = [];
+
+    if (
+      this.currentTotPlan.decomposition &&
+      this.currentTotPlan.decomposition.length > 0
+    ) {
+      const lines = this.currentTotPlan.decomposition.map((item, index) => {
+        const tools =
+          item.tools && item.tools.length > 0
+            ? ` (tools: ${item.tools.join(", ")})`
+            : "";
+        return `${index + 1}. ${item.step}${tools}`;
+      });
+      sections.push(lines.join("\n"));
+    }
+
+    if (this.currentTotPlan.strategy) {
+      sections.push(`Strategy: ${this.currentTotPlan.strategy}`);
+    }
+
+    if (
+      this.currentTotPlan.refinedSteps &&
+      this.currentTotPlan.refinedSteps.length > 0
+    ) {
+      const lines = this.currentTotPlan.refinedSteps.map(
+        (step, index) => `${index + 1}. ${step}`,
+      );
+      sections.push(`Refined steps:\n${lines.join("\n")}`);
+    }
+
+    if (
+      this.currentTotPlan.refinedTools &&
+      this.currentTotPlan.refinedTools.length > 0
+    ) {
+      sections.push(
+        `Focused tools: ${this.currentTotPlan.refinedTools.join(", ")}`,
+      );
+    }
+
+    if (sections.length === 0) {
+      return null;
+    }
+
+    return sections.join("\n\n");
+  }
+  /**
    * Check if ToT planning should be used
    */
   private shouldUseTotPlanning(): boolean {
@@ -652,4 +818,182 @@ Please provide the next step in reasoning or a final answer.`;
       process.env.ENABLE_TOT_PLANNING === "true"
     );
   }
+
+  private isConclusionGrounded(
+    finalAnswer: string,
+    trace: ReActTrace,
+  ): boolean {
+    const observationText = this.getLastObservation(trace);
+    if (!observationText) {
+      return true;
+    }
+
+    const observationUrls =
+      observationText.match(/https?:\/\/\S+/gi)?.map((url) => url.trim()) || [];
+
+    if (observationUrls.length > 0) {
+      return observationUrls.some((url) => finalAnswer.includes(url));
+    }
+
+    const normalizedObservation = observationText.toLowerCase();
+    const normalizedAnswer = finalAnswer.toLowerCase();
+    const keywords =
+      normalizedObservation.match(/\b[a-z0-9]{5,}\b/g)?.slice(0, 5) || [];
+
+    if (keywords.length <= 2) {
+      return true;
+    }
+
+    return keywords.some((keyword) => normalizedAnswer.includes(keyword));
+  }
+
+  private getLastObservation(trace: ReActTrace): string | null {
+    const steps = trace.getSteps();
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const observation = steps[i].observation?.result;
+      if (observation) {
+        return observation;
+      }
+    }
+    return null;
+  }
+
+  private buildUngroundedConclusionReminder(trace: ReActTrace): string {
+    const observation = this.getLastObservation(trace);
+    const snippet =
+      observation && observation.length > 400
+        ? `${observation.substring(0, 400)}...`
+        : observation || "No observation available.";
+
+        
+    return [
+      "Reminder: Your last response did not cite the most recent tool result.",
+      "You must reference and cite the latest observation before concluding.",
+      `Latest observation snippet:\n${snippet}`,
+    ].join("\n\n");
+  }
+
+  private buildToolFailureGuidance(
+    toolName: string,
+    params: Record<string, unknown>,
+    userMessage: string | null,
+  ): string | null {
+    const lowerTool = toolName.toLowerCase();
+    const isRepoTool =
+      lowerTool.includes("repo") ||
+      lowerTool.includes("branch") ||
+      lowerTool.includes("issue") ||
+      lowerTool.includes("commit") ||
+      lowerTool.includes("pull");
+
+    if (isRepoTool && userMessage && !/repo|branch|git|pull|issue/i.test(userMessage)) {
+      return `Guidance: ${toolName} is for repository management, but the user request (â€œ${userMessage}â€) did not ask for repository changes. Focus on research/search tools instead.`;
+    }
+
+    if (lowerTool.includes("github") && params && Object.keys(params).length > 0) {
+      return `Guidance: ${toolName} requires valid GitHub metadata. Double-check repository names or switch back to information-gathering tools since the request appears informational.`;
+    }
+
+    return null;
+  }
+
+  private filterToolsForQuery(
+    userMessage: string,
+    candidateTools: ToolDefinition[],
+    allTools: ToolDefinition[],
+  ): ToolDefinition[] {
+    const uniqueTools = new Map<string, ToolDefinition>();
+    for (const tool of candidateTools) {
+      if (!uniqueTools.has(tool.name)) {
+        uniqueTools.set(tool.name, tool);
+      }
+    }
+    candidateTools = Array.from(uniqueTools.values());
+
+    if (candidateTools.length === 0) {
+      return this.selectDefaultResearchTools(allTools);
+    }
+
+    const normalizedQuery = userMessage.toLowerCase();
+    const mentionsRepoWork = /github|repo|repository|branch|commit|pull\s?-?\s?request|issue\b|merge|pull\s?req|git\b|pr\b/.test(
+      normalizedQuery,
+    );
+
+    let filteredTools = candidateTools;
+    if (!mentionsRepoWork) {
+      filteredTools = candidateTools.filter(
+        (tool) => !this.isRepositoryManagementTool(tool),
+      );
+    }
+
+    if (filteredTools.length === 0) {
+      this.logger.info(
+        "All filtered tools were repository-management related; falling back to research tools",
+        { userMessage },
+      );
+      filteredTools = this.selectDefaultResearchTools(allTools);
+    }
+
+    const limitedTools = filteredTools.slice(0, 6);
+    if (limitedTools.length !== candidateTools.length) {
+      this.logger.debug("Tool list filtered for current query", {
+        original: candidateTools.map((t) => t.name),
+        filtered: limitedTools.map((t) => t.name),
+      });
+    }
+
+    return limitedTools;
+  }
+
+  private selectDefaultResearchTools(
+    tools: ToolDefinition[],
+  ): ToolDefinition[] {
+    const researchTools = tools.filter((tool) => this.isResearchTool(tool));
+    if (researchTools.length > 0) {
+      return researchTools.slice(0, 6);
+    }
+    return tools.slice(0, 6);
+  }
+
+  private isRepositoryManagementTool(tool: ToolDefinition): boolean {
+    const repoKeywords = [
+      "repo",
+      "repository",
+      "branch",
+      "commit",
+      "pull_request",
+      "pull-request",
+      "pull request",
+      "issue",
+      "merge",
+      "push",
+      "fork",
+      "deployment",
+      "deploy",
+      "release",
+    ];
+
+    const name = tool.name.toLowerCase();
+    const description = (tool.description || "").toLowerCase();
+    return repoKeywords.some(
+      (keyword) =>
+        name.includes(keyword) || description.includes(keyword.toLowerCase()),
+    );
+  }
+
+  private isResearchTool(tool: ToolDefinition): boolean {
+    const name = tool.name.toLowerCase();
+    const description = (tool.description || "").toLowerCase();
+    return (
+      name.includes("search") ||
+      name.includes("web") ||
+      name.includes("weather") ||
+      name.includes("datetime") ||
+      description.includes("search") ||
+      description.includes("news") ||
+      description.includes("weather")
+    );
+  }
 }
+
+

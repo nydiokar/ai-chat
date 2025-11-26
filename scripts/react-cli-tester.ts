@@ -129,12 +129,20 @@ async function main() {
     // Function to prompt user
     function promptUser() {
       rl.question('> ', async (input) => {
-        if (input.toLowerCase() === 'exit') {
+        const trimmedInput = input.trim();
+
+        if (trimmedInput.toLowerCase() === 'exit') {
           console.log("Cleaning up...");
           await agent.cleanup();
           await memoryProvider.cleanup();
           AIFactory.cleanup();
           rl.close();
+          return;
+        }
+
+        if (!trimmedInput) {
+          console.log("Please enter a question or type 'exit' to quit.\n");
+          promptUser();
           return;
         }
         
@@ -143,7 +151,7 @@ async function main() {
           console.log("====================\n");
           
           // Process with agent
-          const response = await agent.processMessage(input);
+          const response = await agent.processMessage(trimmedInput);
           
           // Get reasoning steps from memory
           const memories = await memoryProvider.search({
