@@ -95,7 +95,7 @@ All prompts get enhanced with:
 **Status**:
 - ✅ Basic implementation exists
 - ⚠️ Comprehensive 655-line documentation at `.ai/context/tot-refactoring/04-PROMPTS.md`
-- ⚠️ Full prompts documented but not fully integrated
+- ⚠️ Full prompts documented but not fully integrated 
 - ✅ Feature flag: `ENABLE_TOT_PLANNING` (default: false)
 
 **Reference Documentation**:

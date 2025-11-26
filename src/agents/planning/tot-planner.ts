@@ -2,7 +2,7 @@ import { LLMProvider } from "../../interfaces/llm-provider.js";
 import { ToolDefinition } from "../../tools/mcp/types/tools.js";
 import { getLogger } from "../../utils/shared-logger.js";
 import type { Logger } from "winston";
-import yaml from "js-yaml";
+
 
 /**
  * Simple Tree-of-Thought planner inspired by LightAgent

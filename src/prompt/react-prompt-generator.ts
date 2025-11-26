@@ -515,6 +515,8 @@ Remember:
 
   /**
    * Format reasoning steps for inclusion in prompts
+   * Uses compressed format to reduce token usage (~20 tokens/step vs 80-120)
+   * Format: [stepNum] tool(params) → result
    * @param steps Array of reasoning steps
    * @returns Formatted reasoning steps section for prompt
    */
@@ -525,33 +527,89 @@ Remember:
 
     const stepsRendered = steps
       .map((step, idx) => {
-        let renderedStep = `Step ${idx + 1}:\n`;
+        const stepNum = idx + 1;
+        const parts: string[] = [`[${stepNum}]`];
 
-        if (step.thought) {
-          renderedStep += `THOUGHT: ${step.thought.reasoning}\n`;
-          if (step.thought.plan) {
-            renderedStep += `PLAN: ${step.thought.plan}\n`;
-          }
-        }
-
+        // Add tool call if present
         if (step.action) {
-          renderedStep += `ACTION: Using tool ${step.action.tool}\n`;
-          renderedStep += `Parameters: ${JSON.stringify(step.action.params, null, 2)}\n`;
+          const toolName = step.action.tool;
+          // Compress params: only show key values, not full JSON
+          const paramSummary = this.compressParams(step.action.params);
+          parts.push(`${toolName}(${paramSummary})`);
         }
 
+        // Add result if present
         if (step.observation) {
-          renderedStep += `OBSERVATION: ${step.observation.result}\n`;
+          const result = this.truncateResult(step.observation.result, 50);
+          parts.push(`→ ${result}`);
         }
 
+        // Add conclusion if present (final step)
         if (step.conclusion) {
-          renderedStep += `CONCLUSION: ${step.conclusion.final_answer}\n`;
+          const answer = this.truncateResult(step.conclusion.final_answer, 60);
+          parts.push(`✓ ${answer}`);
         }
 
-        return renderedStep;
+        return parts.join(" ");
       })
       .join("\n");
 
-    return `Previous reasoning steps:\n${stepsRendered}`;
+    return `Previous steps:\n${stepsRendered}`;
+  }
+
+  /**
+   * Compress parameters into a brief summary for step history
+   * @param params Tool parameters object
+   * @returns Compressed string representation
+   */
+  private compressParams(params: Record<string, unknown>): string {
+    if (!params || Object.keys(params).length === 0) {
+      return "";
+    }
+
+    // For single param, just show the value
+    const keys = Object.keys(params);
+    if (keys.length === 1) {
+      const value = params[keys[0]];
+      return this.formatValue(value);
+    }
+
+    // For multiple params, show key:value pairs
+    return keys
+      .map((key) => `${key}:${this.formatValue(params[key])}`)
+      .join(", ");
+  }
+
+  /**
+   * Format a single parameter value for compressed display
+   * @param value Parameter value
+   * @returns Formatted string
+   */
+  private formatValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    if (typeof value === "string") {
+      // Truncate long strings
+      return value.length > 30 ? `${value.substring(0, 27)}...` : value;
+    }
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+    return String(value);
+  }
+
+  /**
+   * Truncate result text to specified length
+   * @param text Result text
+   * @param maxLength Maximum character length
+   * @returns Truncated text
+   */
+  private truncateResult(text: string, maxLength: number): string {
+    if (!text || text.length <= maxLength) {
+      return text;
+    }
+    return `${text.substring(0, maxLength - 3)}...`;
   }
 
   /**

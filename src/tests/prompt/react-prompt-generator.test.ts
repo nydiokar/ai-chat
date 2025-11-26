@@ -152,10 +152,11 @@ describe("ReActPromptGenerator", () => {
         mockTools,
       );
 
-      // Verify prompt contains step information
-      expect(prompt).to.include("I need to search for information");
-      expect(prompt).to.include("Use the search tool");
+      // Verify prompt contains compressed step information
+      // Format: [stepNum] tool(params) → result
+      expect(prompt).to.include("search(test query)");
       expect(prompt).to.include("Search result data");
+      expect(prompt).to.include("Previous steps:");
     });
 
     it("should include appropriate guidance based on step count", async () => {
@@ -323,7 +324,7 @@ describe("ReActPromptGenerator", () => {
       console.log("Full prompt:", prompt);
       console.log("=== END DEBUGGING ===\n");
 
-      expect(prompt).to.include("intelligent AI assistant");
+      expect(prompt).to.include("task orchestrator");
       expect(prompt).to.include("test query");
     });
   });

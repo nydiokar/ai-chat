@@ -35,29 +35,7 @@ Build and maintain a comprehensive AI-powered Discord bot with MCP capabilities 
 
 ## Task List
 
-### 1. **Development Workflow**
-   - [ ] Set up development environment (.env.development)
-   - [ ] Run database migrations (`npm run db:generate:dev`)
-   - [ ] Start development server (`npm run dev`)
-   - [ ] Verify Discord bot connectivity
-
-### 2. **Feature Development**
-   - [ ] AI Service enhancements (new models/providers)
-   - [ ] Hot Tokens feature improvements (new data sources)
-   - [ ] Task Management extensions (advanced scheduling)
-   - [ ] MCP Tool integration (new tools/servers)
-
-### 3. **Testing & Quality**
-   - [ ] Run full test suite (`npm test`)
-   - [ ] Execute feature-specific tests (`npm run test:tokens`, `npm run test:mcp`)
-   - [ ] Check code coverage (`npm run test:coverage`)
-   - [ ] Run linting (`npm run lint`)
-
-### 4. **Deployment & Operations**
-   - [ ] Update production configuration
-   - [ ] Test production build (`npm run build`)
-   - [ ] Deploy with PM2 (`npm run bot:prod`)
-   - [ ] Verify monitoring and logging
+See ./context.md
 
 ---
 

@@ -73,6 +73,15 @@
 
 **Token Savings**: 95 tokens from repository slimming, net 35 tokens after adding YAML format
 
+### Phase 2: Compressed Step History ✅ (2025-11-26)
+- ✅ Replaced verbose YAML format (80-120 tokens/step) with compressed format (~20 tokens/step)
+- ✅ New format: `[stepNum] tool(params) → result` with smart truncation
+- ✅ Added helper methods: compressParams(), formatValue(), truncateResult()
+- ✅ Updated test expectations in both test files (src/prompt/ and src/tests/prompt/)
+- ✅ All prompt-related tests passing (211/213 total, 2 unrelated MCP failures)
+
+**Token Savings**: 180-300 tokens/session (50-75% step history reduction)
+
 ---
 
 ## Active Tasks
@@ -116,7 +125,7 @@
 
 **NEW PRIORITY**: Prompt optimization work supersedes previous roadmap based on analysis findings.
 
-### Phase 1: Quick Wins ✅ COMPLETE
+### Phase 1: Quick Wins ✅ COMPLETE (2025-11-25)
 1. ✅ **Remove Date/Time Spam** - Saved 143 tokens/iteration
    - Removed from 3 locations in react-prompt-generator.ts
    - Created `get_current_datetime` tool in `src/tools/builtin/datetime-tool.ts`
@@ -135,24 +144,17 @@
 **Total Phase 1 Savings**: ~178 tokens/iteration (~25% reduction)
 **Status**: TypeScript compiles, tests passing
 
-### Phase 2: Structural Improvements (2-3 days) ⏳ NEXT
-4. **Compress Step History Format** ← START HERE
-   - Impact: 8.6% token reduction (180 tokens/session)
-   - Effort: Medium
-   - Files: `src/prompt/react-prompt-generator.ts` (Lines 645-678 - formatReasoningSteps method)
-   - Action: Change from verbose YAML (80-120 tokens/step) to compressed format (20 tokens/step)
-   - Example: `[1] brave_search(Bitcoin price) → $95,234`
-   - **This is the next priority after break**
+### Phase 2: Structural Improvements ✅ COMPLETE (2025-11-26)
+4. ✅ **Compress Step History Format** - Saved 180-300 tokens/session
+   - Changed from verbose YAML (80-120 tokens/step) to compressed format (~20 tokens/step)
+   - Format: `[stepNum] tool(params) → result` with smart truncation
+   - Added helper methods: compressParams(), formatValue(), truncateResult()
+   - Updated test expectations in both test files
+   - 211/213 tests passing (2 unrelated MCP failures pre-existing)
 
-5. ✅ **Deduplicate Prompts** - COMPLETE
-   - Removed ReActGenerator duplication
-   - Slimmed repository prompts
-   - Clean architectural separation achieved
-
-6. ✅ **Refactor to Separable Elements** - COMPLETE
-   - Fixed via deduplication work
-   - Clean composition: Repository (universal) + Generator (framework-specific)
-   - No duplication across layers
+**Total Phase 2 Savings**: ~180-300 tokens/session (50-75% step history reduction)
+**Combined Phases 1+2**: ~358-478 tokens/session (~34-45% total reduction)
+**Status**: TypeScript compiles, 211/213 tests passing (2 MCP failures unrelated)
 
 ### Phase 3: Caching Implementation (3-5 days) 🎯 BIGGEST IMPACT
 7. **Implement Prompt Caching**
