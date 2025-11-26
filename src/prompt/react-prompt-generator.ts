@@ -541,13 +541,17 @@ Remember:
         // Add result if present
         if (step.observation) {
           const result = this.truncateResult(step.observation.result, 50);
-          parts.push(`→ ${result}`);
+          if (result) {
+            parts.push(`→ ${result}`);
+          }
         }
 
         // Add conclusion if present (final step)
         if (step.conclusion) {
           const answer = this.truncateResult(step.conclusion.final_answer, 60);
-          parts.push(`✓ ${answer}`);
+          if (answer) {
+            parts.push(`✓ ${answer}`);
+          }
         }
 
         return parts.join(" ");
@@ -594,7 +598,9 @@ Remember:
       return value.length > 30 ? `${value.substring(0, 27)}...` : value;
     }
     if (typeof value === "object") {
-      return JSON.stringify(value);
+      // Truncate JSON to prevent bloat from complex objects
+      const jsonStr = JSON.stringify(value);
+      return jsonStr.length > 30 ? `${jsonStr.substring(0, 27)}...` : jsonStr;
     }
     return String(value);
   }
@@ -603,10 +609,13 @@ Remember:
    * Truncate result text to specified length
    * @param text Result text
    * @param maxLength Maximum character length
-   * @returns Truncated text
+   * @returns Truncated text (empty string if text is null/undefined)
    */
   private truncateResult(text: string, maxLength: number): string {
-    if (!text || text.length <= maxLength) {
+    if (!text) {
+      return "";
+    }
+    if (text.length <= maxLength) {
       return text;
     }
     return `${text.substring(0, maxLength - 3)}...`;
