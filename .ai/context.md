@@ -8,6 +8,12 @@
 
 ---
 
+## Current Issues (2025-11-26)
+- ReAct CLI still allows empty prompts and proceeds into ToT reasoning; need upfront validation.
+- ToT planner outputs include hallucinated/irrelevant GitHub tools for research tasks. Must post-filter against registry + query intent and clamp to research-only set unless repo work requested.
+- After tool execution we now queue follow-up prompts, but conclusions are still accepted without checking that tool observations were cited; need response validation & stronger logging of prompts/steps.
+- Tool failure observations (e.g., GitHub 404/403) should guide the model away from repo-manipulation loops; currently it keeps re-trying destructive tools.
+
 ## Recently Completed
 
 ### Tree-of-Thought Integration ✅ (2025-11-24)
@@ -74,13 +80,40 @@
 **Token Savings**: 95 tokens from repository slimming, net 35 tokens after adding YAML format
 
 ### Phase 2: Compressed Step History ✅ (2025-11-26)
-- ✅ Replaced verbose YAML format (80-120 tokens/step) with compressed format (~20 tokens/step)
-- ✅ New format: `[stepNum] tool(params) → result` with smart truncation
+- ✅ Replaced verbose YAML format with compressed format
+- ✅ New format: `[stepNum] tool(params) → result`
+- ✅ **Compression Strategy**:
+  - ❌ Remove: THOUGHT/PLAN (verbose meta-commentary - not actual data)
+  - ✅ Keep: OBSERVATION (actual data - search results, API responses)
+  - ✅ Keep: CONCLUSION (final answers)
+  - Truncation: Observations=800 chars, Conclusions=600 chars, Params=30 chars
 - ✅ Added helper methods: compressParams(), formatValue(), truncateResult()
-- ✅ Updated test expectations in both test files (src/prompt/ and src/tests/prompt/)
+- ✅ Updated test expectations in both test files
 - ✅ All prompt-related tests passing (211/213 total, 2 unrelated MCP failures)
 
-**Token Savings**: 180-300 tokens/session (50-75% step history reduction)
+**Token Savings**: ~30-50 tokens/step (removes THOUGHT/PLAN overhead while preserving data)
+**Philosophy**: Compress metadata, preserve information
+
+### Critical Bug Fixes ✅ (2025-11-26)
+- ✅ **Action+Conclusion bug**: LLM was providing both action AND conclusion in same step
+  - Fixed: Check conclusion first, break immediately if present (react-engine.ts:205-210)
+  - Prompt clarified: "You must provide EITHER action OR conclusion. Never both."
+- ✅ **Truncation too aggressive**: Observations truncated to 50 chars (useless for reasoning)
+  - Fixed: Observations=800 chars (~200 tokens), Conclusions=600 chars (~150 tokens)
+  - Rationale: LLM needs actual data to reason, cite sources, answer questions
+- ✅ **Source citation**: Added explicit guidance to cite sources when using search tools
+  - Updated: PromptRepository TOOL_USAGE prompt with "cite sources and provide URLs"
+- ✅ **ToT filter bypass**: LLM could call ANY tool despite ToT filtering
+  - Problem: ToT filtered tools, but executeToolAndStoreResult() didn't validate
+  - Symptom: Used brave_search correctly in iteration 1, then search_code in iteration 2
+  - Fixed: Added validation before tool execution (react-engine.ts:215-234)
+  - Now: Rejects tools not in filtered list, adds error observation instead
+- ✅ **CLI memory mismatch**: "No reasoning steps were recorded"
+  - Problem: Agent saved with userId="default-user", CLI searched with "cli-user-{timestamp}"
+  - Fixed: CLI creates userId FIRST, then configures agent with it (react-cli-tester.ts:120-135)
+- ✅ **Thought not enforced**: LLM could skip reasoning and just call tools
+  - Fixed: Made "thought" explicitly REQUIRED in format instructions
+  - Added: CRITICAL RULES section emphasizing "ALWAYS start with thought"
 
 ---
 

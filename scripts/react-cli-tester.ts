@@ -1,25 +1,20 @@
-import { MCPContainer } from "../src/tools/mcp/di/container.js";
 import { mcpConfig } from "../src/mcp_config.js";
-import { AgentFactory } from "../src/agents/agent-factory.js";
-import { OpenAIProvider } from "../src/providers/openai.js";
-import { ReActPromptGenerator } from "../src/prompt/react-prompt-generator.js";
+import { AIFactory } from "../src/services/ai-factory.js";
 import { MemoryFactory, MemoryProviderType } from "../src/memory/memory-factory.js";
 import { ReasoningStep } from "../src/interfaces/react-types.js";
-import { defaultConfig } from "../src/utils/config.js";
 import readline from 'readline';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MemoryType } from "../src/interfaces/memory-provider.js";
-import { Agent } from "../src/interfaces/base-agent.js";
+import { ReActAgent } from "../src/agents/react-agent.js";
 
 // Get directory name in ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load environment variables
-const envPath = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+const envPath = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
 console.log(`Loading environment from ${envPath}`);
 dotenv.config({ path: path.join(__dirname, '..', envPath) });
 
@@ -31,7 +26,7 @@ function formatStep(step: ReasoningStep): string {
   output += '='.repeat(80) + '\n';
   
   if (step.thought) {
-    output += `🤔 THOUGHT\n`;
+    output += `?? THOUGHT\n`;
     output += `---------\n`;
     output += `Reasoning: ${step.thought.reasoning}\n`;
     if (step.thought.plan) {
@@ -41,7 +36,7 @@ function formatStep(step: ReasoningStep): string {
   }
   
   if (step.action) {
-    output += `🔧 ACTION\n`;
+    output += `?? ACTION\n`;
     output += `--------\n`;
     output += `Tool: ${step.action.tool}\n`;
     if (step.action.purpose) {
@@ -51,13 +46,13 @@ function formatStep(step: ReasoningStep): string {
   }
   
   if (step.observation) {
-    output += `👁️ OBSERVATION\n`;
+    output += `??? OBSERVATION\n`;
     output += `-------------\n`;
     output += `${step.observation.result}\n\n`;
   }
   
   if (step.conclusion) {
-    output += `🏁 CONCLUSION\n`;
+    output += `?? CONCLUSION\n`;
     output += `------------\n`;
     output += `Final Answer: ${step.conclusion.final_answer}\n`;
     if (step.conclusion.explanation) {
@@ -67,7 +62,7 @@ function formatStep(step: ReasoningStep): string {
   }
   
   if (step.error_handling) {
-    output += `❌ ERROR\n`;
+    output += `? ERROR\n`;
     output += `--------\n`;
     output += `Error: ${step.error_handling.error}\n`;
     output += `Recovery: ${step.error_handling.recovery.log_error}\n`;
@@ -86,59 +81,47 @@ async function main() {
   console.log("Initializing components...");
   
   try {
-    // 1. Initialize container and get the tool manager
-    const container = new MCPContainer(mcpConfig);
-    console.log("✅ MCP Container initialized");
-    
-    const toolManager = container.getToolManager();
-    console.log("✅ Tool Manager retrieved");
-    
-    // 2. Refresh tool information
+    // 1. Initialize factory (handles MCP container + providers)
+    await AIFactory.initialize(mcpConfig);
+    console.log("? AIFactory initialized");
+
+    const toolManager = AIFactory.getToolManager();
+    console.log("? Tool Manager retrieved");
+
+    // 2. Refresh tool information so CLI reflects current state
     await toolManager.refreshToolInformation();
     const availableTools = await toolManager.getAvailableTools();
-    console.log(`✅ Tool information refreshed. ${availableTools.length} tools available`);
-    
+    console.log(`? Tool information refreshed. ${availableTools.length} tools available`);
+
     // 3. Initialize memory provider
     const memoryFactory = MemoryFactory.getInstance({
       type: MemoryProviderType.IN_MEMORY
     });
     const memoryProvider = await memoryFactory.getProvider();
-    console.log("✅ Memory Provider initialized");
-    
-    // 4. Create LLM provider with config
-    const config = { ...defaultConfig };
-    // Override specific OpenAI settings if needed
-    config.openai.model = process.env.OPENAI_MODEL || "gpt-4-turbo";
-    config.openai.temperature = 0.7;
-    const llmProvider = new OpenAIProvider(config);
-    console.log("✅ LLM Provider created");
-    
-    // 5. Create prompt generator
-    const promptGenerator = new ReActPromptGenerator(toolManager);
-    console.log("✅ Prompt Generator created");
-    
-    // 6. Create the agent using the AgentFactory
-    const agent = await AgentFactory.createReActAgent(
-      container,
-      llmProvider,
+    console.log("? Memory Provider initialized");
+
+    // User ID for this session (create BEFORE agent)
+    const userId = `cli-user-${Date.now()}`;
+
+    // 4. Create the agent using the AIFactory (ensures ToT + future features)
+    const agentInstance = await AIFactory.create(
+      process.env.OPENAI_MODEL,
+      "CLI-Agent",
       memoryProvider,
-      toolManager,
-      promptGenerator,
-      "CLI-Agent"
     );
-    console.log("✅ ReAct Agent created");
-    
+
+    // Configure agent with the userId so memory saves correctly
+    const agent = (agentInstance as ReActAgent).withConfig({ userId });
+    console.log(`? ReAct Agent created with userId: ${userId}`);
+
     // Setup the CLI interface
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
     });
-    
+
     console.log("\nReAct Agent is ready! Type your request or 'exit' to quit.");
     console.log("==========================================================\n");
-    
-    // User ID for this session
-    const userId = `cli-user-${Date.now()}`;
     
     // Start the CLI loop
     promptUser();
@@ -150,6 +133,7 @@ async function main() {
           console.log("Cleaning up...");
           await agent.cleanup();
           await memoryProvider.cleanup();
+          AIFactory.cleanup();
           rl.close();
           return;
         }
@@ -210,6 +194,7 @@ async function main() {
     
   } catch (error) {
     console.error("Failed to initialize the ReAct Agent CLI:", error);
+    AIFactory.cleanup();
     process.exit(1);
   }
 }
@@ -217,5 +202,7 @@ async function main() {
 // Start the application
 main().catch(error => {
   console.error("Unhandled exception:", error);
+  AIFactory.cleanup();
   process.exit(1);
 }); 
+

@@ -26,7 +26,8 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
     content: `When using tools:
 - Use exact tool names and parameter formats
 - Verify parameters match the schema
-- Report results clearly`,
+- Report results clearly with specific details
+- When using search tools, cite sources and provide URLs`,
     priority: 2,
     tools: ["*"], // Applies to all tools
     usagePatterns: {

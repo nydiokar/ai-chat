@@ -15,8 +15,58 @@ import {
 import { ToolFormatter } from "../tools/tool-formatter.js";
 
 /**
+ * Configuration for step history compression in ReAct prompts
+ *
+ * CRITICAL DESIGN DECISION: These values control token savings vs reasoning capability
+ *
+ * Philosophy: "Compress metadata, preserve information"
+ * - Remove: THOUGHT/PLAN (verbose meta-commentary about what to do)
+ * - Keep: OBSERVATION (actual data - search results, API responses)
+ * - Keep: CONCLUSION (final answers for context)
+ *
+ * Token estimation: ~4 chars per token (rough approximation)
+ *
+ * WHY THESE SPECIFIC VALUES:
+ * - OBSERVATION_MAX_CHARS (800 = ~200 tokens):
+ *   - Search results need URLs, snippets, sources for citation
+ *   - API responses need structured data for reasoning
+ *   - Too short = LLM can't cite sources or reason properly
+ *   - Example: "Bitcoin price: $95,234 (CoinMarketCap). +5% 24h. Sources: coinmarketcap.com"
+ *
+ * - CONCLUSION_MAX_CHARS (600 = ~150 tokens):
+ *   - Final answers need to be complete for multi-turn conversations
+ *   - User may ask follow-up questions about previous conclusions
+ *
+ * - PARAM_MAX_CHARS (30):
+ *   - Just needs to show what tool was called with what query
+ *   - Example: "Bitcoin price" or "query:weather, city:NYC"
+ *
+ * DEBUGGING: If agent can't cite sources or gives vague answers, increase OBSERVATION_MAX_CHARS
+ * OPTIMIZATION: Monitor actual observation lengths to tune these values
+ */
+const STEP_COMPRESSION_LIMITS = {
+  /** Max chars for observation results (search results, API data, etc.) */
+  OBSERVATION_MAX_CHARS: 800, // ~200 tokens - preserves actual data for reasoning
+
+  /** Max chars for final conclusions */
+  CONCLUSION_MAX_CHARS: 600, // ~150 tokens - preserves complete answers
+
+  /** Max chars for tool parameters (in compressed display) */
+  PARAM_MAX_CHARS: 30, // Just needs to show what was called
+
+  /** Max chars for individual parameter values */
+  PARAM_VALUE_MAX_CHARS: 30,
+} as const;
+
+/**
  * Generator for creating prompts that guide the LLM to use ReAct-style reasoning
  * Support both direct and reasoning-based prompts
+ *
+ * Compression Strategy:
+ * - Old format: ~80-120 tokens/step (verbose YAML with THOUGHT/PLAN/ACTION/OBSERVATION)
+ * - New format: ~50-70 tokens/step (compressed: [1] tool(params) → result)
+ * - Savings: ~30-50 tokens/step by removing redundant metadata
+ * - Preserved: Actual data (observations, conclusions) for reasoning
  */
 export class ReActPromptGenerator implements PromptGenerator {
   private readonly logger: Logger;
@@ -40,22 +90,32 @@ export class ReActPromptGenerator implements PromptGenerator {
   private getReActFormatInstructions(): string {
     return `Format your response using this YAML structure:
 \`\`\`yaml
+# REQUIRED - Always think before acting:
 thought:
-  reasoning: "Brief analysis of what you need to do next"
-  plan: "Step-by-step approach to solve this part"
+  reasoning: "Analyze the situation: What do I know? What do I need to find out?"
+  plan: "Step-by-step: What will I do? Why this approach?"
 
+# Then choose EITHER action OR conclusion (never both):
+
+# Option A: If you need more information, use a tool
 action:
   tool: "tool_name"
-  purpose: "Why you're using this tool"
+  purpose: "Why this specific tool will help"
   params:
     param1: "value1"
     param2: "value2"
 
-# OR if you've completed the task
+# Option B: If you have enough information, provide final answer
 conclusion:
-  final_answer: "Your complete answer to the request"
-  explanation: "Brief summary of how you arrived at this answer"
-\`\`\``;
+  final_answer: "Complete answer with specific details and sources"
+  explanation: "How you arrived at this conclusion based on the evidence"
+\`\`\`
+
+CRITICAL RULES:
+1. ALWAYS start with 'thought' - reason about the problem BEFORE taking action
+2. Provide EITHER action OR conclusion - NEVER both
+3. When using search tools, cite specific sources with URLs in your conclusion
+4. Be thorough - vague answers like "I found sources" are not acceptable`;
   }
 
   /**
@@ -538,20 +598,31 @@ Remember:
           parts.push(`${toolName}(${paramSummary})`);
         }
 
-        // Add result if present
+        // Add result if present - keep observations mostly intact (they contain the actual data!)
         if (step.observation) {
-          const result = this.truncateResult(step.observation.result, 50);
+          const result = this.truncateResult(
+            step.observation.result,
+            STEP_COMPRESSION_LIMITS.OBSERVATION_MAX_CHARS,
+          );
           if (result) {
             parts.push(`→ ${result}`);
           }
         }
 
-        // Add conclusion if present (final step)
+        // Add conclusion if present (final step) - keep mostly intact
         if (step.conclusion) {
-          const answer = this.truncateResult(step.conclusion.final_answer, 60);
+          const answer = this.truncateResult(
+            step.conclusion.final_answer,
+            STEP_COMPRESSION_LIMITS.CONCLUSION_MAX_CHARS,
+          );
           if (answer) {
             parts.push(`✓ ${answer}`);
           }
+        }
+
+        // If step has no action/observation/conclusion, show it had only thought
+        if (!step.action && !step.observation && !step.conclusion && step.thought) {
+          parts.push("(thinking)");
         }
 
         return parts.join(" ");
@@ -595,20 +666,30 @@ Remember:
     }
     if (typeof value === "string") {
       // Truncate long strings
-      return value.length > 30 ? `${value.substring(0, 27)}...` : value;
+      const maxLen = STEP_COMPRESSION_LIMITS.PARAM_VALUE_MAX_CHARS;
+      return value.length > maxLen
+        ? `${value.substring(0, maxLen - 3)}...`
+        : value;
     }
     if (typeof value === "object") {
       // Truncate JSON to prevent bloat from complex objects
       const jsonStr = JSON.stringify(value);
-      return jsonStr.length > 30 ? `${jsonStr.substring(0, 27)}...` : jsonStr;
+      const maxLen = STEP_COMPRESSION_LIMITS.PARAM_VALUE_MAX_CHARS;
+      return jsonStr.length > maxLen
+        ? `${jsonStr.substring(0, maxLen - 3)}...`
+        : jsonStr;
     }
     return String(value);
   }
 
   /**
    * Truncate result text to specified length
+   *
+   * NOTE: maxLength values are defined in STEP_COMPRESSION_LIMITS at the top of this file
+   * See the extensive documentation there for rationale behind specific values
+   *
    * @param text Result text
-   * @param maxLength Maximum character length
+   * @param maxLength Maximum character length (see STEP_COMPRESSION_LIMITS for values)
    * @returns Truncated text (empty string if text is null/undefined)
    */
   private truncateResult(text: string, maxLength: number): string {

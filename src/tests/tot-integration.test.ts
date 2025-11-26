@@ -23,7 +23,7 @@ describe("ToT Integration Test", function () {
   this.timeout(30000);
 
   const hasApiKey = !!process.env.OPENAI_API_KEY;
-  const testQuery = "What are the current trending topics on GitHub?";
+  const testQuery = "Why is Michael Saylor ";
 
   before(function () {
     if (!hasApiKey) {

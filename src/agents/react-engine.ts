@@ -46,6 +46,8 @@ export class ReActEngine {
     process.env.REACT_VERBOSE_LOGGING !== "false";
   private readonly stepParser: ReActStepParser;
   private readonly toolHandler: ReActToolHandler;
+  private pendingFollowUpPrompt: string | null = null;
+  private currentUserMessage: string | null = null;
 
   constructor(
     private readonly memory: MemoryProvider,
@@ -134,6 +136,7 @@ export class ReActEngine {
   ): Promise<string> {
     // Create a reasoning trace to track all steps and manage state
     const trace = new ReActTrace(this.memory, userId);
+    this.currentUserMessage = userMessage;
 
     // Add previous steps to the trace if provided
     if (previousSteps.length > 0) {
@@ -182,12 +185,26 @@ export class ReActEngine {
 
       // Generate prompt with appropriate context using optimized steps
       const optimizedSteps = trace.optimizeSteps();
-      const prompt = await this.generateContextualPrompt(
-        userMessage,
-        optimizedSteps,
-        toolsToUse, // Use filtered tools instead of all tools
-        iterationCount,
-      );
+      let prompt: string;
+      if (this.pendingFollowUpPrompt) {
+        prompt = this.pendingFollowUpPrompt;
+        this.pendingFollowUpPrompt = null;
+      } else {
+        prompt = await this.generateContextualPrompt(
+          userMessage,
+          optimizedSteps,
+          toolsToUse, // Use filtered tools instead of all tools
+          iterationCount,
+        );
+      }
+
+      // Debug: Log filtered tools being sent to LLM
+      if (process.env.REACT_VERBOSE_LOGGING === "true") {
+        this.logger.debug(`Iteration ${iterationCount} - Tools in prompt`, {
+          toolNames: toolsToUse.map((t) => t.name),
+          toolCount: toolsToUse.length,
+        });
+      }
 
       try {
         // Get LLM response and parse reasoning step
@@ -202,14 +219,38 @@ export class ReActEngine {
           step: this.formatForDisplay(nextStep),
         });
 
-        // Handle tool execution if needed
-        if (nextStep.action?.tool) {
-          await this.executeToolAndStoreResult(nextStep.action, trace);
+        // Check if step has conclusion (should end reasoning)
+        if (nextStep.conclusion?.final_answer) {
+          // Mark complete and stop (don't execute action if present)
+          trace.markComplete(nextStep.conclusion.final_answer);
+          this.logVerbose("info", "Reasoning complete with conclusion");
+          break; // Exit the loop immediately
         }
 
-        // Check for conclusion
-        if (nextStep.conclusion?.final_answer) {
-          trace.markComplete(nextStep.conclusion.final_answer);
+        // Handle tool execution only if no conclusion
+        if (nextStep.action?.tool) {
+          // Validate tool is in allowed list (respects ToT filtering)
+          const requestedTool = nextStep.action.tool;
+          const isAllowed = toolsToUse.some((t) => t.name === requestedTool);
+
+          if (!isAllowed) {
+            this.logger.warn(
+              `LLM requested tool '${requestedTool}' which is not in the filtered tool list. Skipping execution.`,
+              {
+                requestedTool,
+                allowedTools: toolsToUse.map((t) => t.name),
+              },
+            );
+
+            // Add error observation instead of executing
+            const errorObservation = this.toolHandler.createObservationStep(
+              `Error: Tool '${requestedTool}' is not available. Available tools: ${toolsToUse.map((t) => t.name).join(", ")}`,
+            );
+            await trace.addStep(errorObservation);
+            continue; // Skip to next iteration
+          }
+
+          await this.executeToolAndStoreResult(nextStep.action, trace);
         }
       } catch (error) {
         await this.handleProcessingError(error, trace, iterationCount);
@@ -225,7 +266,10 @@ export class ReActEngine {
     }
 
     // Return the final response
-    return trace.getFinalResponse();
+    const finalResponse = trace.getFinalResponse();
+    this.pendingFollowUpPrompt = null;
+    this.currentUserMessage = null;
+    return finalResponse;
   }
 
   /**
@@ -354,6 +398,28 @@ export class ReActEngine {
         true,
         trace.getUserId(),
       );
+
+      if (
+        this.promptGenerator.generateFollowUpPrompt &&
+        this.currentUserMessage
+      ) {
+        try {
+          const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
+          this.pendingFollowUpPrompt =
+            await this.promptGenerator.generateFollowUpPrompt(
+              this.currentUserMessage,
+              stepsSnapshot,
+              formattedResult,
+            );
+        } catch (followUpError) {
+          this.logger.error("Failed to generate follow-up prompt", {
+            error:
+              followUpError instanceof Error
+                ? followUpError.message
+                : String(followUpError),
+          });
+        }
+      }
     } catch (error) {
       this.logger.error(`Error executing tool: ${tool}`, {
         error: String(error),
@@ -380,6 +446,28 @@ export class ReActEngine {
         trace.getUserId(),
         String(error),
       );
+
+      if (
+        this.promptGenerator.generateFollowUpPrompt &&
+        this.currentUserMessage
+      ) {
+        try {
+          const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
+          this.pendingFollowUpPrompt =
+            await this.promptGenerator.generateFollowUpPrompt(
+              this.currentUserMessage,
+              stepsSnapshot,
+              observationStep.observation?.result || "",
+            );
+        } catch (followUpError) {
+          this.logger.error("Failed to generate follow-up prompt", {
+            error:
+              followUpError instanceof Error
+                ? followUpError.message
+                : String(followUpError),
+          });
+        }
+      }
     }
   }
 
