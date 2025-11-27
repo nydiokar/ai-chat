@@ -21,6 +21,13 @@ export interface Input {
   tool_call_id?: string;
 }
 
+export interface TokenUsage {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  cachedTokens?: number | null;
+}
+
 /**
  * A response from an LLM or Agent
  */
@@ -28,4 +35,5 @@ export interface Response {
   content: string;
   tokenCount: number | null;
   toolResults: ToolResponse[];
+  tokenUsage?: TokenUsage;
 }

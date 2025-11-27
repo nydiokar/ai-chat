@@ -47,7 +47,6 @@ export class ReActEngine {
     process.env.REACT_VERBOSE_LOGGING !== "false";
   private readonly stepParser: ReActStepParser;
   private readonly toolHandler: ReActToolHandler;
-  private pendingFollowUpPrompt: string | null = null;
   private currentUserMessage: string | null = null;
   private currentPlan: PlanArtifact | null = null;
   private toolUsageCounts: Map<string, number> = new Map();
@@ -220,18 +219,12 @@ export class ReActEngine {
 
       // Generate prompt with appropriate context using optimized steps
       const optimizedSteps = trace.optimizeSteps();
-      let prompt: string;
-      if (this.pendingFollowUpPrompt) {
-        prompt = this.pendingFollowUpPrompt;
-        this.pendingFollowUpPrompt = null;
-      } else {
-        prompt = await this.generateContextualPrompt(
-          userMessage,
-          optimizedSteps,
-          toolsToUse, // Use filtered tools instead of all tools
-          iterationCount,
-        );
-      }
+      const prompt = await this.generateContextualPrompt(
+        userMessage,
+        optimizedSteps,
+        toolsToUse, // Use filtered tools instead of all tools
+        iterationCount,
+      );
 
       // Debug: Log filtered tools being sent to LLM
       if (process.env.REACT_VERBOSE_LOGGING === "true") {
@@ -284,6 +277,15 @@ export class ReActEngine {
           trace.markComplete(nextStep.conclusion.final_answer);
           this.logVerbose("info", "Reasoning complete with conclusion");
           break; // Exit the loop immediately
+        }
+
+        // Guard: if action is present but no tool specified, force clarification
+        if (nextStep.action && !nextStep.action.tool) {
+          const invalidAction = this.toolHandler.createObservationStep(
+            "Invalid action: you must either call one of the available tools using 'action.tool' or provide a 'conclusion' grounded in the observations. Summaries/analysis without a tool should be expressed as a 'conclusion'.",
+          );
+          await trace.addStep(invalidAction);
+          continue;
         }
 
         // Handle tool execution only if no conclusion
@@ -357,7 +359,6 @@ export class ReActEngine {
 
     // Return the final response
     const finalResponse = trace.getFinalResponse();
-    this.pendingFollowUpPrompt = null;
     this.currentUserMessage = null;
     this.currentPlan = null;
     this.toolUsageCounts.clear();
@@ -506,22 +507,7 @@ export class ReActEngine {
         this.promptGenerator.generateFollowUpPrompt &&
         this.currentUserMessage
       ) {
-        try {
-          const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
-          this.pendingFollowUpPrompt =
-            await this.promptGenerator.generateFollowUpPrompt(
-              this.currentUserMessage,
-              stepsSnapshot,
-              formattedResult,
-            );
-        } catch (followUpError) {
-          this.logger.error("Failed to generate follow-up prompt", {
-            error:
-              followUpError instanceof Error
-                ? followUpError.message
-                : String(followUpError),
-          });
-        }
+        // Follow-up prompt generation is disabled to preserve consistent schema across turns.
       }
     } catch (error) {
       this.logger.error(`Error executing tool: ${tool}`, {
@@ -562,22 +548,7 @@ export class ReActEngine {
         this.promptGenerator.generateFollowUpPrompt &&
         this.currentUserMessage
       ) {
-        try {
-          const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
-          this.pendingFollowUpPrompt =
-            await this.promptGenerator.generateFollowUpPrompt(
-              this.currentUserMessage,
-              stepsSnapshot,
-              observationStep.observation?.result || "",
-            );
-        } catch (followUpError) {
-          this.logger.error("Failed to generate follow-up prompt", {
-            error:
-              followUpError instanceof Error
-                ? followUpError.message
-                : String(followUpError),
-          });
-        }
+        // Follow-up prompt generation is disabled to preserve consistent schema across turns.
       }
     }
   }
@@ -687,12 +658,18 @@ export class ReActEngine {
   ): Promise<string> {
     try {
       const planSummary = this.formatTotPlanSummary();
-      const augmentedInput = planSummary
-        ? "Tree-of-Thought Plan:\n" +
-          planSummary +
-          "\n\nUser request: " +
-          userMessage
-        : userMessage;
+      const budgetSummary = this.formatToolBudgets(tools);
+      const augmentedInputSections: string[] = [];
+
+      if (planSummary) {
+        augmentedInputSections.push("Tree-of-Thought Plan:\n" + planSummary);
+      }
+      if (budgetSummary) {
+        augmentedInputSections.push("Tool budgets:\n" + budgetSummary);
+      }
+      augmentedInputSections.push("User request: " + userMessage);
+
+      const augmentedInput = augmentedInputSections.join("\n\n");
 
       let prompt: string;
       if (this.promptGenerator.generateReActPrompt) {
@@ -809,6 +786,25 @@ Please provide the next step in reasoning or a final answer.`;
     }
 
     return sections.join("\n\n");
+  }
+
+  /**
+   * Render tool budgets with remaining calls to remind the model of limits
+   */
+  private formatToolBudgets(toolsInPrompt: ToolDefinition[]): string | null {
+    if (!this.currentPlan) return null;
+
+    const budgetLines: string[] = [];
+    for (const tool of this.currentPlan.selected_tools) {
+      // Only include tools that are currently offered in the prompt
+      if (!toolsInPrompt.some((t) => t.name === tool.name)) continue;
+      const used = this.toolUsageCounts.get(tool.name) || 0;
+      budgetLines.push(
+        `- ${tool.name}: ${used}/${tool.max_calls} calls used (purpose: ${tool.purpose})`,
+      );
+    }
+
+    return budgetLines.length > 0 ? budgetLines.join("\n") : null;
   }
   /**
    * Check if ToT planning should be used
