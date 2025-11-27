@@ -14,6 +14,10 @@ export const Model = {
   "gpt-3.5-turbo-16k": "gpt-3.5-turbo-16k",
   "gpt-4o-mini-2024-07-18": "gpt-4o-mini-2024-07-18",
   "gpt-4o-2024-08-06": "gpt-4o-2024-08-06",
+  "gpt-5-nano-2025-08-07": "gpt-5-nano-2025-08-07",
+  "gpt-5-mini-2025-08-07": "gpt-5-mini-2025-08-07",
+  "gpt-5.1-2025-11-13": "gpt-5.1-2025-11-13",
+  "gpt-5-2025-08-07": "gpt-5-2025-08-07",
   // Provider types
   openai: "openai",
   claude: "claude",
