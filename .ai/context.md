@@ -17,13 +17,13 @@
 6. **Orchestrator Layer**: Add a simple intent check (length/keywords) to skip ToT for trivial “single search” queries and run ReAct with a tiny manual tool set.
 
 ### New Work Items (2025-11-27)
-- **Prompt caching**: Enable OpenAI request caching (`ENABLE_PROMPT_CACHING` flag; cache_control=ephemeral on system/identity) and ensure cache invalidation when tool descriptions change.
-- **Response formatting**: Move ReAct step schema to native JSON/response_format when using stronger models (e.g., gpt-5-nano-2025-08-07) to eliminate parse failures.
-- **Observation discipline**: Log the exact post-tool prompt (with secrets redacted) to verify the last observation, plan summary, and budgets are included; reject conclusions missing the required structured extraction after search.
-- **Tool/server disambiguation**: Provide concise server descriptions (Brave vs GitHub) in prompts so the planner/executor prefers search for research and avoids GitHub tooling unless repo intent is present.
-- **Search extraction enforcement**: For search tools, require a structured extraction block (name, affiliation, finding, source_url, date) before narrative summary; consider strict validation.
-- **Token budget flex**: Allow 2–3 calls for search/web tools by default (already loosened in planner) and conclude when evidence suffices.
-- **Token usage + caching verification**: Capture and log token usage metadata (prompt, completion, total, cached tokens) to validate caching efficacy; measure “cached_tokens” for gpt-5-nano/mini since caching appears inconsistent per OpenAI community reports.
+- **Prompt caching**: Enabled via `ENABLE_PROMPT_CACHING` flag; system/identity messages tagged with `cache_control: { type: "ephemeral" }`. Need cache invalidation when tool descriptions change.
+- **Token usage logging**: Added `tokenUsage` (prompt/completion/total/cachedTokens) to responses and OpenAI logs; monitor `cachedTokens` for real caching hits (reports of inconsistency on gpt-5-mini/nano).
+- **Response formatting**: TODO — move ReAct step schema to native JSON/response_format for stronger models (e.g., gpt-5-nano-2025-08-07) to eliminate parse failures.
+- **Observation discipline**: TODO — log exact post-tool prompt (redacted) to verify last observation, plan summary, budgets included; reject conclusions missing required structured extraction after search.
+- **Tool/server disambiguation**: TODO — add concise server descriptions (Brave vs GitHub) in prompts so planner/executor prefers search for research and avoids GitHub unless repo intent is present.
+- **Search extraction enforcement**: In prompt: require structured extraction (name, affiliation, finding, source_url, date) before narrative summary for search tools; consider strict validation.
+- **Token budget flex**: Planner loosened search/web tool calls (1–3 simple, 2–4 complex; min 2 for search). Conclude when evidence suffices.
 
 ## Recently Completed
 

@@ -189,6 +189,7 @@ export class OpenAIProvider implements LLMProvider {
         toolNames,
         tokenCount: completion.usage?.total_tokens,
         finishReason: completion.choices[0]?.finish_reason,
+        tokenUsage: this.extractTokenUsage(completion),
       });
 
       // If no tool calls, return the content directly
@@ -313,6 +314,14 @@ export class OpenAIProvider implements LLMProvider {
           ErrorType.API_ERROR,
         );
       }
+
+      logOpenAI("Response received", {
+        operation: "getFinalResponse",
+        hasToolCalls: !!choice.tool_calls?.length,
+        toolCount: choice.tool_calls?.length || 0,
+        tokenCount: completion.usage?.total_tokens,
+        tokenUsage: this.extractTokenUsage(completion),
+      });
 
       return {
         content:
