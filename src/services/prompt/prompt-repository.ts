@@ -52,10 +52,7 @@ export const defaultPrompts: Record<PromptType, BasePrompt> = {
 - Validate assumptions`,
     priority: 3,
     complexity: "basic",
-    approaches: [
-      "Step-by-step analysis",
-      "Problem decomposition",
-    ],
+    approaches: ["Step-by-step analysis", "Problem decomposition"],
     shouldApply: (context: PromptContext) =>
       context.requestType === "reasoning" ||
       (context.complexity && ["medium", "high"].includes(context.complexity)),

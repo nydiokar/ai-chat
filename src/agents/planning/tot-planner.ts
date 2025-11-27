@@ -2,7 +2,12 @@ import { LLMProvider } from "../../interfaces/llm-provider.js";
 import { ToolDefinition } from "../../tools/mcp/types/tools.js";
 import { getLogger } from "../../utils/shared-logger.js";
 import type { Logger } from "winston";
-import { PlanArtifact, SelectedTool, PlanStep, TaskComplexity } from "./plan-artifact.js";
+import {
+  PlanArtifact,
+  SelectedTool,
+  PlanStep,
+  TaskComplexity,
+} from "./plan-artifact.js";
 
 /**
  * Tree-of-Thought planner that returns a structured PlanArtifact
@@ -70,7 +75,11 @@ export class ToTPlanner {
     const complexity = this.assessComplexity(userQuery);
 
     // Ask LLM to create a plan
-    const planResponse = await this.requestPlan(userQuery, allTools, complexity);
+    const planResponse = await this.requestPlan(
+      userQuery,
+      allTools,
+      complexity,
+    );
 
     // Parse the response into a PlanArtifact
     const artifact = this.parsePlanResponse(planResponse, allTools, complexity);
@@ -84,7 +93,10 @@ export class ToTPlanner {
   private assessComplexity(query: string): TaskComplexity {
     const length = query.length;
     const hasMultipleQuestions = (query.match(/\?/g) || []).length > 1;
-    const complexKeywords = /multi-step|pipeline|architecture|orchestrate|complex|analyze.*and/i.test(query);
+    const complexKeywords =
+      /multi-step|pipeline|architecture|orchestrate|complex|analyze.*and/i.test(
+        query,
+      );
 
     if (length < 50 && !hasMultipleQuestions && !complexKeywords) {
       return "low";
@@ -187,7 +199,9 @@ Guidelines:
                 purpose: tool.purpose || "Tool usage",
               });
             } else {
-              this.logger.warn(`Tool ${tool.name} in plan does not exist, skipping`);
+              this.logger.warn(
+                `Tool ${tool.name} in plan does not exist, skipping`,
+              );
             }
           }
         }
@@ -234,13 +248,16 @@ Guidelines:
   private createFallbackPlan(allTools: ToolDefinition[]): PlanArtifact {
     // Select up to 3 tools, prefer search/web tools
     const searchTools = allTools.filter((t) =>
-      /search|web|brave/i.test(t.name + " " + t.description)
+      /search|web|brave/i.test(t.name + " " + t.description),
     );
-    const selectedTools = (searchTools.length > 0 ? searchTools : allTools).slice(0, 3);
+    const selectedTools = (
+      searchTools.length > 0 ? searchTools : allTools
+    ).slice(0, 3);
 
     return {
       complexity: "medium",
-      rationale: "Fallback plan: allowing multiple tools with reasonable limits",
+      rationale:
+        "Fallback plan: allowing multiple tools with reasonable limits",
       selected_tools: selectedTools.map((tool) => ({
         name: tool.name,
         max_calls: 2,

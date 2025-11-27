@@ -112,10 +112,7 @@ refined_plan:
       const mockTools = [{ name: "tool1", description: "Test" }];
 
       const planner = new ToTPlanner(mockLLM as any);
-      const result = await planner.plan(
-        "test query",
-        mockTools as any,
-      );
+      const result = await planner.plan("test query", mockTools as any);
 
       // Should return all tools on failure
       expect(result).to.deep.equal(mockTools);
@@ -133,17 +130,15 @@ refined_plan:
       try {
         let totWasCalled = false;
         const mockTotPlanner = {
-          plan: sinon
-            .stub()
-            .callsFake(async (query: string, tools: any[]) => {
-              console.log(`\n🎯 ToT PLANNER CALLED with query: "${query}"`);
-              console.log(
-                `🎯 Available tools: ${tools.map((t) => t.name).join(", ")}`,
-              );
-              totWasCalled = true;
-              // Return filtered tools
-              return [tools[0]];
-            }),
+          plan: sinon.stub().callsFake(async (query: string, tools: any[]) => {
+            console.log(`\n🎯 ToT PLANNER CALLED with query: "${query}"`);
+            console.log(
+              `🎯 Available tools: ${tools.map((t) => t.name).join(", ")}`,
+            );
+            totWasCalled = true;
+            // Return filtered tools
+            return [tools[0]];
+          }),
         };
 
         const mockLLM = {
@@ -217,9 +212,7 @@ conclusion:
 
       try {
         const mockTotPlanner = {
-          plan: sinon
-            .stub()
-            .rejects(new Error("Should not be called!")),
+          plan: sinon.stub().rejects(new Error("Should not be called!")),
         };
 
         const mockLLM = {
@@ -315,10 +308,7 @@ refined_plan:
       }));
 
       const planner = new ToTPlanner(mockLLM as any);
-      const filtered = await planner.plan(
-        "Test query",
-        allTools as any,
-      );
+      const filtered = await planner.plan("Test query", allTools as any);
 
       const reductionPercent = (
         (1 - filtered.selected_tools.length / allTools.length) *

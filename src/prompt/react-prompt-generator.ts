@@ -621,7 +621,12 @@ Remember:
         }
 
         // If step has no action/observation/conclusion, show it had only thought
-        if (!step.action && !step.observation && !step.conclusion && step.thought) {
+        if (
+          !step.action &&
+          !step.observation &&
+          !step.conclusion &&
+          step.thought
+        ) {
           parts.push("(thinking)");
         }
 

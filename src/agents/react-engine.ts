@@ -49,8 +49,6 @@ export class ReActEngine {
   private readonly toolHandler: ReActToolHandler;
   private pendingFollowUpPrompt: string | null = null;
   private currentUserMessage: string | null = null;
-  private ungroundedConclusionAttempts = 0;
-  private readonly MAX_UNGROUNDED_ATTEMPTS = 2;
   private currentPlan: PlanArtifact | null = null;
   private toolUsageCounts: Map<string, number> = new Map();
 
@@ -142,7 +140,6 @@ export class ReActEngine {
     // Create a reasoning trace to track all steps and manage state
     const trace = new ReActTrace(this.memory, userId);
     this.currentUserMessage = userMessage;
-    this.ungroundedConclusionAttempts = 0;
     this.currentPlan = null;
     this.toolUsageCounts.clear();
 
@@ -180,15 +177,24 @@ export class ReActEngine {
         );
 
         // Extract only selected tools from the plan
-        const selectedToolNames = this.currentPlan.selected_tools.map(t => t.name);
-        toolsToUse = tools.availableTools.filter(t =>
-          selectedToolNames.includes(t.name)
+        const selectedToolNames = this.currentPlan.selected_tools.map(
+          (t) => t.name,
+        );
+        toolsToUse = tools.availableTools.filter((t) =>
+          selectedToolNames.includes(t.name),
         );
 
-        this.logger.info("Plan created", {
+        // Log the full plan for debugging
+        this.logger.info("ToT Plan Created", {
           complexity: this.currentPlan.complexity,
-          selectedTools: selectedToolNames,
-          maxSteps: this.currentPlan.steps.length,
+          rationale: this.currentPlan.rationale,
+          selectedTools: this.currentPlan.selected_tools.map(
+            (t) => `${t.name} (max: ${t.max_calls}, purpose: ${t.purpose})`,
+          ),
+          steps: this.currentPlan.steps.map(
+            (s) =>
+              `${s.id}. ${s.type === "tool" ? `Use ${s.tool}` : s.instruction}`,
+          ),
         });
       } catch (error) {
         this.logger.error("ToT planning error, falling back to all tools", {
@@ -238,7 +244,32 @@ export class ReActEngine {
       try {
         // Get LLM response and parse reasoning step
         const nextStep = await this.getLLMReasoningStep(prompt);
-        if (!nextStep) continue;
+        if (!nextStep) {
+          this.logger.warn(
+            "Failed to parse LLM response, injecting format reminder",
+          );
+
+          // Add a strict reminder about YAML format
+          const formatReminder = this.toolHandler.createObservationStep(
+            "ERROR: Your response was not in the correct YAML format. You MUST respond using this exact structure:\n\n" +
+              "```yaml\n" +
+              "thought:\n" +
+              '  reasoning: "Your analysis here"\n' +
+              '  plan: "Your plan here"\n\n' +
+              "# Choose ONE:\n" +
+              "action:\n" +
+              '  tool: "tool_name"\n' +
+              "  params:\n" +
+              "    param1: value1\n\n" +
+              "# OR:\n" +
+              "conclusion:\n" +
+              '  final_answer: "Your complete answer with details"\n' +
+              "```\n\n" +
+              "Try again with proper YAML formatting.",
+          );
+          await trace.addStep(formatReminder);
+          continue;
+        }
 
         // Add step to the trace
         await trace.addStep(nextStep);
@@ -250,56 +281,9 @@ export class ReActEngine {
 
         // Check if step has conclusion (should end reasoning)
         if (nextStep.conclusion?.final_answer) {
-          if (this.isConclusionGrounded(nextStep.conclusion.final_answer, trace)) {
-            trace.markComplete(nextStep.conclusion.final_answer);
-            this.ungroundedConclusionAttempts = 0;
-            this.logVerbose("info", "Reasoning complete with grounded conclusion");
-            break; // Exit the loop immediately
-          }
-
-          if (this.ungroundedConclusionAttempts < this.MAX_UNGROUNDED_ATTEMPTS) {
-            this.ungroundedConclusionAttempts += 1;
-            const reminder = this.buildUngroundedConclusionReminder(trace);
-            const reminderObservation =
-              this.toolHandler.createObservationStep(reminder);
-            await trace.addStep(reminderObservation);
-
-            if (
-              this.promptGenerator.generateFollowUpPrompt &&
-              this.currentUserMessage
-            ) {
-              try {
-                const stepsSnapshot = [...trace.getSteps()] as ReasoningStep[];
-                this.pendingFollowUpPrompt =
-                  await this.promptGenerator.generateFollowUpPrompt(
-                    this.currentUserMessage,
-                    stepsSnapshot,
-                    reminder,
-                  );
-              } catch (followUpError) {
-                this.logger.error(
-                  "Failed to generate grounding follow-up prompt",
-                  {
-                    error:
-                      followUpError instanceof Error
-                        ? followUpError.message
-                        : String(followUpError),
-                  },
-                );
-              }
-            }
-
-            continue;
-          } else {
-            this.logger.warn(
-              "Accepting ungrounded conclusion after multiple retries",
-              {
-                attempts: this.ungroundedConclusionAttempts,
-              },
-            );
-            trace.markComplete(nextStep.conclusion.final_answer);
-            break;
-          }
+          trace.markComplete(nextStep.conclusion.final_answer);
+          this.logVerbose("info", "Reasoning complete with conclusion");
+          break; // Exit the loop immediately
         }
 
         // Handle tool execution only if no conclusion
@@ -329,7 +313,9 @@ export class ReActEngine {
           // NEW: Enforce max_calls from plan
           if (this.currentPlan) {
             const currentUsage = this.toolUsageCounts.get(requestedTool) || 0;
-            const toolLimit = this.currentPlan.selected_tools.find(t => t.name === requestedTool);
+            const toolLimit = this.currentPlan.selected_tools.find(
+              (t) => t.name === requestedTool,
+            );
             const maxCalls = toolLimit?.max_calls || 999;
 
             if (currentUsage >= maxCalls) {
@@ -373,7 +359,6 @@ export class ReActEngine {
     const finalResponse = trace.getFinalResponse();
     this.pendingFollowUpPrompt = null;
     this.currentUserMessage = null;
-    this.ungroundedConclusionAttempts = 0;
     this.currentPlan = null;
     this.toolUsageCounts.clear();
     return finalResponse;
@@ -442,16 +427,12 @@ export class ReActEngine {
         const content = llmResponse?.content ?? "";
         const maxLen = 2000;
         const preview =
-          content.length > maxLen ? content.substring(0, maxLen) + "…" : content;
+          content.length > maxLen
+            ? content.substring(0, maxLen) + "…"
+            : content;
         const divider = "-".repeat(60);
         this.logger.debug(
-          [
-            divider,
-            "LLM RAW RESPONSE",
-            divider,
-            preview,
-            divider,
-          ].join("\n"),
+          [divider, "LLM RAW RESPONSE", divider, preview, divider].join("\n"),
         );
       }
       if (!llmResponse || !llmResponse.content) {
@@ -707,7 +688,10 @@ export class ReActEngine {
     try {
       const planSummary = this.formatTotPlanSummary();
       const augmentedInput = planSummary
-        ? "Tree-of-Thought Plan:\n" + planSummary + "\n\nUser request: " + userMessage
+        ? "Tree-of-Thought Plan:\n" +
+          planSummary +
+          "\n\nUser request: " +
+          userMessage
         : userMessage;
 
       let prompt: string;
@@ -729,28 +713,24 @@ export class ReActEngine {
         const maxLen = 2000;
         const promptPreview =
           prompt.length > maxLen ? `${prompt.substring(0, maxLen)}…` : prompt;
-        const divider = '-'.repeat(60);
+        const divider = "-".repeat(60);
         this.logger.debug(
-          [
-            divider,
-            'CONTEXTUAL PROMPT',
-            divider,
-            promptPreview,
-            divider,
-          ].join('\n'),
+          [divider, "CONTEXTUAL PROMPT", divider, promptPreview, divider].join(
+            "\n",
+          ),
         );
       }
 
       return prompt;
     } catch (error) {
-      this.logger.error('Error generating contextual prompt', {
+      this.logger.error("Error generating contextual prompt", {
         error: String(error),
       });
 
       const fallbackPlan = this.formatTotPlanSummary();
       const fallbackHeader = fallbackPlan
         ? `Tree-of-Thought Plan:\n${fallbackPlan}\n\n`
-        : '';
+        : "";
 
       return `${fallbackHeader}You are a helpful AI assistant. The user has requested: "${userMessage}".
       
@@ -840,60 +820,6 @@ Please provide the next step in reasoning or a final answer.`;
     );
   }
 
-  private isConclusionGrounded(
-    finalAnswer: string,
-    trace: ReActTrace,
-  ): boolean {
-    const observationText = this.getLastObservation(trace);
-    if (!observationText) {
-      return true;
-    }
-
-    const observationUrls =
-      observationText.match(/https?:\/\/\S+/gi)?.map((url) => url.trim()) || [];
-
-    if (observationUrls.length > 0) {
-      return observationUrls.some((url) => finalAnswer.includes(url));
-    }
-
-    const normalizedObservation = observationText.toLowerCase();
-    const normalizedAnswer = finalAnswer.toLowerCase();
-    const keywords =
-      normalizedObservation.match(/\b[a-z0-9]{5,}\b/g)?.slice(0, 5) || [];
-
-    if (keywords.length <= 2) {
-      return true;
-    }
-
-    return keywords.some((keyword) => normalizedAnswer.includes(keyword));
-  }
-
-  private getLastObservation(trace: ReActTrace): string | null {
-    const steps = trace.getSteps();
-    for (let i = steps.length - 1; i >= 0; i--) {
-      const observation = steps[i].observation?.result;
-      if (observation) {
-        return observation;
-      }
-    }
-    return null;
-  }
-
-  private buildUngroundedConclusionReminder(trace: ReActTrace): string {
-    const observation = this.getLastObservation(trace);
-    const snippet =
-      observation && observation.length > 400
-        ? `${observation.substring(0, 400)}...`
-        : observation || "No observation available.";
-
-        
-    return [
-      "Reminder: Your last response did not cite the most recent tool result.",
-      "You must reference and cite the latest observation before concluding.",
-      `Latest observation snippet:\n${snippet}`,
-    ].join("\n\n");
-  }
-
   private buildToolFailureGuidance(
     toolName: string,
     params: Record<string, unknown>,
@@ -907,11 +833,19 @@ Please provide the next step in reasoning or a final answer.`;
       lowerTool.includes("commit") ||
       lowerTool.includes("pull");
 
-    if (isRepoTool && userMessage && !/repo|branch|git|pull|issue/i.test(userMessage)) {
+    if (
+      isRepoTool &&
+      userMessage &&
+      !/repo|branch|git|pull|issue/i.test(userMessage)
+    ) {
       return `Guidance: ${toolName} is for repository management, but the user request (â€œ${userMessage}â€) did not ask for repository changes. Focus on research/search tools instead.`;
     }
 
-    if (lowerTool.includes("github") && params && Object.keys(params).length > 0) {
+    if (
+      lowerTool.includes("github") &&
+      params &&
+      Object.keys(params).length > 0
+    ) {
       return `Guidance: ${toolName} requires valid GitHub metadata. Double-check repository names or switch back to information-gathering tools since the request appears informational.`;
     }
 
@@ -936,9 +870,10 @@ Please provide the next step in reasoning or a final answer.`;
     }
 
     const normalizedQuery = userMessage.toLowerCase();
-    const mentionsRepoWork = /github|repo|repository|branch|commit|pull\s?-?\s?request|issue\b|merge|pull\s?req|git\b|pr\b/.test(
-      normalizedQuery,
-    );
+    const mentionsRepoWork =
+      /github|repo|repository|branch|commit|pull\s?-?\s?request|issue\b|merge|pull\s?req|git\b|pr\b/.test(
+        normalizedQuery,
+      );
 
     let filteredTools = candidateTools;
     if (!mentionsRepoWork) {
@@ -1016,5 +951,3 @@ Please provide the next step in reasoning or a final answer.`;
     );
   }
 }
-
-

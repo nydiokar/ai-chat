@@ -88,6 +88,30 @@ export class ReActStepParser {
             step.isComplete = true;
           }
 
+          // CRITICAL: Validate that step has EITHER action OR conclusion, not both
+          if (step.action && step.conclusion) {
+            this.logger.error(
+              "Invalid step: contains both action AND conclusion",
+              {
+                hasAction: !!step.action,
+                hasConclusion: !!step.conclusion,
+              },
+            );
+            return null; // Reject this step entirely
+          }
+
+          // Validate that step has at least thought + (action OR conclusion)
+          if (!step.thought) {
+            this.logger.warn("Step missing required 'thought' field");
+          }
+
+          if (!step.action && !step.conclusion) {
+            this.logger.error(
+              "Invalid step: has neither action nor conclusion",
+            );
+            return null; // Reject steps with no action or conclusion
+          }
+
           // Log successful YAML parsing
           this.logger.debug("Successfully parsed YAML response", {
             stepType,

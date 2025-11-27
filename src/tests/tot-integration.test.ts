@@ -98,21 +98,22 @@ refined_plan:
 
       // Execute
       console.log("\n🧪 Testing ToT Planner...");
-      const filteredTools = await planner.plan(
-        testQuery,
-        mockTools as any,
-      );
+      const filteredTools = await planner.plan(testQuery, mockTools as any);
 
       // Validate
       console.log("\n✅ Results:");
       console.log(`- Total tools available: ${mockTools.length}`);
-      console.log(`- Tools after filtering: ${filteredTools.selected_tools.length}`);
+      console.log(
+        `- Tools after filtering: ${filteredTools.selected_tools.length}`,
+      );
       console.log(
         `- Filtered tools: ${filteredTools.selected_tools.map((t: any) => t.name).join(", ")}`,
       );
 
       expect(filteredTools.selected_tools).to.be.an("array");
-      expect(filteredTools.selected_tools.length).to.be.lessThan(mockTools.length);
+      expect(filteredTools.selected_tools.length).to.be.lessThan(
+        mockTools.length,
+      );
       expect(filteredTools.selected_tools.length).to.be.greaterThan(0);
 
       // Should have filtered out irrelevant tools

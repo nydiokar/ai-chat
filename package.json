@@ -1,6 +1,6 @@
 {
   "name": "them",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -46,7 +46,7 @@
     "db:migrate:dev": "cross-env NODE_ENV=development node scripts/manage-db.js migrate",
     "db:migrate:prod": "cross-env NODE_ENV=production node scripts/manage-db.js migrate",
     "diagnose:github": "node scripts/diagnose-github.js",
-    "react": "cross-env DISABLE_OPENAI_VERBOSE_LOGS=true REACT_VERBOSE_LOGGING=true NODE_OPTIONS=\"--loader ts-node/esm\" ts-node scripts/react-cli-tester.ts"
+    "react": "npx tsx scripts/react-cli-tester.ts"
   },
   "bin": {
     "them": "./dist/index.js",
