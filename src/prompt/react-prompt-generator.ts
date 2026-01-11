@@ -114,8 +114,9 @@ conclusion:
 CRITICAL RULES:
 1. ALWAYS start with 'thought' - reason about the problem BEFORE taking action
 2. Provide EITHER action OR conclusion - NEVER both
-3. When using search tools, cite specific sources with URLs in your conclusion
-4. Be thorough - vague answers like "I found sources" are not acceptable`;
+3. Base conclusions ONLY on tool observations/results you have seen. If you lack evidence, say what is missing instead of guessing.
+4. When using search tools, cite specific sources with URLs in your conclusion
+5. Be thorough - vague answers like "I found sources" are not acceptable`;
   }
 
   /**
@@ -289,15 +290,31 @@ CRITICAL RULES:
 
       // Add guidance for the next step based on the current step
       const hasObservation = steps.some((s) => s.observation);
+      const lastToolUsed = this.getLastActionTool(steps);
+      const lastToolIsSearch =
+        lastToolUsed &&
+        (lastToolUsed.toLowerCase().includes("search") ||
+          lastToolUsed.toLowerCase().includes("web"));
       if (hasObservation) {
         // Always include "Based on the observation above" when there's an observation
         if (currentStep >= 3) {
           promptParts.push(
-            `You have been reasoning for ${currentStep} steps. Based on the observation above, consider whether you have enough information to provide a final answer now. If you need more information, choose the most appropriate tool that you haven't tried yet.`,
+            `You have been reasoning for ${currentStep} steps. Based on the observation above, either:
+- If the observation already answers the question, provide a conclusion grounded ONLY in that evidence. For web/search observations, include a structured list with: name/title, affiliation/role, key finding, source URL, and date (if present), then a brief summary.
+- If more information is needed, pick the single best remaining tool and explain why.`,
           );
         } else {
           promptParts.push(
-            "Based on the observation above, what is your next step? If you have enough information, provide a final answer.",
+            "Based on the observation above, decide whether you can answer now. If yes, provide a conclusion grounded ONLY in that evidence. If no, choose the most appropriate tool to fill the gap and explain why.",
+          );
+        }
+        if (lastToolIsSearch) {
+          promptParts.push(
+            `When concluding from web/search results, emit a concise structured extraction first:\n` +
+              "```json\n" +
+              `{\n  "researchers": [\n    {\n      "name": "string",\n      "affiliation": "string",\n      "finding": "string",\n      "source_url": "string",\n      "date": "string | null"\n    }\n  ]\n}\n` +
+              "```\n" +
+              "Then provide a short narrative summary. Do not invent data not present in the observation.",
           );
         }
       } else {
@@ -728,12 +745,23 @@ Remember:
       if (currentStep >= 3) {
         return `You have been reasoning for ${currentStep} steps. Based on the observation above, carefully analyze the results and connect them to the original question. If you have sufficient information, provide a comprehensive final answer. Otherwise, select the most appropriate tool that you haven't tried yet, explaining your reasoning for this choice.`;
       }
-      return "Based on the observation above, thoroughly evaluate the information obtained. Does it fully answer the question or do you need additional information? If more information is needed, determine the most logical next step and explain your reasoning before taking action.";
+      return "Based on the observation above, thoroughly evaluate the information obtained. Does it fully answer the question or do you need additional information? If it answers the question, provide a conclusion grounded ONLY in that observation (include sources/URLs when available). If more information is needed, determine the most logical next step and explain your reasoning before taking action.";
     } else if (alreadyTried.length > 0) {
       const triedTools = alreadyTried.join(", ");
       return `You have tried these tools: ${triedTools}. Reflect on what you've learned so far and identify what information is still missing. Select the most appropriate tool to fill these knowledge gaps and explain how it will help answer the original question.`;
     } else {
       return "What is your next logical step in solving this problem? Consider what information you need and which tool would be most effective at providing it. Explain your reasoning before taking action.";
     }
+  }
+
+  /**
+   * Helper to get the most recent action tool name from steps
+   */
+  private getLastActionTool(steps: ReasoningStep[]): string | null {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const tool = steps[i].action?.tool;
+      if (tool) return tool;
+    }
+    return null;
   }
 }

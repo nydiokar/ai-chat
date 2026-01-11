@@ -47,6 +47,15 @@ playwright\.claude-plugin\plugin.json:
 5. **Executor Enforcement**: Pass only the planner-approved tools/limits to ReAct, track tool usage, block calls that exceed `max_calls`, and inject guidance when limits are hit.
 6. **Orchestrator Layer**: Add a simple intent check (length/keywords) to skip ToT for trivial “single search” queries and run ReAct with a tiny manual tool set.
 
+### New Work Items (2025-11-27)
+- **Prompt caching**: Enabled via `ENABLE_PROMPT_CACHING` flag; system/identity messages tagged with `cache_control: { type: "ephemeral" }`. Need cache invalidation when tool descriptions change.
+- **Token usage logging**: Added `tokenUsage` (prompt/completion/total/cachedTokens) to responses and OpenAI logs; monitor `cachedTokens` for real caching hits (reports of inconsistency on gpt-5-mini/nano).
+- **Response formatting**: TODO — move ReAct step schema to native JSON/response_format for stronger models (e.g., gpt-5-nano-2025-08-07) to eliminate parse failures.
+- **Observation discipline**: TODO — log exact post-tool prompt (redacted) to verify last observation, plan summary, budgets included; reject conclusions missing required structured extraction after search.
+- **Tool/server disambiguation**: TODO — add concise server descriptions (Brave vs GitHub) in prompts so planner/executor prefers search for research and avoids GitHub unless repo intent is present.
+- **Search extraction enforcement**: In prompt: require structured extraction (name, affiliation, finding, source_url, date) before narrative summary for search tools; consider strict validation.
+- **Token budget flex**: Planner loosened search/web tool calls (1–3 simple, 2–4 complex; min 2 for search). Conclude when evidence suffices.
+
 ## Recently Completed
 
 ### Tree-of-Thought Integration ✅ (2025-11-24)

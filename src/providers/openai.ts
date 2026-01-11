@@ -41,6 +41,8 @@ export class OpenAIProvider implements LLMProvider {
   private temperature: number;
   private systemPrompt: string = "";
   private messageCache: CacheService;
+  private readonly enablePromptCaching =
+    process.env.ENABLE_PROMPT_CACHING !== "false";
 
   constructor(private readonly config: BaseConfig) {
     // Disable OpenAI's built-in debug logs completely
@@ -135,12 +137,17 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       // Convert conversation history to OpenAI format
-      const messages: ChatCompletionMessageParam[] =
+      let messages: ChatCompletionMessageParam[] =
         this.convertToCompletionMessages(message, conversationHistory);
 
       // Add system prompt if set
       if (this.systemPrompt) {
         messages.unshift({ role: "system", content: this.systemPrompt });
+      }
+
+      // Mark cacheable segments if enabled (OpenAI request caching)
+      if (this.enablePromptCaching) {
+        messages = this.applyPromptCaching(messages);
       }
 
       // Log the user-friendly request summary
@@ -182,14 +189,17 @@ export class OpenAIProvider implements LLMProvider {
         toolNames,
         tokenCount: completion.usage?.total_tokens,
         finishReason: completion.choices[0]?.finish_reason,
+        tokenUsage: this.extractTokenUsage(completion),
       });
 
       // If no tool calls, return the content directly
       if (!choice.tool_calls || choice.tool_calls.length === 0) {
+        const tokenUsage = this.extractTokenUsage(completion);
         const response: Response = {
           content: choice.content || "",
           tokenCount: completion.usage?.total_tokens ?? null,
           toolResults: [],
+          tokenUsage,
         };
 
         await this.messageCache.set(cacheKey, response);
@@ -214,6 +224,7 @@ export class OpenAIProvider implements LLMProvider {
         content: choice.content || "I need to use a tool to help with that.",
         tokenCount: completion.usage?.total_tokens ?? null,
         toolResults,
+        tokenUsage: this.extractTokenUsage(completion),
       };
 
       await this.messageCache.set(cacheKey, response);
@@ -304,12 +315,21 @@ export class OpenAIProvider implements LLMProvider {
         );
       }
 
+      logOpenAI("Response received", {
+        operation: "getFinalResponse",
+        hasToolCalls: !!choice.tool_calls?.length,
+        toolCount: choice.tool_calls?.length || 0,
+        tokenCount: completion.usage?.total_tokens,
+        tokenUsage: this.extractTokenUsage(completion),
+      });
+
       return {
         content:
           choice.content ||
           "I processed the tool results but have no additional information to provide.",
         tokenCount: completion.usage?.total_tokens ?? null,
         toolResults: [],
+        tokenUsage: this.extractTokenUsage(completion),
       };
     } catch (err) {
       logOpenAI("Error getting final response", {
@@ -478,5 +498,31 @@ export class OpenAIProvider implements LLMProvider {
   private sanitizeToolName(name: string): string {
     // Remove any characters that might cause issues with OpenAI function calling
     return name.replace(/[^\w\d_-]/g, "_");
+  }
+
+  private extractTokenUsage(completion: ChatCompletion | null | undefined) {
+    const usage = completion?.usage;
+    const promptTokens = usage?.prompt_tokens ?? null;
+    const completionTokens = usage?.completion_tokens ?? null;
+    const totalTokens = usage?.total_tokens ?? null;
+    const cachedTokens =
+      (usage as any)?.prompt_tokens_details?.cached_tokens ?? null;
+    return { promptTokens, completionTokens, totalTokens, cachedTokens };
+  }
+
+  /**
+   * Apply OpenAI cache_control markers to stable parts of the prompt
+   */
+  private applyPromptCaching(
+    messages: ChatCompletionMessageParam[],
+  ): ChatCompletionMessageParam[] {
+    const cacheControl = { type: "ephemeral" } as const;
+
+    return messages.map((msg) => {
+      if (msg.role === "system") {
+        return { ...msg, cache_control: cacheControl } as any;
+      }
+      return msg;
+    });
   }
 }

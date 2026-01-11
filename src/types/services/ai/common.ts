@@ -19,6 +19,12 @@ export interface AIResponse {
   content: string;
   tokenCount: number | null;
   toolResults: ToolResponse[];
+  tokenUsage?: {
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    totalTokens?: number | null;
+    cachedTokens?: number | null;
+  };
 }
 
 export interface AIService {

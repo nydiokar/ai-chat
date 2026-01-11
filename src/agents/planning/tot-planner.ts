@@ -158,8 +158,8 @@ Respond with JSON:
 }
 
 Guidelines:
-- For simple queries: 1-2 tools, max_calls=1
-- For complex queries: 2-4 tools, max_calls=1-3
+- For simple queries: 1-3 tools, max_calls=1-3 (allow at least one follow-up call for verification)
+- For complex queries: 2-4 tools, max_calls=1-4
 - Always end with a step of type "answer"
 - Keep max_calls realistic to prevent spam`;
 
@@ -193,9 +193,10 @@ Guidelines:
             // Verify tool exists
             const exists = allTools.some((t) => t.name === tool.name);
             if (exists) {
+              const bounded = Math.max(1, Math.min(tool.max_calls, 5)); // Cap at 5
               selectedTools.push({
                 name: tool.name,
-                max_calls: Math.max(1, Math.min(tool.max_calls, 5)), // Cap at 5
+                max_calls: this.adjustMaxCalls(tool.name, bounded, allTools),
                 purpose: tool.purpose || "Tool usage",
               });
             } else {
@@ -260,7 +261,7 @@ Guidelines:
         "Fallback plan: allowing multiple tools with reasonable limits",
       selected_tools: selectedTools.map((tool) => ({
         name: tool.name,
-        max_calls: 2,
+        max_calls: tool.name.toLowerCase().includes("search") ? 3 : 2,
         purpose: "General purpose tool",
       })),
       steps: [
@@ -287,5 +288,25 @@ Guidelines:
         reject(new Error(`Planning timeout after ${this.timeout}ms`));
       }, this.timeout);
     });
+  }
+
+  /**
+   * Ensure research/web tools get at least 2 calls when reasonable
+   */
+  private adjustMaxCalls(
+    toolName: string,
+    proposed: number,
+    allTools: ToolDefinition[],
+  ): number {
+    const lower = toolName.toLowerCase();
+    const description = (
+      allTools.find((t) => t.name === toolName)?.description || ""
+    ).toLowerCase();
+    const isSearch =
+      lower.includes("search") || lower.includes("web") || description.includes("search");
+    if (isSearch) {
+      return Math.max(proposed, 2); // allow at least 2 uses for research
+    }
+    return proposed;
   }
 }
