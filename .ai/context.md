@@ -9,6 +9,37 @@
 ---
 
 ## Active Tasks (2025-11-26)
+
+
+CRITICAL! We need marketplace and plugins with plugin.json and mcp.json for each toolset - not all at once, this way it uses the proper tool and only loads it's server. Assumption is this is going to enable Kanebra graceful tool handling. 
+
+
+see example:
+C:\Users\Cicada38\.claude\plugins\marketplaces\claude-plugins-official\external_plugins\playwright - proper structuring by layers - plugins - external plugins and in each folder: 
+
+
+.mcp.json:
+
+{
+  "playwright": {
+    "command": "npx",
+    "args": ["@playwright/mcp@latest"]
+  }
+}
+
+subfolder:
+
+playwright\.claude-plugin\plugin.json:
+
+{
+  "name": "playwright",
+  "description": "Browser automation and end-to-end testing MCP server by Microsoft. Enables Kanebra to interact with web pages, take screenshots, fill forms, click elements, and perform automated browser testing workflows.",
+  "author": {
+    "name": "Microsoft"
+  }
+}
+
+
 1. **CLI Guardrails**: Reject empty/whitespace queries before invoking ToT/ReAct to avoid useless planning cycles.
 2. **Tool Filtering**: Clamp planner output to relevant tools (warn & drop hallucinated GitHub actions) and enforce research-only subsets unless the user mentions repo work.
 3. **Observation Grounding**: Keep logging prompts/responses and require conclusions to cite latest observations, but allow fallbacks when there are no URLs/distinct keywords.
