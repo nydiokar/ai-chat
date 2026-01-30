@@ -3,12 +3,77 @@
 **Project**: Kanebra
 **Goal**: Comprehensive AI-powered Discord bot with advanced reasoning capabilities
 **Status**: Active Development
-**Last Updated**: 2025-11-25 14:15 UTC
+**Last Updated**: 2026-1-30 14:15 UTC
 **Updated By**: Claude-3.5-Sonnet (Sonnet 4.5)
 
 ---
 
-## Active Tasks (2025-11-26)
+## Active Tasks (2026-1-30)
+
+
+Latest assesment. 
+
+ What’s in scope (current code)
+
+  - Data model: Prisma Task, TaskHistory, TaskDependency, Conversation links in prisma/schema.prisma.
+  - Core CRUD: TaskRepository + TaskManager in src/features/tasks/task-repository.ts and src/features/tasks/task-
+    manager.ts.
+  - Dependency logic: TaskDependencyService in src/features/tasks/task-dependency.service.ts.
+  - Recurrence logic: RecurrencePatternService and TaskSpawningService in src/features/tasks/recurrence-
+    pattern.service.ts and src/features/tasks/task-spawning.service.ts.
+  - Notifications + visualization: TaskNotificationService and TaskVisualizationService in src/features/tasks/task-
+    notification.service.ts and src/features/tasks/task-visualization.service.ts.
+  - User surface: Discord slash commands in src/features/tasks/commands/task-commands.ts.
+  - Tests: src/tests/tasks/* and src/tests/task-memory.integration.test.ts.
+
+  Current state: what works vs what’s wired
+
+  - Works at a basic level: creating, viewing, updating status, assigning, listing, deleting tasks via /task commands.
+    This path uses TaskManager → TaskRepository → Prisma. See src/features/tasks/commands/task-commands.ts + src/
+    features/tasks/task-manager.ts.
+  - Dependencies are implemented with real DB logic and tests, but are NOT integrated into TaskManager or the Discord
+    command flows (no dependency create/remove commands; no automatic status propagation in core update flows). See src/
+    features/tasks/task-dependency.service.ts.
+  - Recurrence logic exists (pattern validation, next occurrence calculation, spawn service) but is NOT scheduled or
+    triggered anywhere. TaskSpawningService.processRecurringTasks() is never called and findDueRecurringTasks() is a
+    placeholder. See src/features/tasks/task-spawning.service.ts.
+  - Notifications are implemented but NOT wired into task updates. Even if called,
+    NotificationService.sendNotification() expects a channel ID string but DiscordService.sendMessage() requires a
+    TextChannel object, so notifications will likely fail. See src/services/notification.service.ts and src/services/
+    discord-service.ts.
+
+  Critical correctness gaps (these affect real usability)
+
+  1. JSON handling mismatch with Prisma
+      - Task.tags, Task.metadata, and User.preferences are Prisma Json, but the repository code assumes they’re strings
+        and does JSON.parse() / JSON.stringify(). If Prisma returns JS objects (normal behavior), JSON.parse() will
+        throw. See src/features/tasks/task-repository.ts and prisma/schema.prisma.
+  2. Recurrence data isn’t persisted consistently
+      - CreateTaskDTO includes recurrencePattern, schema has recurrencePattern + isRecurring, but
+        TaskRepository.createTask() ignores those fields entirely and TaskSpawningService reads from
+        task.metadata.recurrencePattern instead. This makes recurring tasks functionally unusable. See src/types/
+        task.ts, prisma/schema.prisma, src/features/tasks/task-repository.ts, src/features/tasks/task-
+        spawning.service.ts.
+  3. TaskRepository.listTasks() ignores supported filters
+      - TaskFilters has parentTaskId and isRecurring, but listTasks never applies them. This breaks
+        findLastTaskInstance() and recurrence queries. See src/types/task.ts and src/features/tasks/task-repository.ts.
+  4. Task history is written but not loaded
+      - TaskManager adds history, but defaultTaskInclude doesn’t include history, so history is usually empty in user
+        flows. See src/features/tasks/task-repository.ts and src/features/tasks/task-manager.ts.
+  5. Duplicate/competing task modules
+      - There are two parallel task trees: src/features/tasks/*.ts and src/features/tasks/services/**. Discord and tests
+        import the former; src/features/tasks/index.ts exports the latter. This is a maintenance hazard and can easily
+        cause divergence. See src/features/tasks/index.ts.
+
+  Net assessment: is it capable to actually work?
+
+  - Minimal CRUD via Discord slash commands can work if the JSON handling does not blow up in your Prisma runtime
+    (currently risky).
+  - Anything beyond CRUD (dependencies, recurrence, notifications, visualization) is not production‑ready because it’s
+    not integrated, not scheduled, and in some places inconsistent or incorrect.
+  - So: “usable as a simple task list” ✅, “capable task system with dependencies/recurrence/notifications” ❌ without
+    fixes.
+
 
 
 CRITICAL! We need marketplace and plugins with plugin.json and mcp.json for each toolset - not all at once, this way it uses the proper tool and only loads it's server. Assumption is this is going to enable Kanebra graceful tool handling. 
