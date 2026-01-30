@@ -303,7 +303,9 @@ Guidelines:
       allTools.find((t) => t.name === toolName)?.description || ""
     ).toLowerCase();
     const isSearch =
-      lower.includes("search") || lower.includes("web") || description.includes("search");
+      lower.includes("search") ||
+      lower.includes("web") ||
+      description.includes("search");
     if (isSearch) {
       return Math.max(proposed, 2); // allow at least 2 uses for research
     }

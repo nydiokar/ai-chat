@@ -24,7 +24,7 @@ export const OpenAIModels = {
   GPT5Nano: "gpt-5-nano-2025-08-07",
   GPT5Mini: "gpt-5-mini-2025-08-07",
   GPT51: "gpt-5.1-2025-11-13",
-  GPT5: "gpt-5-2025-08-07"
+  GPT5: "gpt-5-2025-08-07",
 } as const;
 
 // Model configuration by environment
