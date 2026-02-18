@@ -41,7 +41,7 @@ function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
  * Orchestrates the process of reasoning steps, tool execution, and memory persistence
  */
 export class ReActEngine {
-  private readonly MAX_STEPS = 8;
+  private readonly MAX_STEPS = Number(process.env.REACT_MAX_STEPS) || 8;
   private readonly logger: Logger;
   private readonly VERBOSE_LOGGING =
     process.env.REACT_VERBOSE_LOGGING !== "false";

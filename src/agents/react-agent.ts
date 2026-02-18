@@ -102,7 +102,7 @@ export class ReActAgent implements Agent {
         return await this.handleSimpleGreeting(message);
       }
 
-      return await this.handleComplexMessage(message);
+      return await this.handleComplexMessage(message, conversationHistory);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.logger.error("Error processing message with ReAct agent", {
@@ -133,9 +133,19 @@ export class ReActAgent implements Agent {
     };
   }
 
-  private async handleComplexMessage(message: string): Promise<Response> {
+  private async handleComplexMessage(
+    message: string,
+    conversationHistory: Input[] = [],
+  ): Promise<Response> {
+    // Prepend conversation history as context so the engine sees prior turns.
+    // The engine's prompt generator will include this as part of the user request.
+    const contextualMessage =
+      conversationHistory.length > 0
+        ? this.formatHistoryContext(conversationHistory) + "\n\n" + message
+        : message;
+
     const content = await this.engine.process(
-      message,
+      contextualMessage,
       this.state.config.userId,
     );
 
@@ -167,6 +177,16 @@ export class ReActAgent implements Agent {
 
     this.logger.debug("Using fallback simple prompt");
     return "You are a helpful AI assistant. Please respond to the user in a friendly and concise manner.";
+  }
+
+  /**
+   * Format conversation history as a context block for the engine prompt.
+   */
+  private formatHistoryContext(history: Input[]): string {
+    const lines = history.map(
+      (h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`,
+    );
+    return `Conversation so far:\n${lines.join("\n")}`;
   }
 
   /**
