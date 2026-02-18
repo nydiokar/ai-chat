@@ -98,7 +98,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@prisma/client": "^6.15.0",
+    "@prisma/client": "^6.18.0",
     "@types/blessed": "^0.1.25",
     "@types/chai": "^5.2.1",
     "@types/chai-as-promised": "^8.0.1",
