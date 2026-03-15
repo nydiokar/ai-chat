@@ -84,10 +84,10 @@ describe("TaskScratchpad", () => {
     expect(sp.getState().openQuestions).to.include("Which city are you in?");
   });
 
-  it("sets nextBestAction from a recover step", () => {
+  it("does not set nextBestAction from a raw recover step — use applyDecision() for that", () => {
     const sp = new TaskScratchpad("test goal");
     sp.update(makeStep({ recover: { strategy: "try a different search term", reason: "first attempt failed" } }));
-    expect(sp.getState().nextBestAction).to.equal("try a different search term");
+    expect(sp.getState().nextBestAction).to.equal(null);
   });
 
   it("applyDecision updates nextBestAction from a recover decision", () => {

@@ -395,7 +395,7 @@ export class ReActEngine {
             this.toolUsageCounts.set(requestedTool, currentUsage + 1);
           }
 
-          const toolDone = await this.executeToolAndStoreResult(nextStep.action, trace);
+          const toolDone = await this.executeToolAndStoreResult(nextStep.action, trace, scratchpad);
           if (toolDone === "complete") break;
         }
       } catch (error) {
@@ -556,6 +556,7 @@ export class ReActEngine {
   private async executeToolAndStoreResult(
     action: ReasoningStep["action"],
     trace: ReActTrace,
+    scratchpad: TaskScratchpad,
   ): Promise<"complete" | void> {
     if (!action) return;
 
@@ -584,6 +585,7 @@ export class ReActEngine {
 
       // Add the observation to the trace
       await trace.addStep(observationStep);
+      scratchpad.update(observationStep);
 
       this.logVerbose("debug", `Added observation: ${observationStep.stepId}`, {
         observation: groundedObservation.summary,
@@ -635,6 +637,7 @@ export class ReActEngine {
 
       // Add the error observation to the trace
       await trace.addStep(observationStep);
+      scratchpad.update(observationStep);
 
       // Evaluate recovery policy and inject a directive if needed
       const recovery = this.recoveryPolicy.evaluate(tool, errorObservation);
@@ -724,7 +727,6 @@ export class ReActEngine {
     );
 
     try {
-      const errorMessage = `There was an error: ${String(error)}. Please try a different approach.`;
       const errorObservation = this.toolHandler.parseErrorObservation(
         error instanceof Error ? error : new Error(String(error)),
         undefined,
@@ -1008,7 +1010,7 @@ Please provide the next step in reasoning or a final answer.`;
       userMessage &&
       !/repo|branch|git|pull|issue/i.test(userMessage)
     ) {
-      return `Guidance: ${toolName} is for repository management, but the user request (â€œ${userMessage}â€) did not ask for repository changes. Focus on research/search tools instead.`;
+      return `Guidance: ${toolName} is for repository management, but the user request ("${userMessage}") did not ask for repository changes. Focus on research/search tools instead.`;
     }
 
     if (

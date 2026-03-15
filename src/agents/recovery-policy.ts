@@ -84,7 +84,12 @@ export class RecoveryPolicy {
     record.consecutiveCount += 1;
     record.lastErrorKind = errorKind;
     this.failures.set(toolName, record);
-    this.consecutiveAnyFailures += 1;
+    // Virtual tools (__llm__, __loop__) track their own budgets but do not
+    // contribute to the cross-tool consecutive counter — mixing infrastructure
+    // failures with real tool failures would trigger spurious blocks.
+    if (!toolName.startsWith("__")) {
+      this.consecutiveAnyFailures += 1;
+    }
 
     // Hard stop: too many consecutive failures across any tool
     if (this.consecutiveAnyFailures >= MAX_CONSECUTIVE_FAILURES) {

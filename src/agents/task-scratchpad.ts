@@ -56,11 +56,6 @@ export class TaskScratchpad {
     if (step.ask_user?.question) {
       this.push(this.openQuestions, step.ask_user.question, MAX_OPEN_QUESTIONS);
     }
-
-    // Record recover strategy as next best action
-    if (step.recover?.strategy) {
-      this.nextBestAction = step.recover.strategy;
-    }
   }
 
   /** Update after the engine interprets a decision (covers finish/ask_user/recover). */
