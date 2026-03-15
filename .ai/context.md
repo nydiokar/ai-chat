@@ -82,7 +82,7 @@ We are **not** trying to:
   - one dispatch path with validation, execution policy, and normalized results
 
 ### Layer 5: Observation Parsing / Grounding
-- Status: `broken`
+- Status: `complete`
 - Current location: `src/agents/react-tool-handler.ts`
 - Problem:
   - tool outputs are formatted, not parsed into grounded observations
@@ -137,8 +137,10 @@ These are ordered by impact on real agency.
    - Keep max steps only as a safety net.
 
 2. **Observation grounding**
-   - Introduce a real observation parser.
-   - Stop reasoning over presentation strings alone.
+   - Status: `complete`
+   - `ObservationParser` parses tool outputs into `kind`, `summary`, `importantFields`, `sourceRefs`, `error.kind`.
+   - `renderObservationText` in prompt generator now renders only structured fields (summary, importantFields, sourceRefs, error) — raw result blob no longer injected into the model's context.
+   - 2 prompt-generator tests added confirming blob exclusion and error rendering.
 
 3. **Recovery behavior**
    - Status: `complete`
@@ -340,13 +342,14 @@ unless the runtime architecture work above is blocked.
 - Current status of priority 2 (`Observation grounding`):
   - substantially complete for runtime core
   - remaining open: per-tool summary specialization — low priority vs starting priority 3
-- Completed priority 3 (`Recovery behavior`):
-  - `RecoveryPolicy` in `src/agents/recovery-policy.ts` — classifies error kind into severity, tracks per-tool and cross-tool failure counts, returns `retry`/`ask_user`/`block` directives
-  - Engine wired to act on directive immediately after every tool error: blocks loop on repeated failures, surfaces ask_user on fatal/exhausted errors, injects retry hint for retryable errors
-  - 11 focused tests added to `src/tests/react-recovery-policy.test.ts`; registered in `npm run test:agent-runtime`
-  - `npm run typecheck` passes; `npm run test:agent-runtime` passes (66 tests, 0 failures)
-- Next recommended slice:
-  - begin priority 4 (`Scratchpad`): introduce `TaskScratchpad` with `goal`, `facts`, `attemptedActions`, `failures`, `openQuestions` fields; update prompt generation to draw from scratchpad state rather than raw step history alone
+- Completed priority 3 (`Recovery behavior`) fully:
+  - `RecoveryPolicy` classifies errors, tracks failure budgets, returns `retry`/`ask_user`/`block`
+  - Engine wired: tool errors, loop-level errors (`handleProcessingError`), and repeated LLM null-responses all feed the policy and terminate the loop immediately when policy dictates
+  - `handleProcessingError` now uses `parseErrorObservation` (kind=error) instead of a plain string so the policy sees it correctly
+  - LLM null-response path also feeds `__llm__` virtual tool into the policy
+  - `executeToolAndStoreResult` returns `"complete" | void`; `handleProcessingError` does same; both call sites break the loop on `"complete"`
+  - 71 tests, 0 failures
+- Next: priority 4 (`Scratchpad`)
 
 ---
 

@@ -249,7 +249,6 @@ export class ReActEngine {
             "Failed to parse LLM response, injecting format reminder",
           );
 
-          // Add a strict reminder about YAML format
           const formatReminder = this.toolHandler.createObservationStep(
             "ERROR: Your response was not in the correct YAML format. You MUST respond using this exact structure:\n\n" +
               "```yaml\n" +
@@ -276,6 +275,23 @@ export class ReActEngine {
               "Try again with proper YAML formatting.",
           );
           await trace.addStep(formatReminder);
+
+          // Count LLM null-response failures toward recovery budget
+          const nullRecovery = this.recoveryPolicy.evaluate(
+            "__llm__",
+            this.toolHandler.parseErrorObservation(
+              new Error("LLM returned null or unparseable response"),
+              undefined,
+            ),
+          );
+          if (nullRecovery.directive === "block" || nullRecovery.directive === "ask_user") {
+            trace.markComplete(nullRecovery.question ?? nullRecovery.reason, {
+              type: "ask_user",
+              question: nullRecovery.question ?? nullRecovery.reason,
+              reason: nullRecovery.reason,
+            });
+            break;
+          }
           continue;
         }
 
@@ -377,7 +393,8 @@ export class ReActEngine {
           if (toolDone === "complete") break;
         }
       } catch (error) {
-        await this.handleProcessingError(error, trace, iterationCount);
+        const loopDone = await this.handleProcessingError(error, trace, iterationCount);
+        if (loopDone === "complete") break;
       }
 
       // Check for max iterations reached
@@ -692,7 +709,7 @@ export class ReActEngine {
     error: any,
     trace: ReActTrace,
     iterationCount: number,
-  ): Promise<void> {
+  ): Promise<"complete" | void> {
     this.logger.error(
       `Error in processing loop (iteration ${iterationCount})`,
       {
@@ -701,13 +718,33 @@ export class ReActEngine {
     );
 
     try {
-      // Create an error observation to guide the LLM
       const errorMessage = `There was an error: ${String(error)}. Please try a different approach.`;
+      const errorObservation = this.toolHandler.parseErrorObservation(
+        error instanceof Error ? error : new Error(String(error)),
+        undefined,
+      );
       const observationStep =
-        this.toolHandler.createObservationStep(errorMessage);
+        this.toolHandler.createObservationStep(errorObservation);
 
-      // Add the error observation to the trace
       await trace.addStep(observationStep);
+
+      // Run recovery policy on loop-level errors so they count toward failure budgets
+      const recovery = this.recoveryPolicy.evaluate(
+        "__loop__",
+        errorObservation,
+      );
+      if (recovery.directive === "block" || recovery.directive === "ask_user") {
+        this.logger.warn(
+          `RecoveryPolicy: ${recovery.directive} after loop-level error`,
+          { reason: recovery.reason },
+        );
+        trace.markComplete(recovery.question ?? recovery.reason, {
+          type: "ask_user",
+          question: recovery.question ?? recovery.reason,
+          reason: recovery.reason,
+        });
+        return "complete";
+      }
     } catch (secondaryError) {
       this.logger.error("Error creating error observation step", {
         error: String(secondaryError),

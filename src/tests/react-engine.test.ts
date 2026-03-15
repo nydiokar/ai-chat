@@ -290,6 +290,17 @@ action:
     expect(result).to.match(/auth|credentials|web_search/i);
   });
 
+  it("terminates via loop-error recovery when the LLM call itself throws repeatedly", async () => {
+    // Simulate LLM throwing (not tool throwing) — hits handleProcessingError
+    llmGenerateResponseStub.rejects(new Error("LLM connection failed"));
+
+    const result = await engine.process("trigger llm error", "user-7");
+
+    // Recovery policy should eventually block after repeated loop errors
+    expect(llmGenerateResponseStub.callCount).to.be.lessThanOrEqual(4);
+    expect(result).to.be.a("string").and.to.have.length.greaterThan(0);
+  });
+
   it("terminates immediately and surfaces ask_user when recovery policy blocks on repeated failures", async () => {
     // Three consecutive failures across tools triggers block directive
     toolExecuteStub.rejects(new Error("Something went completely wrong"));

@@ -324,6 +324,62 @@ describe("ReActPromptGenerator", () => {
     });
   });
 
+  describe("renderObservationText", () => {
+    it("renders summary, important fields, and sources without the raw result blob", async () => {
+      const stepsWithRichObservation: ReasoningStep[] = [
+        {
+          stepId: "obs_rich",
+          observation: {
+            kind: "success",
+            summary: "Found 2 results",
+            result: "LARGE RAW BLOB THAT SHOULD NOT APPEAR",
+            importantFields: { count: 2, title: "Example" },
+            sourceRefs: ["https://example.com/a"],
+          },
+          timestamp: new Date().toISOString(),
+          isComplete: false,
+        },
+      ];
+
+      const prompt = await promptGenerator.generateReActPrompt(
+        "test",
+        stepsWithRichObservation,
+        mockTools,
+      );
+
+      expect(prompt).to.include("Found 2 results");
+      expect(prompt).to.include("Sources: https://example.com/a");
+      expect(prompt).to.include("count: 2");
+      expect(prompt).not.to.include("LARGE RAW BLOB THAT SHOULD NOT APPEAR");
+    });
+
+    it("renders error kind and message for error observations", async () => {
+      const stepsWithError: ReasoningStep[] = [
+        {
+          stepId: "obs_err",
+          observation: {
+            kind: "error",
+            summary: "Tool web_search failed: timed out",
+            result: "raw error blob",
+            error: { message: "timed out", kind: "timeout" },
+          },
+          timestamp: new Date().toISOString(),
+          isComplete: false,
+        },
+      ];
+
+      const prompt = await promptGenerator.generateReActPrompt(
+        "test",
+        stepsWithError,
+        mockTools,
+      );
+
+      expect(prompt).to.include("Tool web_search failed: timed out");
+      expect(prompt).to.include("Error (timeout): timed out");
+      expect(prompt).not.to.include("raw error blob");
+    });
+  });
+
   describe("error handling", () => {
     it("should provide a fallback prompt on error", async () => {
       // Force an error by making the toolFormatter throw

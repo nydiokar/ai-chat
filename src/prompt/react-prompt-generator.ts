@@ -773,11 +773,26 @@ Remember:
   }
 
   private renderObservationText(observation: GroundedObservation): string {
-    if (observation.sourceRefs && observation.sourceRefs.length > 0) {
-      return `${observation.summary}\nSources: ${observation.sourceRefs.join(", ")}\n${observation.result}`;
+    const parts: string[] = [observation.summary];
+
+    if (observation.importantFields && Object.keys(observation.importantFields).length > 0) {
+      // Render at most 4 important fields inline so the model has structured signal
+      const entries = Object.entries(observation.importantFields).slice(0, 4);
+      const fieldLines = entries
+        .map(([k, v]) => `  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+        .join("\n");
+      parts.push(`Fields:\n${fieldLines}`);
     }
 
-    return observation.result || observation.summary;
+    if (observation.sourceRefs && observation.sourceRefs.length > 0) {
+      parts.push(`Sources: ${observation.sourceRefs.join(", ")}`);
+    }
+
+    if (observation.kind === "error" && observation.error) {
+      parts.push(`Error (${observation.error.kind ?? "unknown"}): ${observation.error.message}`);
+    }
+
+    return parts.join("\n");
   }
 
   /**
