@@ -1,3 +1,18 @@
+export interface GroundedObservation {
+  kind: "success" | "error" | "empty" | "partial";
+  result: string;
+  summary: string;
+  tool?: string;
+  purpose?: string;
+  importantFields?: Record<string, unknown>;
+  sourceRefs?: string[];
+  rawPreview?: string;
+  truncated?: boolean;
+  error?: {
+    message: string;
+  };
+}
+
 export interface ReasoningStep {
   stepId: string;
   thought?: {
@@ -9,9 +24,7 @@ export interface ReasoningStep {
     purpose?: string;
     params: Record<string, unknown>;
   };
-  observation?: {
-    result: string;
-  };
+  observation?: GroundedObservation;
   conclusion?: {
     final_answer: string;
     explanation?: string;

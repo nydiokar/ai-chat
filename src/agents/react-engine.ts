@@ -3,6 +3,7 @@ import { MemoryProvider, MemoryType } from "../interfaces/memory-provider.js";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import {
   AgentDecision,
+  GroundedObservation,
   ReasoningStep,
 } from "../interfaces/react-types.js";
 import {
@@ -419,16 +420,16 @@ export class ReActEngine {
     // Extract useful information from the steps
     const observations = steps
       .filter((step) => step.observation?.result)
-      .map((step) => step.observation!.result);
+      .map((step) => step.observation!);
 
     const lastThought = steps[steps.length - 1]?.thought?.reasoning || "";
+    const observationText = observations
+      .slice(-2)
+      .map((observation) => this.renderObservationForFallback(observation))
+      .join("\n\n");
 
     // Create a reasonable fallback response
-    return `I've been working on your request, but need more information. Based on what I've found so far:\n\n${observations
-      .slice(-2)
-      .join(
-        "\n\n",
-      )}\n\nMy current thinking is: ${lastThought}\n\nCould you provide more details or clarify your request?`;
+    return `I've been working on your request, but need more information. Based on what I've found so far:\n\n${observationText}\n\nMy current thinking is: ${lastThought}\n\nCould you provide more details or clarify your request?`;
   }
 
   private async handleDecision(
@@ -547,20 +548,20 @@ export class ReActEngine {
       // Convert ToolResponse to ToolExecutionResult for compatibility
       const result = adaptToolResponse(toolResponse);
 
-      // Format the result using the tool handler for better readability
-      const formattedResult = this.toolHandler.formatToolResult(result, action);
-
-      // Create an observation step with the result
+      const groundedObservation = this.toolHandler.parseToolObservation(
+        result,
+        action,
+      );
       const observationStep =
-        this.toolHandler.createObservationStep(formattedResult);
+        this.toolHandler.createObservationStep(groundedObservation);
 
       // Add the observation to the trace
       await trace.addStep(observationStep);
 
       this.logVerbose("debug", `Added observation: ${observationStep.stepId}`, {
-        observation:
-          formattedResult.substring(0, 100) +
-          (formattedResult.length > 100 ? "..." : ""),
+        observation: groundedObservation.summary,
+        kind: groundedObservation.kind,
+        sources: groundedObservation.sourceRefs,
       });
 
       // Store the tool execution in memory for analytics
@@ -585,7 +586,7 @@ export class ReActEngine {
       });
 
       // Create an error observation with formatted error message from the tool handler
-      let errorMessage = this.toolHandler.formatErrorResult(
+      const errorObservation = this.toolHandler.parseErrorObservation(
         error instanceof Error ? error : new Error(String(error)),
         action,
       );
@@ -595,10 +596,12 @@ export class ReActEngine {
         this.currentUserMessage,
       );
       if (failureGuidance) {
-        errorMessage = `${errorMessage}\n\n${failureGuidance}`;
+        errorObservation.result = `${errorObservation.result}\n\n${failureGuidance}`;
+        errorObservation.summary = `${errorObservation.summary} Guidance: ${failureGuidance}`;
       }
-      const observationStep =
-        this.toolHandler.createObservationStep(errorMessage);
+      const observationStep = this.toolHandler.createObservationStep(
+        errorObservation,
+      );
 
       // Add the error observation to the trace
       await trace.addStep(observationStep);
@@ -620,6 +623,22 @@ export class ReActEngine {
         // Follow-up prompt generation is disabled to preserve consistent schema across turns.
       }
     }
+  }
+
+  private renderObservationForFallback(
+    observation: GroundedObservation,
+  ): string {
+    const lines = [observation.summary];
+
+    if (observation.sourceRefs && observation.sourceRefs.length > 0) {
+      lines.push(`Sources: ${observation.sourceRefs.join(", ")}`);
+    }
+
+    if (observation.kind === "error" && observation.error?.message) {
+      lines.push(`Error: ${observation.error.message}`);
+    }
+
+    return lines.join("\n");
   }
 
   /**

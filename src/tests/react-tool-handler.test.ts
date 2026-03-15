@@ -138,10 +138,46 @@ describe("ReActToolHandler", () => {
     const formattedResult = "This is a formatted tool result";
     const step = toolHandler.createObservationStep(formattedResult);
 
-    expect(step.observation).to.deep.equal({ result: formattedResult });
+    expect(step.observation).to.deep.include({
+      kind: "partial",
+      summary: formattedResult,
+      result: formattedResult,
+    });
     expect(step.isComplete).to.be.false;
     expect(step.stepId).to.match(/^obs_\d+$/);
     expect(typeof step.timestamp).to.equal("string");
+  });
+
+  it("should parse structured observations with important fields and sources", () => {
+    const mockResult: ToolExecutionResult = {
+      success: true,
+      data: {
+        title: "Example result",
+        url: "https://example.com/article",
+        summary: "Important grounded summary",
+        details: ["alpha", "beta"],
+      },
+      metadata: { executionTime: 100, toolName: "web_search" },
+    };
+
+    const action: ReasoningStep["action"] = {
+      tool: "web_search",
+      purpose: "Find a relevant source",
+      params: { query: "example query" },
+    };
+
+    const observation = toolHandler.parseToolObservation(mockResult, action);
+
+    expect(observation.kind).to.equal("success");
+    expect(observation.summary).to.equal("Important grounded summary");
+    expect(observation.tool).to.equal("web_search");
+    expect(observation.importantFields).to.deep.include({
+      title: "Example result",
+      url: "https://example.com/article",
+    });
+    expect(observation.sourceRefs).to.deep.equal(["https://example.com/article"]);
+    expect(observation.result).to.include("Observation summary: Important grounded summary");
+    expect(observation.result).to.include("Sources: https://example.com/article");
   });
 
   it("should format string result", () => {
@@ -180,8 +216,9 @@ describe("ReActToolHandler", () => {
     const formatted = toolHandler.formatToolResult(mockResult, action);
 
     expect(formatted).to.include("Tool: test_tool");
-    expect(formatted).to.include("1. 1");
-    expect(formatted).to.include("2. 2");
+    expect(formatted).to.include("Observation summary: Tool test_tool returned 5 items.");
+    expect(formatted).to.include('"count": 5');
+    expect(formatted).to.include('"sample": 1');
   });
 
   it("should format object result", () => {
@@ -220,8 +257,10 @@ describe("ReActToolHandler", () => {
 
     const formatted = toolHandler.formatToolResult(mockResult, action);
 
-    expect(formatted).to.include("Item 1:");
-    expect(formatted).to.include("Item 2:");
+    expect(formatted).to.include(
+      "Observation summary: Tool test_tool returned 2 items.",
+    );
+    expect(formatted).to.include('"sample": {');
     expect(formatted).to.include('"id": 1');
     expect(formatted).to.include('"name": "Item 1"');
   });
@@ -244,5 +283,25 @@ describe("ReActToolHandler", () => {
     expect(formatted).to.include("Parameters: {}");
     expect(formatted).to.include("Error: Test error");
     expect(formatted).to.include("Recommendation:");
+  });
+
+  it("should parse failed results into grounded error observations", () => {
+    const action: ReasoningStep["action"] = {
+      tool: "test_tool",
+      params: { query: "broken" },
+    };
+
+    const observation = toolHandler.parseErrorObservation(
+      new Error("Test error"),
+      action,
+    );
+
+    expect(observation.kind).to.equal("error");
+    expect(observation.summary).to.equal(
+      "Tool test_tool failed: Test error",
+    );
+    expect(observation.error).to.deep.equal({ message: "Test error" });
+    expect(observation.result).to.include("Tool: test_tool");
+    expect(observation.result).to.include("Recommendation:");
   });
 });

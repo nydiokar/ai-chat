@@ -96,6 +96,8 @@ describe("ReActPromptGenerator", () => {
     {
       stepId: "obs_1",
       observation: {
+        kind: "success",
+        summary: "Search result data",
         result: "Search result data",
       },
       timestamp: new Date().toISOString(),
@@ -169,7 +171,7 @@ describe("ReActPromptGenerator", () => {
       expect(initialPrompt).to.include("thinking about the problem");
 
       // Create a mock with observation data that has a non-empty truthy result
-      const stepsWithObservation = [
+      const stepsWithObservation: ReasoningStep[] = [
         {
           stepId: "thought_1",
           thought: {
@@ -192,6 +194,8 @@ describe("ReActPromptGenerator", () => {
         {
           stepId: "obs_1",
           observation: {
+            kind: "success",
+            summary: "Search result data",
             result: "Search result data", // This is a truthy value that will satisfy the implementation's check
           },
           timestamp: new Date().toISOString(),

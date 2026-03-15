@@ -200,4 +200,65 @@ conclusion:
     const secondPrompt = promptGenerateStub.secondCall.args[1];
     expect(secondPrompt.some((step: any) => step.observation?.result.includes("Recovery requested."))).to.be.true;
   });
+
+  it("stores grounded observations in the trace between tool execution and the next prompt", async () => {
+    toolExecuteStub.resolves({
+      success: true,
+      data: {
+        title: "Grounded result",
+        url: "https://example.com/source",
+        summary: "Grounded summary from tool output",
+      },
+    });
+
+    llmGenerateResponseStub
+      .onFirstCall()
+      .resolves({
+        content: `\`\`\`yaml
+thought:
+  reasoning: I need evidence first.
+  plan: Use the search tool.
+action:
+  tool: web_search
+  purpose: Find evidence
+  params:
+    query: grounded observation
+\`\`\``,
+        tokenCount: null,
+        toolResults: [],
+      })
+      .onSecondCall()
+      .resolves({
+        content: `\`\`\`yaml
+thought:
+  reasoning: The observation is sufficient.
+  plan: Finish now.
+conclusion:
+  final_answer: Grounded result complete.
+  explanation: Based on the grounded observation.
+\`\`\``,
+        tokenCount: null,
+        toolResults: [],
+      });
+
+    const result = await engine.process("ground this observation", "user-4");
+
+    expect(result).to.equal("Grounded result complete.");
+    expect(promptGenerateStub.callCount).to.equal(2);
+    const secondPromptSteps = promptGenerateStub.secondCall.args[1];
+    const observationStep = secondPromptSteps.find(
+      (step: any) => step.observation,
+    );
+
+    expect(observationStep.observation.kind).to.equal("success");
+    expect(observationStep.observation.summary).to.equal(
+      "Grounded summary from tool output",
+    );
+    expect(observationStep.observation.sourceRefs).to.deep.equal([
+      "https://example.com/source",
+    ]);
+    expect(observationStep.observation.result).to.include(
+      "Observation summary: Grounded summary from tool output",
+    );
+  });
 });

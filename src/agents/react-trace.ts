@@ -206,8 +206,16 @@ export class ReActTrace {
       }
 
       // Extract observation results
-      if (step.observation?.result) {
-        texts.push(String(step.observation.result));
+      if (step.observation) {
+        if (step.observation.summary) {
+          texts.push(step.observation.summary);
+        }
+        if (step.observation.result) {
+          texts.push(String(step.observation.result));
+        }
+        if (step.observation.sourceRefs?.length) {
+          texts.push(step.observation.sourceRefs.join(" "));
+        }
       }
 
       return texts;

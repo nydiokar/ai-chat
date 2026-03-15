@@ -4,7 +4,10 @@ import { Input } from "../types/common.js";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
-import { ReasoningStep } from "../interfaces/react-types.js";
+import {
+  GroundedObservation,
+  ReasoningStep,
+} from "../interfaces/react-types.js";
 import { PromptRepository } from "../services/prompt/prompt-repository.js";
 import {
   PromptContext,
@@ -427,7 +430,7 @@ Remember:
 
           if (step.observation) {
             // Truncate observation for brevity
-            const obs = step.observation.result;
+            const obs = this.renderObservationText(step.observation);
             renderedStep += `OBSERVATION: ${obs.substring(0, 100)}${obs.length > 100 ? "..." : ""}\n`;
           }
 
@@ -496,6 +499,7 @@ Remember:
     // Add observation content length
     if (step.observation) {
       length += (step.observation.result || "").length;
+      length += (step.observation.summary || "").length;
     }
 
     // Add conclusion content length
@@ -632,7 +636,7 @@ Remember:
         // Add result if present - keep observations mostly intact (they contain the actual data!)
         if (step.observation) {
           const result = this.truncateResult(
-            step.observation.result,
+            this.renderObservationText(step.observation),
             STEP_COMPRESSION_LIMITS.OBSERVATION_MAX_CHARS,
           );
           if (result) {
@@ -766,6 +770,14 @@ Remember:
     } else {
       return "What is your next logical step in solving this problem? Consider what information you need and which tool would be most effective at providing it. Explain your reasoning before taking action. If the task is blocked on missing user input, use ask_user. If you need to revise strategy before acting, use recover.";
     }
+  }
+
+  private renderObservationText(observation: GroundedObservation): string {
+    if (observation.sourceRefs && observation.sourceRefs.length > 0) {
+      return `${observation.summary}\nSources: ${observation.sourceRefs.join(", ")}\n${observation.result}`;
+    }
+
+    return observation.result || observation.summary;
   }
 
   /**

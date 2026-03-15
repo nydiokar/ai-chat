@@ -296,6 +296,35 @@ unless the runtime architecture work above is blocked.
 - Next recommended slice:
   - begin Layer 5 by replacing string-only observations with a parsed observation model
   - store grounded observations in the trace while preserving `observation.result` compatibility for existing prompt code
+- Advanced Layer 5 observation grounding in the runtime path:
+  - added explicit `GroundedObservation` runtime typing in `src/interfaces/react-types.ts`
+  - introduced `ObservationParser` in `src/agents/observation-parser.ts` to normalize tool outputs into:
+    - `kind`
+    - `summary`
+    - `importantFields`
+    - `sourceRefs`
+    - `rawPreview`
+    - `error`
+    - backward-compatible `result`
+  - updated `ReActToolHandler` to parse tool success/error outputs into grounded observations instead of only formatting presentation strings
+  - kept backward compatibility by preserving `observation.result` as the prompt-facing text field while enriching observation steps with structured metadata
+  - wired grounded observations through `ReActEngine` so parsed observations are what enter the trace after tool execution
+  - updated fallback response generation to use grounded observation summaries and sources rather than only raw observation blobs
+  - updated `ReActTrace` topic extraction to consider grounded observation summaries and source refs
+  - updated `ReActPromptGenerator` step rendering to handle grounded observations while preserving current prompt behavior
+- Added focused validation for observation grounding:
+  - added `src/tests/react-observation-parser.test.ts`
+  - extended tool-handler tests to cover grounded success/error parsing
+  - extended engine tests to assert structured observations are passed into the next prompt cycle
+  - added the new parser test file to `npm run test:agent-runtime`
+- Validation status after observation-grounding slice:
+  - `npm run typecheck` passes
+  - `npm run test:agent-runtime` passes
+- Current status of priority 2 (`Observation grounding`):
+  - moved from `broken` to `partial`
+  - the runtime now stores grounded observations, but per-tool parser specialization and stricter distinction between model-working data vs user-visible renderings are still open
+- Next recommended slice:
+  - continue priority 2 with per-tool/parser heuristics for higher-fidelity source extraction and error classification, or begin priority 3 by using grounded observation kinds/errors to drive structured recovery decisions
 
 ---
 

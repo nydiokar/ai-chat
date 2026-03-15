@@ -1,4 +1,7 @@
-import { ReasoningStep } from "../interfaces/react-types.js";
+import {
+  GroundedObservation,
+  ReasoningStep,
+} from "../interfaces/react-types.js";
 import {
   ToolChainExecutor,
   ToolExecutionResult,
@@ -7,6 +10,7 @@ import { ToolChainConfigBuilder } from "../tools/tool-chain/tool-chain-config.js
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
+import { ObservationParser } from "./observation-parser.js";
 
 /**
  * Handles the execution of tools and formats their results
@@ -17,12 +21,14 @@ export class ReActToolHandler {
   private readonly VERBOSE_LOGGING =
     process.env.REACT_VERBOSE_LOGGING !== "false";
   private readonly MAX_RESULT_LENGTH = 2000;
+  private readonly observationParser: ObservationParser;
 
   constructor(
     private readonly toolManager: IToolManager,
     private readonly toolExecutor: ToolChainExecutor,
   ) {
     this.logger = getLogger("ReActToolHandler");
+    this.observationParser = new ObservationParser();
   }
 
   /**
@@ -95,15 +101,38 @@ export class ReActToolHandler {
   /**
    * Helper method to create observation steps
    */
-  public createObservationStep(formattedResult: string): ReasoningStep {
+  public createObservationStep(
+    observation: string | GroundedObservation,
+  ): ReasoningStep {
     return {
       stepId: `obs_${Date.now()}`,
-      observation: {
-        result: formattedResult,
-      },
+      observation:
+        typeof observation === "string"
+          ? this.observationParser.createRuntimeObservation(
+              "partial",
+              observation,
+              this.MAX_RESULT_LENGTH,
+            )
+          : observation,
       isComplete: false,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  public parseToolObservation(
+    result: ToolExecutionResult,
+    action: ReasoningStep["action"],
+    maxLength: number = this.MAX_RESULT_LENGTH,
+  ): GroundedObservation {
+    return this.observationParser.parseToolResult(result, action, maxLength);
+  }
+
+  public parseErrorObservation(
+    error: Error | undefined,
+    action: ReasoningStep["action"],
+    maxLength: number = this.MAX_RESULT_LENGTH,
+  ): GroundedObservation {
+    return this.observationParser.parseToolError(error, action, maxLength);
   }
 
   /**
@@ -118,53 +147,8 @@ export class ReActToolHandler {
     action: ReasoningStep["action"],
     maxLength: number = this.MAX_RESULT_LENGTH,
   ): string {
-    if (!action) {
-      this.logger.warn("Cannot format result without action details");
-      return "Tool execution completed, but action details are missing.";
-    }
-
     try {
-      if (!result || !result.success || result.data === undefined) {
-        return this.formatErrorResult(result?.error, action);
-      }
-
-      const data = result.data;
-      let formattedResult: string;
-
-      // Apply different formatting based on result type
-      if (typeof data === "string") {
-        formattedResult = this.formatStringResult(data, action);
-      } else if (Array.isArray(data)) {
-        formattedResult = this.formatArrayResult(data, action);
-      } else if (typeof data === "object" && data !== null) {
-        formattedResult = this.formatObjectResult(data, action);
-      } else {
-        formattedResult = String(data);
-      }
-
-      // Add execution metadata if available
-      let executionContext = "";
-      if (result.metadata) {
-        executionContext = `Execution time: ${result.metadata.executionTime}ms\n`;
-      }
-
-      // Add tool context header
-      const header =
-        `Tool: ${action.tool}\n` +
-        `Purpose: ${action.purpose || "Not specified"}\n` +
-        `Parameters: ${JSON.stringify(action.params || {})}\n` +
-        executionContext +
-        `Result:\n`;
-
-      // Truncate to max length if needed
-      let finalResult = header + formattedResult;
-      if (finalResult.length > maxLength) {
-        finalResult =
-          finalResult.substring(0, maxLength) +
-          `\n\n[Result truncated. Total length: ${finalResult.length} characters]`;
-      }
-
-      return finalResult;
+      return this.parseToolObservation(result, action, maxLength).result;
     } catch (error) {
       this.logger.error("Error formatting tool result", {
         error: error instanceof Error ? error.message : String(error),
@@ -269,22 +253,6 @@ export class ReActToolHandler {
     error: Error | undefined,
     action: ReasoningStep["action"],
   ): string {
-    if (!action) {
-      return (
-        `Error: ${error ? error.message : "Unknown error occurred"}\n` +
-        `Recommendation: Please try a different approach.`
-      );
-    }
-
-    const errorMsg = error
-      ? `Error: ${error.message}`
-      : "Tool returned no result.";
-
-    return (
-      `Tool: ${action.tool}\n` +
-      `Parameters: ${JSON.stringify(action.params || {})}\n` +
-      `Result: ${errorMsg}\n\n` +
-      `Recommendation: Consider trying a different approach or different parameters.`
-    );
+    return this.parseErrorObservation(error, action).result;
   }
 }
