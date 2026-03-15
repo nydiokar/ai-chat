@@ -74,6 +74,28 @@ conclusion:
     expect(result?.isComplete).to.be.true;
   });
 
+  it("should parse ask_user in YAML format", () => {
+    const yamlAskUser = `I need clarification before proceeding.
+
+\`\`\`yaml
+thought:
+  reasoning: I do not know which repository the user wants me to inspect.
+  plan: Ask one focused question before using tools.
+ask_user:
+  question: Which repository should I inspect?
+  reason: The task is ambiguous without a specific repository target.
+\`\`\``;
+
+    const result = parser.parseReasoningStep(yamlAskUser);
+
+    expect(result).to.not.be.null;
+    expect(result?.ask_user).to.deep.include({
+      question: "Which repository should I inspect?",
+      reason: "The task is ambiguous without a specific repository target.",
+    });
+    expect(result?.isComplete).to.be.true;
+  });
+
   it("should parse text format with THOUGHT: prefix", () => {
     const textResponse = `THOUGHT: I need to research this topic more deeply before providing an answer.`;
 
@@ -114,6 +136,38 @@ conclusion:
         "The average global temperature has increased by 1.1°C since the pre-industrial era.",
     });
     expect(result?.isComplete).to.be.true;
+  });
+
+  it("should parse text format with ASK_USER: prefix", () => {
+    const textResponse = `ASK_USER: Which environment should I target for this deployment?`;
+
+    const result = parser.parseReasoningStep(textResponse);
+
+    expect(result).to.not.be.null;
+    expect(result?.ask_user).to.deep.include({
+      question: "Which environment should I target for this deployment?",
+    });
+    expect(result?.isComplete).to.be.true;
+  });
+
+  it("should interpret ask_user as an explicit runtime decision", () => {
+    const result = parser.parseReasoningStep(`\`\`\`yaml
+thought:
+  reasoning: I am blocked on missing credentials.
+  plan: Ask the user for the credential source.
+ask_user:
+  question: Where should I read the API key from?
+  reason: I cannot authenticate without it.
+\`\`\``);
+
+    expect(result).to.not.be.null;
+    const decision = parser.interpretDecision(result!);
+    expect(decision).to.deep.equal({
+      type: "ask_user",
+      question: "Where should I read the API key from?",
+      reason: "I cannot authenticate without it.",
+      stepId: result!.stepId,
+    });
   });
 
   it("should return null for unparseable content", () => {

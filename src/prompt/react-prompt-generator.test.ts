@@ -220,6 +220,17 @@ describe("ReActPromptGenerator", () => {
 
       expect(followUpPrompt).to.include("Based on the observation above");
     });
+
+    it("should document ask_user as a valid runtime outcome", async () => {
+      const prompt = await promptGenerator.generateReActPrompt(
+        "test query",
+        [],
+        mockTools,
+      );
+
+      expect(prompt).to.include("ask_user");
+      expect(prompt).to.include("Provide exactly ONE of: action, conclusion, or ask_user");
+    });
   });
 
   describe("generateFollowUpPrompt", () => {

@@ -1,6 +1,9 @@
 import { v4 as uuidv4 } from "uuid";
 import { MemoryProvider, MemoryType } from "../interfaces/memory-provider.js";
-import { ReasoningStep } from "../interfaces/react-types.js";
+import {
+  CompletionOutcome,
+  ReasoningStep,
+} from "../interfaces/react-types.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
 
@@ -13,6 +16,7 @@ export class ReActTrace {
   private steps: ReasoningStep[] = [];
   private isComplete: boolean = false;
   private finalResponse: string = "";
+  private completionOutcome: CompletionOutcome | null = null;
 
   /**
    * Creates a new ReActTrace instance
@@ -146,9 +150,16 @@ export class ReActTrace {
    * Marks the reasoning trace as complete with a final response
    * @param response The final response to the user
    */
-  public markComplete(response: string): void {
+  public markComplete(
+    response: string,
+    outcome: Omit<CompletionOutcome, "response"> = { type: "finish" },
+  ): void {
     this.isComplete = true;
     this.finalResponse = response;
+    this.completionOutcome = {
+      ...outcome,
+      response,
+    };
   }
 
   /**
@@ -163,6 +174,13 @@ export class ReActTrace {
    */
   public getFinalResponse(): string {
     return this.finalResponse;
+  }
+
+  /**
+   * Gets the completion outcome for the current trace.
+   */
+  public getCompletionOutcome(): CompletionOutcome | null {
+    return this.completionOutcome ? { ...this.completionOutcome } : null;
   }
 
   /**

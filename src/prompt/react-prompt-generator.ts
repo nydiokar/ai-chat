@@ -109,14 +109,20 @@ action:
 conclusion:
   final_answer: "Complete answer with specific details and sources"
   explanation: "How you arrived at this conclusion based on the evidence"
+
+# Option C: If you are blocked on missing user input, ask a focused question
+ask_user:
+  question: "The specific clarification or missing input you need from the user"
+  reason: "Why you cannot proceed reliably without this information"
 \`\`\`
 
 CRITICAL RULES:
 1. ALWAYS start with 'thought' - reason about the problem BEFORE taking action
-2. Provide EITHER action OR conclusion - NEVER both
+2. Provide exactly ONE of: action, conclusion, or ask_user
 3. Base conclusions ONLY on tool observations/results you have seen. If you lack evidence, say what is missing instead of guessing.
 4. When using search tools, cite specific sources with URLs in your conclusion
-5. Be thorough - vague answers like "I found sources" are not acceptable`;
+5. Use ask_user when the task is blocked by missing user intent, credentials, scope, or ambiguous constraints that tools cannot resolve
+6. Be thorough - vague answers like "I found sources" are not acceptable`;
   }
 
   /**
@@ -301,11 +307,12 @@ CRITICAL RULES:
           promptParts.push(
             `You have been reasoning for ${currentStep} steps. Based on the observation above, either:
 - If the observation already answers the question, provide a conclusion grounded ONLY in that evidence. For web/search observations, include a structured list with: name/title, affiliation/role, key finding, source URL, and date (if present), then a brief summary.
-- If more information is needed, pick the single best remaining tool and explain why.`,
+- If more information is needed, pick the single best remaining tool and explain why.
+- If the task is blocked on missing user input or an ambiguous requirement, use ask_user with one focused question.`,
           );
         } else {
           promptParts.push(
-            "Based on the observation above, decide whether you can answer now. If yes, provide a conclusion grounded ONLY in that evidence. If no, choose the most appropriate tool to fill the gap and explain why.",
+            "Based on the observation above, decide whether you can answer now. If yes, provide a conclusion grounded ONLY in that evidence. If no, choose the most appropriate tool to fill the gap and explain why. If the missing information must come from the user, use ask_user.",
           );
         }
         if (lastToolIsSearch) {
@@ -743,14 +750,14 @@ Remember:
       return "Please start by thinking about the problem, breaking it down into clear steps. Consider what tools might help you solve this problem efficiently.";
     } else if (hasObservation) {
       if (currentStep >= 3) {
-        return `You have been reasoning for ${currentStep} steps. Based on the observation above, carefully analyze the results and connect them to the original question. If you have sufficient information, provide a comprehensive final answer. Otherwise, select the most appropriate tool that you haven't tried yet, explaining your reasoning for this choice.`;
+        return `You have been reasoning for ${currentStep} steps. Based on the observation above, carefully analyze the results and connect them to the original question. If you have sufficient information, provide a comprehensive final answer. Otherwise, select the most appropriate tool that you haven't tried yet, explaining your reasoning for this choice. If you cannot proceed without user clarification, use ask_user.`;
       }
-      return "Based on the observation above, thoroughly evaluate the information obtained. Does it fully answer the question or do you need additional information? If it answers the question, provide a conclusion grounded ONLY in that observation (include sources/URLs when available). If more information is needed, determine the most logical next step and explain your reasoning before taking action.";
+      return "Based on the observation above, thoroughly evaluate the information obtained. Does it fully answer the question or do you need additional information? If it answers the question, provide a conclusion grounded ONLY in that observation (include sources/URLs when available). If more information is needed, determine the most logical next step and explain your reasoning before taking action. If the missing information can only come from the user, use ask_user.";
     } else if (alreadyTried.length > 0) {
       const triedTools = alreadyTried.join(", ");
-      return `You have tried these tools: ${triedTools}. Reflect on what you've learned so far and identify what information is still missing. Select the most appropriate tool to fill these knowledge gaps and explain how it will help answer the original question.`;
+      return `You have tried these tools: ${triedTools}. Reflect on what you've learned so far and identify what information is still missing. Select the most appropriate tool to fill these knowledge gaps and explain how it will help answer the original question. If the remaining gap depends on the user, use ask_user.`;
     } else {
-      return "What is your next logical step in solving this problem? Consider what information you need and which tool would be most effective at providing it. Explain your reasoning before taking action.";
+      return "What is your next logical step in solving this problem? Consider what information you need and which tool would be most effective at providing it. Explain your reasoning before taking action. If the task is blocked on missing user input, use ask_user.";
     }
   }
 

@@ -238,6 +238,30 @@ describe("ReActTrace", () => {
 
     expect(trace.isReasoningComplete()).to.be.true;
     expect(trace.getFinalResponse()).to.equal(finalResponse);
+    expect(trace.getCompletionOutcome()).to.deep.equal({
+      type: "finish",
+      response: finalResponse,
+    });
+  });
+
+  it("should store ask_user completion outcomes", () => {
+    const question = "Which repo should I use?";
+
+    trace.markComplete(question, {
+      type: "ask_user",
+      question,
+      reason: "missing repository target",
+      stepId: "ask_1",
+    });
+
+    expect(trace.isReasoningComplete()).to.be.true;
+    expect(trace.getCompletionOutcome()).to.deep.equal({
+      type: "ask_user",
+      response: question,
+      question,
+      reason: "missing repository target",
+      stepId: "ask_1",
+    });
   });
 
   it("should optimize steps correctly", async () => {

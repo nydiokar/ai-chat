@@ -1,4 +1,4 @@
-import { ReasoningStep } from "../interfaces/react-types.js";
+import { AgentDecision, ReasoningStep } from "../interfaces/react-types.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
 import yaml from "js-yaml";
@@ -88,28 +88,40 @@ export class ReActStepParser {
             step.isComplete = true;
           }
 
-          // CRITICAL: Validate that step has EITHER action OR conclusion, not both
-          if (step.action && step.conclusion) {
+          if (parsed.ask_user) {
+            step.ask_user = parsed.ask_user;
+            step.isComplete = true;
+          }
+
+          const decisionCount = [
+            step.action ? 1 : 0,
+            step.conclusion ? 1 : 0,
+            step.ask_user ? 1 : 0,
+          ].reduce((sum, count) => sum + count, 0);
+
+          // CRITICAL: Validate that step has exactly one explicit runtime decision
+          if (decisionCount > 1) {
             this.logger.error(
-              "Invalid step: contains both action AND conclusion",
+              "Invalid step: contains multiple runtime decisions",
               {
                 hasAction: !!step.action,
                 hasConclusion: !!step.conclusion,
+                hasAskUser: !!step.ask_user,
               },
             );
             return null; // Reject this step entirely
           }
 
-          // Validate that step has at least thought + (action OR conclusion)
+          // Validate that step has at least thought + one runtime decision
           if (!step.thought) {
             this.logger.warn("Step missing required 'thought' field");
           }
 
-          if (!step.action && !step.conclusion) {
+          if (decisionCount === 0 && !step.thought) {
             this.logger.error(
-              "Invalid step: has neither action nor conclusion",
+              "Invalid step: has neither action, conclusion, ask_user, nor thought",
             );
-            return null; // Reject steps with no action or conclusion
+            return null;
           }
 
           // Log successful YAML parsing
@@ -152,7 +164,9 @@ export class ReActStepParser {
       }
 
       // Fall back to basic text parsing
-      const typeMatch = llmResponse.match(/^(THOUGHT|ACTION|FINAL_ANSWER):/i);
+      const typeMatch = llmResponse.match(
+        /^(THOUGHT|ACTION|FINAL_ANSWER|ASK_USER):/i,
+      );
 
       if (typeMatch) {
         const type = typeMatch[1].toLowerCase();
@@ -209,6 +223,15 @@ export class ReActStepParser {
             isComplete: true,
             timestamp: new Date().toISOString(),
           };
+        } else if (type === "ask_user") {
+          return {
+            stepId,
+            ask_user: {
+              question: llmResponse.replace(/^ASK_USER:/i, "").trim(),
+            },
+            isComplete: true,
+            timestamp: new Date().toISOString(),
+          };
         }
       }
 
@@ -221,5 +244,37 @@ export class ReActStepParser {
       });
       return null;
     }
+  }
+
+  public interpretDecision(step: ReasoningStep): AgentDecision | null {
+    if (step.action?.tool) {
+      return {
+        type: "tool",
+        tool: step.action.tool,
+        params: step.action.params || {},
+        purpose: step.action.purpose,
+        stepId: step.stepId,
+      };
+    }
+
+    if (step.conclusion?.final_answer) {
+      return {
+        type: "finish",
+        answer: step.conclusion.final_answer,
+        explanation: step.conclusion.explanation,
+        stepId: step.stepId,
+      };
+    }
+
+    if (step.ask_user?.question) {
+      return {
+        type: "ask_user",
+        question: step.ask_user.question,
+        reason: step.ask_user.reason,
+        stepId: step.stepId,
+      };
+    }
+
+    return null;
   }
 }

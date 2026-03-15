@@ -128,7 +128,11 @@ We are **not** trying to:
 These are ordered by impact on real agency.
 
 1. **Completion semantics**
-   - Add explicit finish/clarification outcomes.
+   - Status: `in_progress`
+   - Explicit `finish` and `ask_user` runtime outcomes are now modeled in parser/trace/engine internals.
+   - Remaining work:
+     - add explicit `recover` outcome and recovery policy integration
+     - add focused runtime tests around engine-level clarification completion
    - Keep max steps only as a safety net.
 
 2. **Observation grounding**
@@ -272,6 +276,22 @@ unless the runtime architecture work above is blocked.
   - recovery
   - scratchpad
   - orchestrator cleanup
+- Implemented the first completion-semantics slice:
+  - added explicit `ask_user` step support alongside `action` and `conclusion`
+  - introduced internal `AgentDecision` and `CompletionOutcome` runtime contracts
+  - updated `ReActTrace` to persist structured completion outcomes instead of only a final string
+  - updated the ReAct prompt to instruct the model when to use `ask_user`
+  - updated the engine to terminate on explicit clarification requests while preserving the existing string response API
+- Fixed validation scope for runtime work:
+  - identified `.mocharc.cjs` global `spec` configuration as the reason ad hoc Mocha runs expanded into the full suite
+  - added `npm run test:agent-runtime` using `--no-config` so runtime-only checks stay scoped to agent runtime tests
+  - updated the local refactor test helper and pre-push check to use the isolated runtime test command
+- Validation status:
+  - `npm run typecheck` passes
+  - `npm run test:agent-runtime` passes and stays scoped to the intended runtime test files
+- Next recommended slice:
+  - add engine tests for `finish` vs `ask_user`
+  - begin Layer 5 by replacing string-only observations with a parsed observation model
 
 ---
 

@@ -1,7 +1,10 @@
 ﻿import { LLMProvider } from "../interfaces/llm-provider.js";
 import { MemoryProvider, MemoryType } from "../interfaces/memory-provider.js";
 import { IToolManager } from "../tools/mcp/interfaces/core.js";
-import { ReasoningStep } from "../interfaces/react-types.js";
+import {
+  AgentDecision,
+  ReasoningStep,
+} from "../interfaces/react-types.js";
 import {
   ToolChainExecutor,
   ToolExecutionResult,
@@ -272,11 +275,13 @@ export class ReActEngine {
           step: this.formatForDisplay(nextStep),
         });
 
-        // Check if step has conclusion (should end reasoning)
-        if (nextStep.conclusion?.final_answer) {
-          trace.markComplete(nextStep.conclusion.final_answer);
-          this.logVerbose("info", "Reasoning complete with conclusion");
-          break; // Exit the loop immediately
+        const decision = this.stepParser.interpretDecision(nextStep);
+        if (!decision) {
+          const invalidDecision = this.toolHandler.createObservationStep(
+            "Invalid step: you must produce exactly one runtime decision: action, conclusion, or ask_user.",
+          );
+          await trace.addStep(invalidDecision);
+          continue;
         }
 
         // Guard: if action is present but no tool specified, force clarification
@@ -288,7 +293,15 @@ export class ReActEngine {
           continue;
         }
 
-        // Handle tool execution only if no conclusion
+        const decisionHandled = await this.handleDecision(
+          decision,
+          trace,
+          toolsToUse,
+        );
+        if (decisionHandled.type !== "tool") {
+          break;
+        }
+
         if (nextStep.action?.tool) {
           const requestedTool = nextStep.action.tool;
 
@@ -353,7 +366,10 @@ export class ReActEngine {
         const fallbackResponse = this.generateFallbackResponse(
           trace.getSteps(),
         );
-        trace.markComplete(fallbackResponse);
+        trace.markComplete(fallbackResponse, {
+          type: "safety_stop",
+          reason: "maximum_iterations_reached",
+        });
       }
     }
 
@@ -399,6 +415,39 @@ export class ReActEngine {
       .join(
         "\n\n",
       )}\n\nMy current thinking is: ${lastThought}\n\nCould you provide more details or clarify your request?`;
+  }
+
+  private async handleDecision(
+    decision: AgentDecision,
+    trace: ReActTrace,
+    toolsToUse: ToolDefinition[],
+  ): Promise<AgentDecision> {
+    if (decision.type === "finish") {
+      trace.markComplete(decision.answer, {
+        type: "finish",
+        explanation: decision.explanation,
+        stepId: decision.stepId,
+      });
+      this.logVerbose("info", "Reasoning complete with explicit finish");
+      return decision;
+    }
+
+    if (decision.type === "ask_user") {
+      trace.markComplete(decision.question, {
+        type: "ask_user",
+        question: decision.question,
+        reason: decision.reason,
+        stepId: decision.stepId,
+      });
+      this.logVerbose("info", "Reasoning complete with clarification request");
+      return decision;
+    }
+
+    if (!toolsToUse.some((tool) => tool.name === decision.tool)) {
+      return decision;
+    }
+
+    return decision;
   }
 
   /**

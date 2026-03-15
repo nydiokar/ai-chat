@@ -16,6 +16,10 @@ export interface ReasoningStep {
     final_answer: string;
     explanation?: string;
   };
+  ask_user?: {
+    question: string;
+    reason?: string;
+  };
   error_handling?: {
     error: string;
     recovery: {
@@ -29,4 +33,34 @@ export interface ReasoningStep {
   };
   isComplete: boolean;
   timestamp: string;
+}
+
+export type AgentDecision =
+  | {
+      type: "tool";
+      tool: string;
+      params: Record<string, unknown>;
+      purpose?: string;
+      stepId: string;
+    }
+  | {
+      type: "finish";
+      answer: string;
+      explanation?: string;
+      stepId: string;
+    }
+  | {
+      type: "ask_user";
+      question: string;
+      reason?: string;
+      stepId: string;
+    };
+
+export interface CompletionOutcome {
+  type: "finish" | "ask_user" | "safety_stop";
+  response: string;
+  explanation?: string;
+  question?: string;
+  reason?: string;
+  stepId?: string;
 }
