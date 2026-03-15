@@ -96,6 +96,28 @@ ask_user:
     expect(result?.isComplete).to.be.true;
   });
 
+  it("should parse recover in YAML format", () => {
+    const yamlRecover = `I need to revise my approach.
+
+\`\`\`yaml
+thought:
+  reasoning: The previous tool choice was wrong for this request.
+  plan: Explicitly recover before picking a different tool.
+recover:
+  strategy: Switch to the web_search tool with a narrower query.
+  reason: The previous attempt did not gather relevant evidence.
+\`\`\``;
+
+    const result = parser.parseReasoningStep(yamlRecover);
+
+    expect(result).to.not.be.null;
+    expect(result?.recover).to.deep.include({
+      strategy: "Switch to the web_search tool with a narrower query.",
+      reason: "The previous attempt did not gather relevant evidence.",
+    });
+    expect(result?.isComplete).to.be.false;
+  });
+
   it("should parse text format with THOUGHT: prefix", () => {
     const textResponse = `THOUGHT: I need to research this topic more deeply before providing an answer.`;
 
@@ -166,6 +188,26 @@ ask_user:
       type: "ask_user",
       question: "Where should I read the API key from?",
       reason: "I cannot authenticate without it.",
+      stepId: result!.stepId,
+    });
+  });
+
+  it("should interpret recover as an explicit runtime decision", () => {
+    const result = parser.parseReasoningStep(`\`\`\`yaml
+thought:
+  reasoning: The last step failed because the tool choice was too broad.
+  plan: Recover by narrowing the strategy.
+recover:
+  strategy: Retry with a narrower search query.
+  reason: The prior query returned noisy results.
+\`\`\``);
+
+    expect(result).to.not.be.null;
+    const decision = parser.interpretDecision(result!);
+    expect(decision).to.deep.equal({
+      type: "recover",
+      strategy: "Retry with a narrower search query.",
+      reason: "The prior query returned noisy results.",
       stepId: result!.stepId,
     });
   });

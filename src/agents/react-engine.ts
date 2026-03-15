@@ -259,7 +259,15 @@ export class ReActEngine {
               "    param1: value1\n\n" +
               "# OR:\n" +
               "conclusion:\n" +
-              '  final_answer: "Your complete answer with details"\n' +
+              '  final_answer: "Your complete answer with details"\n\n' +
+              "# OR:\n" +
+              "ask_user:\n" +
+              '  question: "The focused clarification you need from the user"\n' +
+              '  reason: "Why you need it"\n\n' +
+              "# OR:\n" +
+              "recover:\n" +
+              '  strategy: "Your revised strategy"\n' +
+              '  reason: "Why the previous approach should change"\n' +
               "```\n\n" +
               "Try again with proper YAML formatting.",
           );
@@ -296,10 +304,16 @@ export class ReActEngine {
         const decisionHandled = await this.handleDecision(
           decision,
           trace,
-          toolsToUse,
         );
-        if (decisionHandled.type !== "tool") {
+        if (
+          decisionHandled.type === "finish" ||
+          decisionHandled.type === "ask_user"
+        ) {
           break;
+        }
+
+        if (decisionHandled.type === "recover") {
+          continue;
         }
 
         if (nextStep.action?.tool) {
@@ -420,7 +434,6 @@ export class ReActEngine {
   private async handleDecision(
     decision: AgentDecision,
     trace: ReActTrace,
-    toolsToUse: ToolDefinition[],
   ): Promise<AgentDecision> {
     if (decision.type === "finish") {
       trace.markComplete(decision.answer, {
@@ -443,7 +456,14 @@ export class ReActEngine {
       return decision;
     }
 
-    if (!toolsToUse.some((tool) => tool.name === decision.tool)) {
+    if (decision.type === "recover") {
+      const recoveryObservation = this.toolHandler.createObservationStep(
+        `Recovery requested.\nStrategy: ${decision.strategy}\nReason: ${decision.reason}\nNext step: revise your next action or conclude if you already have enough evidence.`,
+      );
+      await trace.addStep(recoveryObservation);
+      this.logVerbose("info", "Recovery branch requested by model", {
+        strategy: decision.strategy,
+      });
       return decision;
     }
 

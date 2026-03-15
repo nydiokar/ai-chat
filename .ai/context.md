@@ -128,11 +128,12 @@ We are **not** trying to:
 These are ordered by impact on real agency.
 
 1. **Completion semantics**
-   - Status: `in_progress`
-   - Explicit `finish` and `ask_user` runtime outcomes are now modeled in parser/trace/engine internals.
-   - Remaining work:
-     - add explicit `recover` outcome and recovery policy integration
-     - add focused runtime tests around engine-level clarification completion
+   - Status: `complete`
+   - Explicit `finish`, `ask_user`, and `recover` runtime outcomes are now modeled in parser/trace/engine internals.
+   - Completion notes:
+     - the loop now routes through explicit runtime decisions instead of conclusion-only termination
+     - `MAX_STEPS` remains only as a safety-stop outcome
+     - deeper recovery policy work belongs to priority 3 (`Recovery behavior`), not completion semantics itself
    - Keep max steps only as a safety net.
 
 2. **Observation grounding**
@@ -282,6 +283,9 @@ unless the runtime architecture work above is blocked.
   - updated `ReActTrace` to persist structured completion outcomes instead of only a final string
   - updated the ReAct prompt to instruct the model when to use `ask_user`
   - updated the engine to terminate on explicit clarification requests while preserving the existing string response API
+- Extended completion semantics:
+  - added explicit `recover` runtime decision support to the parser, prompt contract, and engine loop
+  - added focused `ReActEngine` tests covering `finish`, `ask_user`, and `recover -> finish`
 - Fixed validation scope for runtime work:
   - identified `.mocharc.cjs` global `spec` configuration as the reason ad hoc Mocha runs expanded into the full suite
   - added `npm run test:agent-runtime` using `--no-config` so runtime-only checks stay scoped to agent runtime tests
@@ -290,8 +294,8 @@ unless the runtime architecture work above is blocked.
   - `npm run typecheck` passes
   - `npm run test:agent-runtime` passes and stays scoped to the intended runtime test files
 - Next recommended slice:
-  - add engine tests for `finish` vs `ask_user`
   - begin Layer 5 by replacing string-only observations with a parsed observation model
+  - store grounded observations in the trace while preserving `observation.result` compatibility for existing prompt code
 
 ---
 

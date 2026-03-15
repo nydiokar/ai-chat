@@ -229,7 +229,10 @@ describe("ReActPromptGenerator", () => {
       );
 
       expect(prompt).to.include("ask_user");
-      expect(prompt).to.include("Provide exactly ONE of: action, conclusion, or ask_user");
+      expect(prompt).to.include(
+        "Provide exactly ONE of: action, conclusion, ask_user, or recover",
+      );
+      expect(prompt).to.include("recover");
     });
   });
 

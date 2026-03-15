@@ -20,6 +20,10 @@ export interface ReasoningStep {
     question: string;
     reason?: string;
   };
+  recover?: {
+    strategy: string;
+    reason: string;
+  };
   error_handling?: {
     error: string;
     recovery: {
@@ -53,6 +57,12 @@ export type AgentDecision =
       type: "ask_user";
       question: string;
       reason?: string;
+      stepId: string;
+    }
+  | {
+      type: "recover";
+      strategy: string;
+      reason: string;
       stepId: string;
     };
 

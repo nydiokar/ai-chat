@@ -93,10 +93,15 @@ export class ReActStepParser {
             step.isComplete = true;
           }
 
+          if (parsed.recover) {
+            step.recover = parsed.recover;
+          }
+
           const decisionCount = [
             step.action ? 1 : 0,
             step.conclusion ? 1 : 0,
             step.ask_user ? 1 : 0,
+            step.recover ? 1 : 0,
           ].reduce((sum, count) => sum + count, 0);
 
           // CRITICAL: Validate that step has exactly one explicit runtime decision
@@ -107,6 +112,7 @@ export class ReActStepParser {
                 hasAction: !!step.action,
                 hasConclusion: !!step.conclusion,
                 hasAskUser: !!step.ask_user,
+                hasRecover: !!step.recover,
               },
             );
             return null; // Reject this step entirely
@@ -119,7 +125,7 @@ export class ReActStepParser {
 
           if (decisionCount === 0 && !step.thought) {
             this.logger.error(
-              "Invalid step: has neither action, conclusion, ask_user, nor thought",
+              "Invalid step: has neither action, conclusion, ask_user, recover, nor thought",
             );
             return null;
           }
@@ -165,7 +171,7 @@ export class ReActStepParser {
 
       // Fall back to basic text parsing
       const typeMatch = llmResponse.match(
-        /^(THOUGHT|ACTION|FINAL_ANSWER|ASK_USER):/i,
+        /^(THOUGHT|ACTION|FINAL_ANSWER|ASK_USER|RECOVER):/i,
       );
 
       if (typeMatch) {
@@ -232,6 +238,16 @@ export class ReActStepParser {
             isComplete: true,
             timestamp: new Date().toISOString(),
           };
+        } else if (type === "recover") {
+          return {
+            stepId,
+            recover: {
+              strategy: llmResponse.replace(/^RECOVER:/i, "").trim(),
+              reason: "Model requested a recovery step.",
+            },
+            isComplete: false,
+            timestamp: new Date().toISOString(),
+          };
         }
       }
 
@@ -271,6 +287,15 @@ export class ReActStepParser {
         type: "ask_user",
         question: step.ask_user.question,
         reason: step.ask_user.reason,
+        stepId: step.stepId,
+      };
+    }
+
+    if (step.recover?.strategy && step.recover.reason) {
+      return {
+        type: "recover",
+        strategy: step.recover.strategy,
+        reason: step.recover.reason,
         stepId: step.stepId,
       };
     }
