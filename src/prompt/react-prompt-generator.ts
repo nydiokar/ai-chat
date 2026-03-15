@@ -240,6 +240,7 @@ CRITICAL RULES:
     steps: ReasoningStep[] = [],
     tools: ToolDefinition[] = [],
     currentStep: number = 0,
+    scratchpadSummary?: string,
   ): Promise<string> {
     try {
       // Build the prompt with components
@@ -287,6 +288,11 @@ CRITICAL RULES:
 
       // Add ReAct-specific YAML format instructions (framework-specific)
       promptParts.push(this.getReActFormatInstructions());
+
+      // Inject scratchpad as a fixed task-state anchor when available
+      if (scratchpadSummary) {
+        promptParts.push(`Task state:\n${scratchpadSummary}`);
+      }
 
       // Add user input with clear formatting
       promptParts.push(`User request: ${input}`);

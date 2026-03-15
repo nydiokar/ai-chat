@@ -20,6 +20,7 @@ import { ReActTrace } from "./react-trace.js";
 import { ToTPlanner } from "./planning/tot-planner.js";
 import { PlanArtifact, createPlanSummary } from "./planning/plan-artifact.js";
 import { RecoveryPolicy } from "./recovery-policy.js";
+import { TaskScratchpad } from "./task-scratchpad.js";
 
 // Adapter function to convert ToolResponse to ToolExecutionResult
 function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
@@ -148,6 +149,7 @@ export class ReActEngine {
     this.currentPlan = null;
     this.toolUsageCounts.clear();
     this.recoveryPolicy.reset();
+    const scratchpad = new TaskScratchpad(userMessage);
 
     // Add previous steps to the trace if provided
     if (previousSteps.length > 0) {
@@ -229,8 +231,9 @@ export class ReActEngine {
       const prompt = await this.generateContextualPrompt(
         userMessage,
         optimizedSteps,
-        toolsToUse, // Use filtered tools instead of all tools
+        toolsToUse,
         iterationCount,
+        scratchpad.render(),
       );
 
       // Debug: Log filtered tools being sent to LLM
@@ -297,6 +300,7 @@ export class ReActEngine {
 
         // Add step to the trace
         await trace.addStep(nextStep);
+        scratchpad.update(nextStep);
 
         // Log the step for debugging
         this.logVerbose("debug", `Added step: ${nextStep.stepId}`, {
@@ -320,6 +324,8 @@ export class ReActEngine {
           await trace.addStep(invalidAction);
           continue;
         }
+
+        scratchpad.applyDecision(decision);
 
         const decisionHandled = await this.handleDecision(
           decision,
@@ -821,6 +827,7 @@ export class ReActEngine {
     steps: ReasoningStep[],
     tools: ToolDefinition[],
     currentStep: number,
+    scratchpadSummary?: string,
   ): Promise<string> {
     try {
       const planSummary = this.formatTotPlanSummary();
@@ -844,6 +851,7 @@ export class ReActEngine {
           steps,
           tools,
           currentStep,
+          scratchpadSummary,
         );
       } else {
         prompt = await this.promptGenerator.generatePrompt(

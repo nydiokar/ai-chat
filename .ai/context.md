@@ -66,7 +66,7 @@ We are **not** trying to:
   - persistent execution plan state with revision support
 
 ### Layer 3: Working Memory / Scratchpad
-- Status: `partial`
+- Status: `complete`
 - Current location: `src/agents/react-trace.ts`, prompt assembly
 - Problem:
   - step history exists, but there is no explicit task scratchpad
@@ -152,7 +152,12 @@ These are ordered by impact on real agency.
    - 11 focused tests added; full suite at 66 tests, 0 failures.
 
 4. **Scratchpad**
-   - Introduce task-state memory separate from raw step history.
+   - Status: `complete`
+   - `TaskScratchpad` in `src/agents/task-scratchpad.ts` — maintains `goal`, `facts`, `attemptedActions`, `failures`, `openQuestions`, `nextBestAction` across the run.
+   - Updated from each step: success observations → facts + sourceRefs, error/empty observations → failures, action steps → attemptedActions, ask_user → openQuestions, recover → nextBestAction.
+   - `render()` produces a compact summary; injected as a `Task state:` block in every prompt above the step history.
+   - Wired into `react-engine.ts` — instantiated per run, `update()` called after `addStep`, `applyDecision()` called after decision interpretation, summary passed to prompt generator.
+   - 15 focused scratchpad tests + 2 prompt-generator injection tests. 86 tests total, 0 failures.
 
 5. **Orchestrator extraction**
    - Shrink `react-engine.ts` into clear runtime components.

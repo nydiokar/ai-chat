@@ -38,6 +38,7 @@ export interface PromptGenerator {
     steps?: ReasoningStep[],
     tools?: ToolDefinition[],
     currentStep?: number,
+    scratchpadSummary?: string,
   ): Promise<string>;
 
   /**
