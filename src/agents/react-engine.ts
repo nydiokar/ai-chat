@@ -19,6 +19,7 @@ import { ReActToolHandler } from "./react-tool-handler.js";
 import { ReActTrace } from "./react-trace.js";
 import { ToTPlanner } from "./planning/tot-planner.js";
 import { PlanArtifact, createPlanSummary } from "./planning/plan-artifact.js";
+import { RecoveryPolicy } from "./recovery-policy.js";
 
 // Adapter function to convert ToolResponse to ToolExecutionResult
 function adaptToolResponse(response: ToolResponse): ToolExecutionResult {
@@ -54,6 +55,7 @@ export class ReActEngine {
   private currentUserMessage: string | null = null;
   private currentPlan: PlanArtifact | null = null;
   private toolUsageCounts: Map<string, number> = new Map();
+  private readonly recoveryPolicy: RecoveryPolicy = new RecoveryPolicy();
 
   constructor(
     private readonly memory: MemoryProvider,
@@ -145,6 +147,7 @@ export class ReActEngine {
     this.currentUserMessage = userMessage;
     this.currentPlan = null;
     this.toolUsageCounts.clear();
+    this.recoveryPolicy.reset();
 
     // Add previous steps to the trace if provided
     if (previousSteps.length > 0) {
@@ -370,7 +373,8 @@ export class ReActEngine {
             this.toolUsageCounts.set(requestedTool, currentUsage + 1);
           }
 
-          await this.executeToolAndStoreResult(nextStep.action, trace);
+          const toolDone = await this.executeToolAndStoreResult(nextStep.action, trace);
+          if (toolDone === "complete") break;
         }
       } catch (error) {
         await this.handleProcessingError(error, trace, iterationCount);
@@ -529,7 +533,7 @@ export class ReActEngine {
   private async executeToolAndStoreResult(
     action: ReasoningStep["action"],
     trace: ReActTrace,
-  ): Promise<void> {
+  ): Promise<"complete" | void> {
     if (!action) return;
 
     const { tool, params } = action;
@@ -563,6 +567,9 @@ export class ReActEngine {
         kind: groundedObservation.kind,
         sources: groundedObservation.sourceRefs,
       });
+
+      // Notify recovery policy of the success so it can reset consecutive counters
+      this.recoveryPolicy.evaluate(tool, groundedObservation);
 
       // Store the tool execution in memory for analytics
       await this.storeToolExecution(
@@ -605,6 +612,40 @@ export class ReActEngine {
 
       // Add the error observation to the trace
       await trace.addStep(observationStep);
+
+      // Evaluate recovery policy and inject a directive if needed
+      const recovery = this.recoveryPolicy.evaluate(tool, errorObservation);
+      if (recovery.directive === "block") {
+        this.logger.warn("RecoveryPolicy: blocking agent run due to repeated failures", {
+          tool,
+          reason: recovery.reason,
+        });
+        trace.markComplete(recovery.question ?? recovery.reason, {
+          type: "ask_user",
+          question: recovery.question ?? recovery.reason,
+          reason: recovery.reason,
+        });
+        return "complete";
+      }
+      if (recovery.directive === "ask_user") {
+        this.logger.warn("RecoveryPolicy: surfacing ask_user after non-retryable failure", {
+          tool,
+          reason: recovery.reason,
+        });
+        trace.markComplete(recovery.question ?? recovery.reason, {
+          type: "ask_user",
+          question: recovery.question ?? recovery.reason,
+          reason: recovery.reason,
+        });
+        return "complete";
+      }
+      if (recovery.directive === "retry") {
+        this.logger.info("RecoveryPolicy: scheduling retry", { tool, reason: recovery.reason });
+        const retryHint = this.toolHandler.createObservationStep(
+          `Recovery: ${recovery.reason} Please retry the same tool call with the same or adjusted parameters.`,
+        );
+        await trace.addStep(retryHint);
+      }
 
       // Store the failed tool execution in memory
       await this.storeToolExecution(

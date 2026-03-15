@@ -98,8 +98,8 @@ We are **not** trying to:
   - small orchestrator plus explicit helper layers
 
 ### Layer 7: Error Recovery / Self-Correction
-- Status: `broken`
-- Current location: `src/agents/react-engine.ts`
+- Status: `partial`
+- Current location: `src/agents/react-engine.ts`, `src/agents/recovery-policy.ts`
 - Problem:
   - no structured retry policy, no stuck-state handling, no ask-user branch
 - Target:
@@ -141,8 +141,13 @@ These are ordered by impact on real agency.
    - Stop reasoning over presentation strings alone.
 
 3. **Recovery behavior**
-   - Add retry classification and repeated-failure blocking.
-   - Add `ask_user` path when the agent is blocked.
+   - Status: `complete`
+   - `RecoveryPolicy` introduced in `src/agents/recovery-policy.ts`.
+   - Classifies `errorKind` into `fatal` / `retryable` / `redirect` severities.
+   - Returns `retry`, `ask_user`, or `block` directives with human-readable questions.
+   - Tracks consecutive cross-tool failures and per-tool total failures; terminates loops early.
+   - Wired into `react-engine.ts`: engine acts on the directive immediately after every tool error observation (blocks loop, surfaces ask_user, or injects retry hint).
+   - 11 focused tests added; full suite at 66 tests, 0 failures.
 
 4. **Scratchpad**
    - Introduce task-state memory separate from raw step history.
@@ -335,8 +340,13 @@ unless the runtime architecture work above is blocked.
 - Current status of priority 2 (`Observation grounding`):
   - substantially complete for runtime core
   - remaining open: per-tool summary specialization — low priority vs starting priority 3
+- Completed priority 3 (`Recovery behavior`):
+  - `RecoveryPolicy` in `src/agents/recovery-policy.ts` — classifies error kind into severity, tracks per-tool and cross-tool failure counts, returns `retry`/`ask_user`/`block` directives
+  - Engine wired to act on directive immediately after every tool error: blocks loop on repeated failures, surfaces ask_user on fatal/exhausted errors, injects retry hint for retryable errors
+  - 11 focused tests added to `src/tests/react-recovery-policy.test.ts`; registered in `npm run test:agent-runtime`
+  - `npm run typecheck` passes; `npm run test:agent-runtime` passes (66 tests, 0 failures)
 - Next recommended slice:
-  - begin priority 3 (`Recovery behavior`): use `observation.error.kind` to classify failure severity and drive structured retry/ask_user/block decisions in the engine
+  - begin priority 4 (`Scratchpad`): introduce `TaskScratchpad` with `goal`, `facts`, `attemptedActions`, `failures`, `openQuestions` fields; update prompt generation to draw from scratchpad state rather than raw step history alone
 
 ---
 

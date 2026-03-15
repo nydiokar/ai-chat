@@ -261,4 +261,58 @@ conclusion:
       "Observation summary: Grounded summary from tool output",
     );
   });
+
+  it("terminates immediately and surfaces ask_user when recovery policy blocks on fatal error", async () => {
+    // auth_error is fatal — policy should ask_user on the first failure
+    toolExecuteStub.rejects(new Error("401 Unauthorized: invalid api key"));
+
+    llmGenerateResponseStub.resolves({
+      content: `\`\`\`yaml
+thought:
+  reasoning: I need to call the tool.
+  plan: Use the search tool.
+action:
+  tool: web_search
+  purpose: Find evidence
+  params:
+    query: test
+\`\`\``,
+      tokenCount: null,
+      toolResults: [],
+    });
+
+    const result = await engine.process("trigger auth failure", "user-5");
+
+    // Should have terminated without a second LLM call
+    expect(llmGenerateResponseStub.calledOnce).to.be.true;
+    // Result should surface the clarification question, not an empty string
+    expect(result).to.be.a("string").and.to.have.length.greaterThan(0);
+    expect(result).to.match(/auth|credentials|web_search/i);
+  });
+
+  it("terminates immediately and surfaces ask_user when recovery policy blocks on repeated failures", async () => {
+    // Three consecutive failures across tools triggers block directive
+    toolExecuteStub.rejects(new Error("Something went completely wrong"));
+
+    llmGenerateResponseStub.callsFake(async (_prompt: string, _callCount?: number) => ({
+      content: `\`\`\`yaml
+thought:
+  reasoning: Trying the tool again.
+  plan: Keep searching.
+action:
+  tool: web_search
+  purpose: Search
+  params:
+    query: test
+\`\`\``,
+      tokenCount: null,
+      toolResults: [],
+    }));
+
+    const result = await engine.process("trigger block", "user-6");
+
+    // Policy blocks after 3 consecutive failures — should not run indefinitely
+    expect(llmGenerateResponseStub.callCount).to.be.lessThanOrEqual(4);
+    expect(result).to.be.a("string").and.to.have.length.greaterThan(0);
+  });
 });
