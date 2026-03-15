@@ -9,6 +9,26 @@ const MAX_IMPORTANT_FIELDS = 8;
 const MAX_SOURCE_REFS = 10;
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 
+// Tools whose names explicitly indicate search/retrieval semantics.
+// Deliberately narrow: avoids matching generic verbs like "find" or "fetch"
+// that appear in non-search tool names (find_user, fetch_config, etc.).
+const SEARCH_TOOL_PATTERN = /\b(search|web_search|lookup|query)\b/i;
+
+// Recognized URL-bearing field names in structured search results, in priority order
+const SOURCE_FIELD_NAMES: readonly string[] = ["url", "link", "href", "uri", "canonical", "source"];
+
+type ErrorKind = NonNullable<NonNullable<GroundedObservation["error"]>["kind"]>;
+
+// Error classification patterns (checked in order — most specific first)
+const ERROR_PATTERNS: Array<{ kind: ErrorKind; pattern: RegExp }> = [
+  { kind: "not_found",    pattern: /not found|no results?|404|does not exist|couldn'?t find/i },
+  { kind: "timeout",      pattern: /timeout|timed out|deadline|took too long/i },
+  { kind: "auth_error",   pattern: /unauthorized|forbidden|403|401|permission denied|invalid (api )?key|authentication/i },
+  { kind: "rate_limit",   pattern: /rate.?limit|too many requests|429|quota exceeded/i },
+  { kind: "parse_error",  pattern: /parse|invalid json|syntax error|malformed|unexpected token/i },
+  { kind: "empty_result", pattern: /empty|no data|returned nothing|no content/i },
+];
+
 export class ObservationParser {
   public parseToolResult(
     result: ToolExecutionResult,
@@ -27,7 +47,7 @@ export class ObservationParser {
       return this.parseToolError(result?.error, action, maxLength);
     }
 
-    const sourceRefs = this.extractSourceRefs(result.data);
+    const sourceRefs = this.extractSourceRefs(result.data, action.tool);
     const importantFields = this.extractImportantFields(result.data);
     const summary = this.summarizeData(result.data, action.tool);
     const rawPreview = this.createRawPreview(result.data);
@@ -65,14 +85,21 @@ export class ObservationParser {
     maxLength: number = DEFAULT_MAX_RESULT_LENGTH,
   ): GroundedObservation {
     if (!action) {
-      return this.createRuntimeObservation(
-        "error",
-        `Error: ${error ? error.message : "Unknown error occurred"}`,
+      const message = error?.message ?? "Unknown error occurred";
+      return this.finalizeObservation(
+        {
+          kind: "error",
+          summary: `Error: ${message}`,
+          error: { message, kind: this.classifyError(message) },
+          rawPreview: this.truncate(message, 500).value,
+        },
+        message,
         maxLength,
       );
     }
 
     const message = error?.message || "Tool returned no result.";
+    const errorKind = this.classifyError(message);
     const summary = `Tool ${action.tool} failed: ${message}`;
     const raw = [
       `Tool: ${action.tool}`,
@@ -91,7 +118,7 @@ export class ObservationParser {
         importantFields: Object.keys(action.params || {}).length
           ? { params: action.params }
           : undefined,
-        error: { message },
+        error: { message, kind: errorKind },
         rawPreview: this.truncate(raw, 500).value,
       },
       raw,
@@ -295,9 +322,29 @@ export class ObservationParser {
     return value;
   }
 
-  private extractSourceRefs(data: unknown): string[] {
+  private extractSourceRefs(data: unknown, toolName?: string): string[] {
     const sources = new Set<string>();
 
+    // For search tools with array results, use structured url/link fields only.
+    // Do NOT fall back to regex scanning — that would pull incidental URLs
+    // from snippet text, which is exactly what we're trying to avoid.
+    if (toolName && SEARCH_TOOL_PATTERN.test(toolName) && Array.isArray(data)) {
+      for (const item of data) {
+        if (sources.size >= MAX_SOURCE_REFS) break;
+        if (item && typeof item === "object") {
+          for (const fieldName of SOURCE_FIELD_NAMES) {
+            const val = (item as Record<string, unknown>)[fieldName];
+            if (typeof val === "string" && val.startsWith("http")) {
+              sources.add(val.replace(/[),.;]+$/, ""));
+              break; // one canonical source per item
+            }
+          }
+        }
+      }
+      return Array.from(sources); // return whatever was found — no regex fallback
+    }
+
+    // Generic fallback: regex scan all string values
     const visit = (value: unknown): void => {
       if (sources.size >= MAX_SOURCE_REFS || value === null || value === undefined) {
         return;
@@ -324,6 +371,15 @@ export class ObservationParser {
 
     visit(data);
     return Array.from(sources);
+  }
+
+  private classifyError(message: string): ErrorKind {
+    for (const { kind, pattern } of ERROR_PATTERNS) {
+      if (pattern.test(message)) {
+        return kind;
+      }
+    }
+    return "unknown";
   }
 
   private createRawPreview(data: unknown): string {

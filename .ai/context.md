@@ -323,8 +323,20 @@ unless the runtime architecture work above is blocked.
 - Current status of priority 2 (`Observation grounding`):
   - moved from `broken` to `partial`
   - the runtime now stores grounded observations, but per-tool parser specialization and stricter distinction between model-working data vs user-visible renderings are still open
+- Completed per-tool/parser heuristics for higher-fidelity source extraction and error classification:
+  - added `errorKind` field to `GroundedObservation.error` in `src/interfaces/react-types.ts`: `not_found | timeout | auth_error | rate_limit | parse_error | empty_result | unknown`
+  - added `classifyError()` in `ObservationParser` — matches error messages against ordered regex patterns to assign a structured kind
+  - added per-tool structured source extraction in `extractSourceRefs()`: for search-shaped tools with array results, extracts canonical `url`/`link`/`href` etc. fields directly per item; falls back to generic regex for other tool shapes
+  - updated `parseToolError` to include classified `errorKind` in the returned observation
+  - added tests: structured source extraction and error kind classification (53 passing)
+- Validation status after per-tool heuristics slice:
+  - `npm run typecheck` passes
+  - `npm run test:agent-runtime` passes (53 tests, 0 failures)
+- Current status of priority 2 (`Observation grounding`):
+  - substantially complete for runtime core
+  - remaining open: per-tool summary specialization — low priority vs starting priority 3
 - Next recommended slice:
-  - continue priority 2 with per-tool/parser heuristics for higher-fidelity source extraction and error classification, or begin priority 3 by using grounded observation kinds/errors to drive structured recovery decisions
+  - begin priority 3 (`Recovery behavior`): use `observation.error.kind` to classify failure severity and drive structured retry/ask_user/block decisions in the engine
 
 ---
 

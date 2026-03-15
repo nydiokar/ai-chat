@@ -300,7 +300,8 @@ describe("ReActToolHandler", () => {
     expect(observation.summary).to.equal(
       "Tool test_tool failed: Test error",
     );
-    expect(observation.error).to.deep.equal({ message: "Test error" });
+    expect(observation.error?.message).to.equal("Test error");
+    expect(observation.error?.kind).to.equal("unknown");
     expect(observation.result).to.include("Tool: test_tool");
     expect(observation.result).to.include("Recommendation:");
   });
