@@ -355,6 +355,37 @@ unless the runtime architecture work above is blocked.
   - `executeToolAndStoreResult` returns `"complete" | void`; `handleProcessingError` does same; both call sites break the loop on `"complete"`
   - 71 tests, 0 failures
 - Next: priority 4 (`Scratchpad`)
+- Completed priority 4 (`Scratchpad`):
+  - `TaskScratchpad` introduced in `src/agents/task-scratchpad.ts`
+  - Wired into engine, rendered into every prompt as `Task state:` block
+  - 86 tests, 0 failures
+
+### Known issues identified in post-implementation audit (2026-03-15)
+
+#### BUG — Scratchpad never receives tool observations (Priority: high)
+- **Where**: `src/agents/react-engine.ts` main loop, `scratchpad.update(nextStep)` at line ~303
+- **Problem**: `update()` is called on the LLM action step, which has `action` but no `observation`. The observation step is a separate synthetic step created inside `executeToolAndStoreResult` and added directly to the trace. The scratchpad never sees it. Result: `facts`, `sourceRefs`, and `failures` from tool results are never populated. The most important scratchpad data is missing.
+- **Fix**: Pass the grounded observation back from `executeToolAndStoreResult` and call `scratchpad.update()` on it in the main loop, or pass `scratchpad` into `executeToolAndStoreResult` and update it there.
+
+#### DEAD CODE — Unused `errorMessage` variable in `handleProcessingError` (Priority: low)
+- **Where**: `src/agents/react-engine.ts`, `handleProcessingError`, line ~727
+- **Problem**: `const errorMessage = \`There was an error...\`` is assigned but never used. The observation is built from `parseErrorObservation(error)` instead.
+- **Fix**: Delete the line.
+
+#### DESIGN ISSUE — `__llm__` and `__loop__` virtual tools pollute the `consecutiveAnyFailures` counter (Priority: medium)
+- **Where**: `src/agents/react-engine.ts` null-response path and `handleProcessingError`, combined with `src/agents/recovery-policy.ts`
+- **Problem**: LLM parse/connection failures feed the same consecutive-failure counter as real tool failures. One real tool failure + two LLM format errors = `block`, even though no real tool actually failed three times. These are different failure classes.
+- **Fix**: Either separate the counter for virtual tools, or don't feed virtual tool names into `consecutiveAnyFailures` — only count them toward their own per-tool budget.
+
+#### REDUNDANCY — `scratchpad.update()` and `scratchpad.applyDecision()` both write `nextBestAction` for the same recover step (Priority: low)
+- **Where**: `src/agents/task-scratchpad.ts` `update()` checks `step.recover?.strategy`; `applyDecision()` checks `decision.type === "recover"`
+- **Problem**: Both are called on the same recover step in the engine, writing the same value twice. Not harmful but confusing.
+- **Fix**: Remove `step.recover?.strategy` handling from `update()` since `applyDecision()` already covers it via the interpreted decision.
+
+#### PRE-EXISTING — Mojibake in `buildToolFailureGuidance` (Priority: low)
+- **Where**: `src/agents/react-engine.ts` line ~1011
+- **Problem**: `â€œ` and `â€` are garbled UTF-8 curly quotes injected into the model context on every repo-tool failure.
+- **Fix**: Replace with straight quotes or correct Unicode escapes.
 
 ---
 
