@@ -1,10 +1,22 @@
-# Kanebra - Discord bot with MCP capabilities
+# Kanebra
+
+> Status: Archived. This repository is kept as a learning and architecture reference, not as an active product.
+
+See [ARCHIVE.md](./ARCHIVE.md) for the final project verdict.
 
 [![CI](https://github.com/nydiokar/ai-chat/workflows/CI/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
 [![Security](https://github.com/nydiokar/ai-chat/workflows/Security/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
 [![CodeQL](https://github.com/nydiokar/ai-chat/workflows/CodeQL/badge.svg)](https://github.com/nydiokar/ai-chat/actions)
 
-A comprehensive system that combines AI capabilities, cryptocurrency token tracking, and advanced task management. Built with a modular architecture using the Model Context Protocol (MCP) for extensible tool integration.
+This repository contains an experimental agent-oriented codebase that combined AI capabilities, cryptocurrency token tracking, and task-management ideas. It is no longer being actively developed.
+
+The most useful parts of the project are its runtime architecture and implementation lessons, not its status as a current agent platform.
+
+## Archive Summary
+
+- Archived on 2026-03-16 UTC
+- Not production-ready as a general-purpose agent platform
+- Preserved for reference, learning, and selective reuse only
 
 ## Core Features
 

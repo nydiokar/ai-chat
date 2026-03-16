@@ -1,405 +1,59 @@
 # Current State
 
-**Project**: Kanebra
-**Primary Goal**: Evolve the current ReAct-based runtime into a dependable general-purpose agent and prove it works on real tasks before adding more features.
-**Status**: Runtime hardening and proof-of-work setup in progress
+**Project**: Kanebra  
+**Primary Goal**: Preserve this repository as an architecture and learning reference after ending active development.  
+**Status**: Archived reference  
 **Last Updated**: 2026-03-16 UTC
-**Source of Truth**:
-- [Architecture Audit Report](/C:/Users/solastic/prj/ai-chat/.ai/context/architecture_audit/agent-architecture-audit-report.md)
-- [Audit Prompt](/C:/Users/solastic/prj/ai-chat/.ai/context/architecture_audit/agent-architecture-audit-prompt.md)
+
+## Source of Truth
+
+- [ARCHIVE.md](/C:/Users/solastic/prj/ai-chat/ARCHIVE.md)
 - [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
+- [Architecture Audit Report](/C:/Users/solastic/prj/ai-chat/.ai/context/architecture_audit/agent-architecture-audit-report.md)
 
----
+## What This Repo Contains
 
-## Mission
+This repository still contains useful reference material for:
+- agent runtime structure
+- ReAct loop implementation
+- tool dispatch and grounding ideas
+- recovery and anti-loop design
+- scratchpad-oriented prompting
 
-The current codebase already has an agent skeleton:
-- ReAct loop
-- parser
-- tool usage
-- optional planning
-- trace/memory
+## What Was Achieved
 
-But it does **not** yet have dependable agency because the missing layers are systemic:
-- grounded observation parsing
-- structured recovery
-- true scratchpad state
-- cleaner orchestration boundaries
-- explicit context budget management
-- first-class completion and clarification semantics
+The most meaningful completed runtime ideas here are:
 
-The work from now on should be driven by two constraints:
-- the 9-layer architecture still defines the runtime shape
-- the runtime must now be validated through the real testing strategy in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
+1. Explicit runtime outcomes: `finish`, `ask_user`, `recover`
+2. Structured observation grounding
+3. Recovery policy with retry / ask-user / block behavior
+4. Task scratchpad injection into prompt generation
 
----
+## Why It Was Archived
 
-## Canonical Direction
+The repository is not being continued as an active agent platform because:
+- there is no concrete workflow or domain-specific reason to keep building a custom runtime
+- existing maintained agent frameworks are a more practical starting point
+- continuing here would mostly be a sunk-cost decision rather than a product decision
 
-We are committing to:
-- **ReAct as the core execution model**
-- **Structured planning as a supporting layer**
-- **Tool use through a unified dispatch contract**
-- **Task-state-driven prompting instead of raw-history-driven prompting**
+## What To Reuse Later
 
-We are **not** trying to:
-- rewrite the whole codebase
-- optimize irrelevant subsystems first
-- expand tool/plugin breadth before the runtime layers are complete
+If anything is reused later, focus on:
+- `.ai/context/` notes
+- `src/agents/` runtime concepts
+- `src/prompt/` prompt/runtime interaction patterns
+- `.ai/context/agent-testing-strategy.md` for testing lessons
 
----
+## Working Rule
 
-## Layer Status
+Do not treat this repository as an active product roadmap.
 
-### Layer 1: Cognitive Loop
-- Status: `partial`
-- Current location: `src/agents/react-engine.ts`
-- Problem:
-  - loop exists, but completion is not modeled as a first-class runtime outcome
-  - still shaped too heavily by fixed max-step behavior
-- Target:
-  - explicit decision types: `tool`, `finish`, `ask_user`, `recover`
+If work ever resumes, it should start from a new concrete workflow and a fresh build-vs-adopt decision, not from the old backlog.
 
-### Layer 2: Planning / Task Decomposition
-- Status: `partial`
-- Current location: `src/agents/planning/tot-planner.ts`
-- Problem:
-  - planning exists but is one-shot, optional, and not revisable
-- Target:
-  - persistent execution plan state with revision support
-
-### Layer 3: Working Memory / Scratchpad
-- Status: `complete`
-- Current location: `src/agents/react-trace.ts`, prompt assembly
-- Problem:
-  - step history exists, but there is no explicit task scratchpad
-- Target:
-  - scratchpad with goal, facts, attempts, failures, open questions, next action
-
-### Layer 4: Tool Abstraction Layer
-- Status: `partial`
-- Current location: `src/agents/react-tool-handler.ts`, tool manager integration
-- Problem:
-  - tool abstraction exists, but execution/validation/policy are split
-- Target:
-  - one dispatch path with validation, execution policy, and normalized results
-
-### Layer 5: Observation Parsing / Grounding
-- Status: `complete`
-- Current location: `src/agents/react-tool-handler.ts`
-- Problem:
-  - tool outputs are formatted, not parsed into grounded observations
-- Target:
-  - structured observation parser with summaries, salient fields, errors, and sources
-
-### Layer 6: Control Flow / Orchestration
-- Status: `partial`
-- Current location: `src/agents/react-engine.ts`
-- Problem:
-  - engine mixes planning, prompting, execution, memory, recovery, and fallbacks
-- Target:
-  - small orchestrator plus explicit helper layers
-
-### Layer 7: Error Recovery / Self-Correction
-- Status: `partial`
-- Current location: `src/agents/react-engine.ts`, `src/agents/recovery-policy.ts`
-- Problem:
-  - no structured retry policy, no stuck-state handling, no ask-user branch
-- Target:
-  - recovery policy with retry classification and anti-loop behavior
-
-### Layer 8: Context Window Management
-- Status: `partial`
-- Current location: `src/agents/react-trace.ts`, `src/prompt/react-prompt-generator.ts`
-- Problem:
-  - compression exists, but there is no true context budget subsystem
-- Target:
-  - token-budgeted context assembly with fixed priority slices
-
-### Layer 9: Guardrails / Boundary Layer
-- Status: `partial`
-- Current location: provider config, runtime filtering, logging
-- Problem:
-  - guardrails are implicit and scattered
-- Target:
-  - explicit execution policy for allowed, confirm-required, and blocked actions
-
----
-
-## Current Priorities
-
-These are ordered by impact on real agency.
-
-1. **Completion semantics**
-   - Status: `complete`
-   - Explicit `finish`, `ask_user`, and `recover` runtime outcomes are now modeled in parser/trace/engine internals.
-   - Completion notes:
-     - the loop now routes through explicit runtime decisions instead of conclusion-only termination
-     - `MAX_STEPS` remains only as a safety-stop outcome
-     - deeper recovery policy work belongs to priority 3 (`Recovery behavior`), not completion semantics itself
-   - Keep max steps only as a safety net.
-
-2. **Observation grounding**
-   - Status: `complete`
-   - `ObservationParser` parses tool outputs into `kind`, `summary`, `importantFields`, `sourceRefs`, `error.kind`.
-   - `renderObservationText` in prompt generator now renders only structured fields (summary, importantFields, sourceRefs, error) — raw result blob no longer injected into the model's context.
-   - 2 prompt-generator tests added confirming blob exclusion and error rendering.
-
-3. **Recovery behavior**
-   - Status: `complete`
-   - `RecoveryPolicy` introduced in `src/agents/recovery-policy.ts`.
-   - Classifies `errorKind` into `fatal` / `retryable` / `redirect` severities.
-   - Returns `retry`, `ask_user`, or `block` directives with human-readable questions.
-   - Tracks consecutive cross-tool failures and per-tool total failures; terminates loops early.
-   - Wired into `react-engine.ts`: engine acts on the directive immediately after every tool error observation (blocks loop, surfaces ask_user, or injects retry hint).
-   - 11 focused tests added; full suite at 66 tests, 0 failures.
-
-4. **Scratchpad**
-   - Status: `complete`
-   - `TaskScratchpad` in `src/agents/task-scratchpad.ts` — maintains `goal`, `facts`, `attemptedActions`, `failures`, `openQuestions`, `nextBestAction` across the run.
-   - Updated from each step: success observations → facts + sourceRefs, error/empty observations → failures, action steps → attemptedActions, ask_user → openQuestions, recover → nextBestAction.
-   - `render()` produces a compact summary; injected as a `Task state:` block in every prompt above the step history.
-   - Wired into `react-engine.ts` — instantiated per run, `update()` called after `addStep`, `applyDecision()` called after decision interpretation, summary passed to prompt generator.
-   - 15 focused scratchpad tests + 2 prompt-generator injection tests. 86 tests total, 0 failures.
-
-5. **Orchestrator extraction**
-   - Shrink `react-engine.ts` into clear runtime components.
-
-6. **Context budget**
-   - Build prompt context from budgeted slices, not just compressed history.
-
-7. **Planning revision**
-   - Turn planning into persistent execution state, not a one-time prelude.
-
-8. **Guardrail formalization**
-   - Add execution policy object and confirmation paths.
-
----
-
-## Active Implementation Plan
-
-### Phase 1: Runtime Boundary Cleanup
-- Goal:
-  - isolate orchestration responsibilities without changing outward behavior too much
-- Deliverables:
-  - `ReActOrchestrator`
-  - explicit step/decision result model
-  - simplified `react-engine.ts` responsibilities
-- Success condition:
-  - the core runtime flow is readable and extendable
-
-### Phase 2: Observation Grounding
-- Goal:
-  - replace formatted tool blobs with structured observations
-- Deliverables:
-  - `ObservationParser`
-  - parsed observation model in trace/state
-  - structured error extraction
-- Success condition:
-  - the LLM reasons over normalized observations, not raw formatter output
-
-### Phase 3: Scratchpad and Recovery
-- Goal:
-  - make the agent stateful and self-correcting
-- Deliverables:
-  - `TaskScratchpad`
-  - `RecoveryPolicy`
-  - repeated-failure tracking
-  - `ask_user` branch
-- Success condition:
-  - the agent avoids retry loops and can surface focused clarification requests
-
-### Phase 4: Context and Planning Upgrade
-- Goal:
-  - make longer runs stable
-- Deliverables:
-  - `ContextBudgetManager`
-  - persistent plan state with revision
-- Success condition:
-  - prompts are assembled from priority state slices under explicit budget
-
-### Phase 5: Guardrails and Runtime Proof
-- Goal:
-  - make the runtime safer and provably usable on real tasks
-- Deliverables:
-  - `ExecutionPolicy`
-  - layered real testing gate described in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
-- Success condition:
-  - runtime behavior is constrained and the agent passes the core real-task gate
-
----
-
-## Immediate Next Actions
-
-When continuing work, default to these steps:
-
-1. Build **Layer 1: Tool Contract Probes** from [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) for the critical real tools we actually depend on.
-2. Build **Layer 2: Agent Loop Scenarios** using the real model, real `ReActEngine`, real prompt path, and deterministic grading.
-3. Build **Layer 3: End-to-End Task Runs** for a small set of realistic must-pass tasks.
-4. Remove the fake "live eval" and mock-scenario scaffolding from the primary validation path.
-5. Only after the three-layer test gate is in place, resume runtime architecture work that is still open.
-
-Do **not** prioritize:
-- plugin marketplace expansion
-- broad tool catalog work
-- cosmetic prompt tuning
-- unrelated task-system work
-- fake confidence from canned live-scenario tests
-
-unless the runtime architecture work above is blocked.
-
----
-
-## Working Rules
-
-### Scope discipline
-- Focus on the agent runtime path first:
-  - `src/agents/**`
-  - `src/prompt/**`
-  - `src/providers/**`
-  - `src/interfaces/memory-provider.ts`
-  - `src/memory/**`
-  - relevant factory wiring
-- Ignore irrelevant directories unless directly required.
-
-### Implementation discipline
-- Extend partial layers instead of rewriting everything.
-- Prefer explicit runtime contracts over prompt-only fixes.
-- Treat prompt changes as supporting work, not the main architecture.
-- Avoid building a toy:
-  - prefer runtime state/contracts over prompt cleverness and formatted strings
-  - do not expand tool breadth faster than grounding, recovery, and scratchpad quality
-  - treat improvements as meaningful only when they improve multi-step reliability, not just demos
-  - when diagnosing poor runs, check whether the bottleneck is unrealistic dev/test scaffolding or a still-missing runtime layer
-  - optimize only after the runtime can explain completion, retries, strategy changes, and clarification requests from explicit state
-
-### Documentation discipline
-- Update this file when:
-  - a phase starts
-  - a phase completes
-  - priorities change
-  - a major architectural decision is made
-- update [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) when the testing gate changes
-- Keep this file concise and execution-oriented.
-
----
-
-## Progress Log
-
-### 2026-03-15
-- Completed a scoped 9-layer architecture audit of the actual agent runtime.
-- Confirmed the codebase should remain ReAct-centered.
-- Identified the main systemic gaps:
-  - Layer 5 observation parsing missing
-  - Layer 7 recovery missing
-  - Layer 3 scratchpad missing
-  - Layer 6 orchestration overloaded
-- Established the critical path:
-  - completion semantics
-  - observation grounding
-  - recovery
-  - scratchpad
-  - orchestrator cleanup
-- Implemented the first completion-semantics slice:
-  - added explicit `ask_user` step support alongside `action` and `conclusion`
-  - introduced internal `AgentDecision` and `CompletionOutcome` runtime contracts
-  - updated `ReActTrace` to persist structured completion outcomes instead of only a final string
-  - updated the ReAct prompt to instruct the model when to use `ask_user`
-  - updated the engine to terminate on explicit clarification requests while preserving the existing string response API
-- Extended completion semantics:
-  - added explicit `recover` runtime decision support to the parser, prompt contract, and engine loop
-  - added focused `ReActEngine` tests covering `finish`, `ask_user`, and `recover -> finish`
-- Fixed validation scope for runtime work:
-  - identified `.mocharc.cjs` global `spec` configuration as the reason ad hoc Mocha runs expanded into the full suite
-  - added `npm run test:agent-runtime` using `--no-config` so runtime-only checks stay scoped to agent runtime tests
-  - updated the local refactor test helper and pre-push check to use the isolated runtime test command
-- Validation status:
-  - `npm run typecheck` passes
-  - `npm run test:agent-runtime` passes and stays scoped to the intended runtime test files
-- Next recommended slice:
-  - begin Layer 5 by replacing string-only observations with a parsed observation model
-  - store grounded observations in the trace while preserving `observation.result` compatibility for existing prompt code
-- Advanced Layer 5 observation grounding in the runtime path:
-  - added explicit `GroundedObservation` runtime typing in `src/interfaces/react-types.ts`
-  - introduced `ObservationParser` in `src/agents/observation-parser.ts` to normalize tool outputs into:
-    - `kind`
-    - `summary`
-    - `importantFields`
-    - `sourceRefs`
-    - `rawPreview`
-    - `error`
-    - backward-compatible `result`
-  - updated `ReActToolHandler` to parse tool success/error outputs into grounded observations instead of only formatting presentation strings
-  - kept backward compatibility by preserving `observation.result` as the prompt-facing text field while enriching observation steps with structured metadata
-  - wired grounded observations through `ReActEngine` so parsed observations are what enter the trace after tool execution
-  - updated fallback response generation to use grounded observation summaries and sources rather than only raw observation blobs
-  - updated `ReActTrace` topic extraction to consider grounded observation summaries and source refs
-  - updated `ReActPromptGenerator` step rendering to handle grounded observations while preserving current prompt behavior
-- Added focused validation for observation grounding:
-  - added `src/tests/react-observation-parser.test.ts`
-  - extended tool-handler tests to cover grounded success/error parsing
-  - extended engine tests to assert structured observations are passed into the next prompt cycle
-  - added the new parser test file to `npm run test:agent-runtime`
-- Validation status after observation-grounding slice:
-  - `npm run typecheck` passes
-  - `npm run test:agent-runtime` passes
-- Current status of priority 2 (`Observation grounding`):
-  - moved from `broken` to `partial`
-  - the runtime now stores grounded observations, but per-tool parser specialization and stricter distinction between model-working data vs user-visible renderings are still open
-- Completed per-tool/parser heuristics for higher-fidelity source extraction and error classification:
-  - added `errorKind` field to `GroundedObservation.error` in `src/interfaces/react-types.ts`: `not_found | timeout | auth_error | rate_limit | parse_error | empty_result | unknown`
-  - added `classifyError()` in `ObservationParser` — matches error messages against ordered regex patterns to assign a structured kind
-  - added per-tool structured source extraction in `extractSourceRefs()`: for search-shaped tools with array results, extracts canonical `url`/`link`/`href` etc. fields directly per item; falls back to generic regex for other tool shapes
-  - updated `parseToolError` to include classified `errorKind` in the returned observation
-  - added tests: structured source extraction and error kind classification (53 passing)
-- Validation status after per-tool heuristics slice:
-  - `npm run typecheck` passes
-  - `npm run test:agent-runtime` passes (53 tests, 0 failures)
-- Current status of priority 2 (`Observation grounding`):
-  - substantially complete for runtime core
-  - remaining open: per-tool summary specialization — low priority vs starting priority 3
-- Completed priority 3 (`Recovery behavior`) fully:
-  - `RecoveryPolicy` classifies errors, tracks failure budgets, returns `retry`/`ask_user`/`block`
-  - Engine wired: tool errors, loop-level errors (`handleProcessingError`), and repeated LLM null-responses all feed the policy and terminate the loop immediately when policy dictates
-  - `handleProcessingError` now uses `parseErrorObservation` (kind=error) instead of a plain string so the policy sees it correctly
-  - LLM null-response path also feeds `__llm__` virtual tool into the policy
-  - `executeToolAndStoreResult` returns `"complete" | void`; `handleProcessingError` does same; both call sites break the loop on `"complete"`
-  - 71 tests, 0 failures
-- Next: priority 4 (`Scratchpad`)
-- Completed priority 4 (`Scratchpad`):
-  - `TaskScratchpad` introduced in `src/agents/task-scratchpad.ts`
-  - Wired into engine, rendered into every prompt as `Task state:` block
-  - 86 tests, 0 failures
-- Resolved all post-implementation audit issues (2026-03-15):
-  - **BUG (high)** — Scratchpad never received tool observations: `executeToolAndStoreResult` now takes `scratchpad` as a parameter and calls `scratchpad.update(observationStep)` on both success and error observation steps
-  - **DEAD CODE (low)** — Deleted unused `errorMessage` variable in `handleProcessingError`
-  - **DESIGN ISSUE (medium)** — Virtual tools (`__llm__`, `__loop__`) no longer increment `consecutiveAnyFailures` in `RecoveryPolicy`; they still track their own per-tool budgets
-  - **REDUNDANCY (low)** — Removed `step.recover?.strategy` handling from `TaskScratchpad.update()`; `applyDecision()` exclusively owns `nextBestAction` writes; test updated to assert the new contract
-  - **PRE-EXISTING (low)** — Fixed mojibake curly quotes in `buildToolFailureGuidance` (straight quotes now)
-  - 86 tests, 0 failures
+## Progress Note
 
 ### 2026-03-16
-- Clarified the project objective:
-  - the immediate goal is no longer "add more evaluation" but to prove that the agent works on real tasks through the actual runtime path
-- Added [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) as the dedicated source of truth for the three-layer testing gate:
-  - tool contract probes
-  - agent loop scenarios
-  - end-to-end task runs
-- Reframed the next work around runtime proof instead of fake live-scenario coverage
-- Marked the existing mock-driven and canned "live" eval scaffolding as removal/replacement candidates, not as proof of agent readiness
 
----
-
-## Definition of Success
-
-We consider the runtime architecture substantially improved when:
-- the agent can finish early through explicit runtime semantics
-- the agent can ask for clarification when blocked
-- tool outputs are parsed into grounded observations
-- the agent maintains a task scratchpad
-- repeated failed strategies are detected and stopped
-- context assembly is budget-aware
-- the orchestration flow is clean enough to extend without re-breaking the system
-- the three-layer testing gate in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) proves the agent works on a small set of real tasks
-
-That is the path from "agent-shaped code" to "dependable agency."
+- Added a final archive decision in [ARCHIVE.md](/C:/Users/solastic/prj/ai-chat/ARCHIVE.md)
+- Reframed the repository as a reference artifact rather than an active build
+- Preserved the testing strategy as a reusable lesson instead of an active implementation plan
