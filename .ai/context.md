@@ -1,12 +1,13 @@
 # Current State
 
 **Project**: Kanebra
-**Primary Goal**: Evolve the current ReAct-based runtime into a dependable general-purpose agent with complete systemic layers.
-**Status**: Architecture remediation in progress
-**Last Updated**: 2026-03-15 UTC
+**Primary Goal**: Evolve the current ReAct-based runtime into a dependable general-purpose agent and prove it works on real tasks before adding more features.
+**Status**: Runtime hardening and proof-of-work setup in progress
+**Last Updated**: 2026-03-16 UTC
 **Source of Truth**:
 - [Architecture Audit Report](/C:/Users/solastic/prj/ai-chat/.ai/context/architecture_audit/agent-architecture-audit-report.md)
 - [Audit Prompt](/C:/Users/solastic/prj/ai-chat/.ai/context/architecture_audit/agent-architecture-audit-prompt.md)
+- [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
 
 ---
 
@@ -27,7 +28,9 @@ But it does **not** yet have dependable agency because the missing layers are sy
 - explicit context budget management
 - first-class completion and clarification semantics
 
-The work from now on should be driven by the 9-layer architecture, not by adding more tools or more prompt tweaks.
+The work from now on should be driven by two constraints:
+- the 9-layer architecture still defines the runtime shape
+- the runtime must now be validated through the real testing strategy in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
 
 ---
 
@@ -215,14 +218,14 @@ These are ordered by impact on real agency.
 - Success condition:
   - prompts are assembled from priority state slices under explicit budget
 
-### Phase 5: Guardrails and Evaluation
+### Phase 5: Guardrails and Runtime Proof
 - Goal:
-  - make the runtime safer and verifiable
+  - make the runtime safer and provably usable on real tasks
 - Deliverables:
   - `ExecutionPolicy`
-  - scenario tests for finish, recovery, clarification, and context pressure
+  - layered real testing gate described in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md)
 - Success condition:
-  - runtime behavior is constrained and regression-tested
+  - runtime behavior is constrained and the agent passes the core real-task gate
 
 ---
 
@@ -230,17 +233,18 @@ These are ordered by impact on real agency.
 
 When continuing work, default to these steps:
 
-1. Extract orchestration responsibilities from `src/agents/react-engine.ts`.
-2. Introduce explicit runtime decision types.
-3. Add a dedicated observation parser.
-4. Add scratchpad state and wire prompt generation to it.
-5. Add recovery policy and same-failure loop protection.
+1. Build **Layer 1: Tool Contract Probes** from [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) for the critical real tools we actually depend on.
+2. Build **Layer 2: Agent Loop Scenarios** using the real model, real `ReActEngine`, real prompt path, and deterministic grading.
+3. Build **Layer 3: End-to-End Task Runs** for a small set of realistic must-pass tasks.
+4. Remove the fake "live eval" and mock-scenario scaffolding from the primary validation path.
+5. Only after the three-layer test gate is in place, resume runtime architecture work that is still open.
 
 Do **not** prioritize:
 - plugin marketplace expansion
 - broad tool catalog work
 - cosmetic prompt tuning
 - unrelated task-system work
+- fake confidence from canned live-scenario tests
 
 unless the runtime architecture work above is blocked.
 
@@ -275,6 +279,7 @@ unless the runtime architecture work above is blocked.
   - a phase completes
   - priorities change
   - a major architectural decision is made
+- update [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) when the testing gate changes
 - Keep this file concise and execution-oriented.
 
 ---
@@ -373,6 +378,16 @@ unless the runtime architecture work above is blocked.
   - **PRE-EXISTING (low)** — Fixed mojibake curly quotes in `buildToolFailureGuidance` (straight quotes now)
   - 86 tests, 0 failures
 
+### 2026-03-16
+- Clarified the project objective:
+  - the immediate goal is no longer "add more evaluation" but to prove that the agent works on real tasks through the actual runtime path
+- Added [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) as the dedicated source of truth for the three-layer testing gate:
+  - tool contract probes
+  - agent loop scenarios
+  - end-to-end task runs
+- Reframed the next work around runtime proof instead of fake live-scenario coverage
+- Marked the existing mock-driven and canned "live" eval scaffolding as removal/replacement candidates, not as proof of agent readiness
+
 ---
 
 ## Definition of Success
@@ -385,5 +400,6 @@ We consider the runtime architecture substantially improved when:
 - repeated failed strategies are detected and stopped
 - context assembly is budget-aware
 - the orchestration flow is clean enough to extend without re-breaking the system
+- the three-layer testing gate in [Agent Testing Strategy](/C:/Users/solastic/prj/ai-chat/.ai/context/agent-testing-strategy.md) proves the agent works on a small set of real tasks
 
 That is the path from "agent-shaped code" to "dependable agency."
