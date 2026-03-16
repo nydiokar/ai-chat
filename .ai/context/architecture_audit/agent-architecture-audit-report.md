@@ -570,3 +570,131 @@ Ultimate goal:
 - Move from "LLM emits formatted steps in a loop" to "runtime owns task state, grounded observations, recovery, and completion semantics."
 
 That is the minimum path to real agency.
+
+## 9. Avoid Building a Toy
+
+As this runtime gets optimized and hardened, there is a real risk of building something that looks agentic in demos but is still structurally a toy.
+
+### What a toy agent looks like
+
+A toy agent usually has some of these properties:
+- it can complete curated happy paths but degrades quickly on slightly messy tasks
+- it depends on prompt wording more than runtime state and contracts
+- it stores mostly strings and formatted blobs rather than typed execution state
+- it retries failures without understanding them
+- it adds more tools faster than it improves tool selection, observation grounding, and recovery
+- it passes unit tests but has weak multi-step behavioral guarantees
+
+In short:
+- toy behavior means the model is carrying too much of the system
+- real agent behavior means the runtime is carrying more of the system
+
+### What to replicate immediately
+
+These are the traits worth copying from stronger coding agents as early as possible:
+
+1. Explicit runtime contracts
+- decisions should be typed
+- observations should be typed
+- failures should be typed
+- completion should be typed
+
+2. State over transcript
+- maintain task state, not just step history
+- preserve facts, attempts, blockers, and next action separately from raw logs
+
+3. One execution path
+- tool validation, dispatch, normalization, and storage should happen through one path
+- avoid multiple side channels that bypass runtime policy
+
+4. Recovery as a system responsibility
+- repeated failures should be classified and tracked
+- the runtime should know when to retry, switch strategy, ask the user, or stop
+
+5. Scenario-level evaluation
+- test behaviors like clarification, recovery, context pressure, invalid tool loops, and early finish
+- do not rely only on parser or formatting tests
+
+### What to avoid
+
+These patterns usually produce local progress but global fragility:
+
+1. Prompt-only fixes for runtime problems
+- if the issue is memory, grounding, recovery, or orchestration, prompt tuning is not a durable fix
+
+2. Tool expansion before runtime maturity
+- more tools increase branching factor and failure surface
+- if observation and recovery layers are weak, more tools usually make the agent worse
+
+3. Raw string coupling
+- if important decisions depend on parsing presentation strings, the system is still brittle
+
+4. Demo-driven optimization
+- optimizing only for impressive single runs can hide poor repeatability and failure handling
+
+5. Broad rewrites before layer closure
+- replacing everything can erase progress and make validation harder
+- extend the existing runtime where possible and close systemic gaps one layer at a time
+
+### How to tell what is bottlenecking progress
+
+When a run is poor, determine whether the bottleneck is coming from toy/dev/testing artifacts or from still-missing runtime layers.
+
+#### Signals you are bottlenecked by toy/dev/testing components
+
+Look for these first:
+- mocks or stubbed tools behave unlike real tools
+- test prompts are too clean and over-constrained
+- tool outputs in tests are unrealistically small or uniform
+- providers are configured differently in tests than in actual runs
+- behavior looks strong in unit tests but unstable in real multi-step sessions
+- failures disappear when using canned tool outputs
+
+Interpretation:
+- the runtime might be better than the tests suggest, or worse than the tests reveal
+- the problem is in evaluation realism, fixture quality, or dev-only shortcuts
+
+#### Signals you are bottlenecked by missing runtime layers
+
+Look for these patterns:
+- the model keeps re-trying similar failing actions
+- the model cannot tell what a tool result actually means
+- the model loses track of what has already been learned
+- conclusions are based on vaguely formatted output rather than grounded evidence
+- longer runs degrade sharply because prompts are built from history blobs instead of prioritized state
+- adding a new tool or step type requires touching too many unrelated places
+
+Interpretation:
+- the runtime is still missing architecture, not just polish
+- this means you should invest in layer completion, not benchmarking or prompt tuning
+
+### Meaningfulness check before optimization
+
+Before spending time on optimization, ask:
+
+1. Is the runtime making decisions from structured state or from strings?
+2. Can the system explain why it retried, switched strategy, asked the user, or stopped?
+3. Are we testing multi-step behavior under realistic tool outputs?
+4. Would adding one more tool make the agent more reliable, or just more chaotic?
+5. Are observed failures caused by mock environments, or by missing runtime machinery?
+
+If the answer to the first two is "no", the system is not ready for serious optimization yet.
+
+### Practical rule of thumb
+
+If a behavior improvement comes mainly from:
+- better prompts
+- more examples
+- narrower demos
+- special-cased formatting
+
+then you are at risk of building a toy.
+
+If a behavior improvement comes mainly from:
+- stronger runtime contracts
+- better state handling
+- grounded observations
+- explicit recovery
+- better evaluation coverage
+
+then you are likely hardening the real agent.

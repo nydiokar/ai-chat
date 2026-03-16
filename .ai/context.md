@@ -262,6 +262,12 @@ unless the runtime architecture work above is blocked.
 - Extend partial layers instead of rewriting everything.
 - Prefer explicit runtime contracts over prompt-only fixes.
 - Treat prompt changes as supporting work, not the main architecture.
+- Avoid building a toy:
+  - prefer runtime state/contracts over prompt cleverness and formatted strings
+  - do not expand tool breadth faster than grounding, recovery, and scratchpad quality
+  - treat improvements as meaningful only when they improve multi-step reliability, not just demos
+  - when diagnosing poor runs, check whether the bottleneck is unrealistic dev/test scaffolding or a still-missing runtime layer
+  - optimize only after the runtime can explain completion, retries, strategy changes, and clarification requests from explicit state
 
 ### Documentation discipline
 - Update this file when:
