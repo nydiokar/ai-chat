@@ -21,6 +21,8 @@
     "test:coverage": "cross-env NODE_OPTIONS=\"--import tsx\" c8 mocha \"src/**/*.test.ts\"",
     "test:unit": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/**/*.test.ts\"",
     "test:agent-runtime": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 5000 --exit \"src/tests/react-step-parser.test.ts\" \"src/tests/react-trace.test.ts\" \"src/tests/react-observation-parser.test.ts\" \"src/tests/react-tool-handler.test.ts\" \"src/tests/react-agent.test.ts\" \"src/tests/react-engine.test.ts\" \"src/tests/react-recovery-policy.test.ts\" \"src/tests/react-task-scratchpad.test.ts\" \"src/prompt/react-prompt-generator.test.ts\"",
+    "test:evals": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 10000 --exit \"src/tests/evals/agent-evals.test.ts\"",
+    "test:evals:live": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 120000 --exit \"src/tests/evals/live/live-evals.test.ts\"",
     "test:ci": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/tests/react-agent.test.ts\" \"src/tests/react-step-parser.test.ts\" \"src/tests/react-tool-handler.test.ts\" \"src/tests/react-trace.test.ts\" \"src/tests/tools/**/*.test.ts\" \"src/tests/tool-chain/tool-chain-executor.test.ts\" \"src/tests/prompt/**/*.test.ts\"",
     "test:react": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/tests/react-agent.test.ts\"",
     "test:tokens": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/features/hot-tokens/services/hot-tokens-service.test.ts\"",
