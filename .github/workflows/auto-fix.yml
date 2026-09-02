@@ -220,6 +220,9 @@ jobs:
     - name: Generate Prisma client
       run: npm run prisma:generate
 
+    - name: Setup test database
+      run: npx prisma db push --accept-data-loss
+
     - name: Build
       run: npm run build
 
