@@ -18,7 +18,7 @@ export class MemoryRepository {
   private readonly _logger;
   private _memoryCache: NodeCache;
   private _performanceMetrics: MemoryPerformanceMetrics;
-  private readonly MAX_CACHE_SIZE = 1000;
+  private readonly MAX_CACHE_SIZE = 500;
 
   private constructor() {
     this._prisma = new PrismaClient();

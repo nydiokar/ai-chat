@@ -10,7 +10,14 @@ export interface GroundedObservation {
   truncated?: boolean;
   error?: {
     message: string;
-    kind?: "not_found" | "timeout" | "auth_error" | "rate_limit" | "parse_error" | "empty_result" | "unknown";
+    kind?:
+      | "not_found"
+      | "timeout"
+      | "auth_error"
+      | "rate_limit"
+      | "parse_error"
+      | "empty_result"
+      | "unknown";
   };
 }
 

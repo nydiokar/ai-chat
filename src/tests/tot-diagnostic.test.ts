@@ -22,7 +22,7 @@ describe("ToT Diagnostic Test", function () {
   this.timeout(10000);
 
   describe("1. ToT Planner Prompt Validation", () => {
-    it("should generate valid prompts for all 3 stages", async () => {
+    it("should generate a valid structured planning prompt", async () => {
       const capturedPrompts: string[] = [];
       const capturedResponses: string[] = [];
 
@@ -35,29 +35,31 @@ describe("ToT Diagnostic Test", function () {
           console.log(prompt.substring(0, 300) + "...\n");
           capturedPrompts.push(prompt);
 
-          // Return realistic responses
-          if (prompt.includes("break it into sub-problems")) {
-            const response = `\`\`\`yaml
-decomposition:
-  - step: "Fetch trending repos"
-    tools: ["github_trending"]
-strategy: "Get GitHub trends"
-\`\`\``;
-            capturedResponses.push(response);
-            return { content: response, tokenCount: 50 };
-          } else if (prompt.includes("Review and refine")) {
-            const response = `\`\`\`yaml
-refined_plan:
-  steps: ["Call github_trending"]
-  tools_needed: ["github_trending"]
-\`\`\``;
-            capturedResponses.push(response);
-            return { content: response, tokenCount: 40 };
-          } else {
-            const response = `{"tools": ["github_trending"]}`;
-            capturedResponses.push(response);
-            return { content: response, tokenCount: 20 };
-          }
+          const response = JSON.stringify({
+            rationale: "Use GitHub trending to answer the query.",
+            selected_tools: [
+              {
+                name: "github_trending",
+                max_calls: 2,
+                purpose: "Fetch trending repositories",
+              },
+            ],
+            steps: [
+              {
+                id: 1,
+                type: "tool",
+                tool: "github_trending",
+                input_hint: {},
+              },
+              {
+                id: 2,
+                type: "answer",
+                instruction: "Summarize trending repositories",
+              },
+            ],
+          });
+          capturedResponses.push(response);
+          return { content: response, tokenCount: 50 };
         }),
         getModel: () => "test-model",
         setSystemPrompt: sinon.stub(),
@@ -75,15 +77,15 @@ refined_plan:
         mockTools as any,
       );
 
-      // VALIDATION 1: All 3 stages called
-      expect(mockLLM.generateResponse.callCount).to.equal(3);
-      expect(capturedPrompts.length).to.equal(3);
+      // VALIDATION 1: Structured planner prompt called once
+      expect(mockLLM.generateResponse.callCount).to.equal(1);
+      expect(capturedPrompts.length).to.equal(1);
 
       // VALIDATION 2: Prompts contain expected keywords
-      expect(capturedPrompts[0]).to.include("break it into sub-problems");
+      expect(capturedPrompts[0]).to.include("Create a structured plan");
       expect(capturedPrompts[0]).to.include("github_trending");
-      expect(capturedPrompts[1]).to.include("Review and refine");
-      expect(capturedPrompts[2]).to.include("Extract the exact tools");
+      expect(capturedPrompts[0]).to.include("selected_tools");
+      expect(capturedPrompts[0]).to.include("steps");
 
       // VALIDATION 3: Tool filtering worked (now returns PlanArtifact)
       expect(result).to.have.property("selected_tools");
@@ -114,8 +116,11 @@ refined_plan:
       const planner = new ToTPlanner(mockLLM as any);
       const result = await planner.plan("test query", mockTools as any);
 
-      // Should return all tools on failure
-      expect(result).to.deep.equal(mockTools);
+      // Should return a fallback PlanArtifact on failure
+      expect(result.selected_tools.map((tool: any) => tool.name)).to.deep.equal(
+        ["tool1"],
+      );
+      expect(result.steps.at(-1)?.type).to.equal("answer");
       console.log(
         "\n✅ Fallback mechanism works (returns all tools on error)\n",
       );
@@ -136,8 +141,26 @@ refined_plan:
               `🎯 Available tools: ${tools.map((t) => t.name).join(", ")}`,
             );
             totWasCalled = true;
-            // Return filtered tools
-            return [tools[0]];
+            // Return filtered PlanArtifact
+            return {
+              complexity: "medium",
+              rationale: "Use the first tool for the test query",
+              selected_tools: [
+                {
+                  name: tools[0].name,
+                  max_calls: 1,
+                  purpose: "Test tool",
+                },
+              ],
+              steps: [
+                { id: 1, type: "tool", tool: tools[0].name },
+                {
+                  id: 2,
+                  type: "answer",
+                  instruction: "Answer from test result",
+                },
+              ],
+            };
           }),
         };
 
@@ -270,32 +293,22 @@ conclusion:
   describe("3. Tool Filtering Validation", () => {
     it("should reduce tool count significantly", async () => {
       const mockLLM = {
-        generateResponse: sinon.stub().callsFake(async (prompt: string) => {
-          if (prompt.includes("break it")) {
-            return {
-              content: `\`\`\`yaml
-decomposition:
-  - step: "Step 1"
-    tools: ["tool_a", "tool_b"]
-strategy: "Test"
-\`\`\``,
-              tokenCount: 50,
-            };
-          } else if (prompt.includes("Review")) {
-            return {
-              content: `\`\`\`yaml
-refined_plan:
-  steps: ["Step 1"]
-  tools_needed: ["tool_a", "tool_b"]
-\`\`\``,
-              tokenCount: 40,
-            };
-          } else {
-            return {
-              content: `{"tools": ["tool_a", "tool_b"]}`,
-              tokenCount: 20,
-            };
-          }
+        generateResponse: sinon.stub().callsFake(async () => {
+          return {
+            content: JSON.stringify({
+              rationale: "Use two relevant tools.",
+              selected_tools: [
+                { name: "tool_a", max_calls: 1, purpose: "First lookup" },
+                { name: "tool_b", max_calls: 1, purpose: "Second lookup" },
+              ],
+              steps: [
+                { id: 1, type: "tool", tool: "tool_a" },
+                { id: 2, type: "tool", tool: "tool_b" },
+                { id: 3, type: "answer", instruction: "Summarize results" },
+              ],
+            }),
+            tokenCount: 50,
+          };
         }),
         getModel: () => "test-model",
         setSystemPrompt: sinon.stub(),
@@ -489,8 +502,11 @@ conclusion:
         const planner = new ToTPlanner(mockLLM as any);
         const result = await planner.plan("test", mockTools as any);
 
-        // Should fallback to all tools
-        expect(result).to.deep.equal(mockTools);
+        // Should fallback to a PlanArtifact using available tools
+        expect(
+          result.selected_tools.map((tool: any) => tool.name),
+        ).to.deep.equal(["tool1"]);
+        expect(result.steps.at(-1)?.type).to.equal("answer");
         console.log("\n✅ Timeout handled gracefully (returned all tools)\n");
       } finally {
         delete process.env.TOT_PLANNING_TIMEOUT_MS;

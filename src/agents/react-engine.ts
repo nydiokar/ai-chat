@@ -287,7 +287,10 @@ export class ReActEngine {
               undefined,
             ),
           );
-          if (nullRecovery.directive === "block" || nullRecovery.directive === "ask_user") {
+          if (
+            nullRecovery.directive === "block" ||
+            nullRecovery.directive === "ask_user"
+          ) {
             trace.markComplete(nullRecovery.question ?? nullRecovery.reason, {
               type: "ask_user",
               question: nullRecovery.question ?? nullRecovery.reason,
@@ -327,10 +330,7 @@ export class ReActEngine {
 
         scratchpad.applyDecision(decision);
 
-        const decisionHandled = await this.handleDecision(
-          decision,
-          trace,
-        );
+        const decisionHandled = await this.handleDecision(decision, trace);
         if (
           decisionHandled.type === "finish" ||
           decisionHandled.type === "ask_user"
@@ -395,11 +395,19 @@ export class ReActEngine {
             this.toolUsageCounts.set(requestedTool, currentUsage + 1);
           }
 
-          const toolDone = await this.executeToolAndStoreResult(nextStep.action, trace, scratchpad);
+          const toolDone = await this.executeToolAndStoreResult(
+            nextStep.action,
+            trace,
+            scratchpad,
+          );
           if (toolDone === "complete") break;
         }
       } catch (error) {
-        const loopDone = await this.handleProcessingError(error, trace, iterationCount);
+        const loopDone = await this.handleProcessingError(
+          error,
+          trace,
+          iterationCount,
+        );
         if (loopDone === "complete") break;
       }
 
@@ -631,9 +639,8 @@ export class ReActEngine {
         errorObservation.result = `${errorObservation.result}\n\n${failureGuidance}`;
         errorObservation.summary = `${errorObservation.summary} Guidance: ${failureGuidance}`;
       }
-      const observationStep = this.toolHandler.createObservationStep(
-        errorObservation,
-      );
+      const observationStep =
+        this.toolHandler.createObservationStep(errorObservation);
 
       // Add the error observation to the trace
       await trace.addStep(observationStep);
@@ -642,10 +649,13 @@ export class ReActEngine {
       // Evaluate recovery policy and inject a directive if needed
       const recovery = this.recoveryPolicy.evaluate(tool, errorObservation);
       if (recovery.directive === "block") {
-        this.logger.warn("RecoveryPolicy: blocking agent run due to repeated failures", {
-          tool,
-          reason: recovery.reason,
-        });
+        this.logger.warn(
+          "RecoveryPolicy: blocking agent run due to repeated failures",
+          {
+            tool,
+            reason: recovery.reason,
+          },
+        );
         trace.markComplete(recovery.question ?? recovery.reason, {
           type: "ask_user",
           question: recovery.question ?? recovery.reason,
@@ -654,10 +664,13 @@ export class ReActEngine {
         return "complete";
       }
       if (recovery.directive === "ask_user") {
-        this.logger.warn("RecoveryPolicy: surfacing ask_user after non-retryable failure", {
-          tool,
-          reason: recovery.reason,
-        });
+        this.logger.warn(
+          "RecoveryPolicy: surfacing ask_user after non-retryable failure",
+          {
+            tool,
+            reason: recovery.reason,
+          },
+        );
         trace.markComplete(recovery.question ?? recovery.reason, {
           type: "ask_user",
           question: recovery.question ?? recovery.reason,
@@ -666,7 +679,10 @@ export class ReActEngine {
         return "complete";
       }
       if (recovery.directive === "retry") {
-        this.logger.info("RecoveryPolicy: scheduling retry", { tool, reason: recovery.reason });
+        this.logger.info("RecoveryPolicy: scheduling retry", {
+          tool,
+          reason: recovery.reason,
+        });
         const retryHint = this.toolHandler.createObservationStep(
           `Recovery: ${recovery.reason} Please retry the same tool call with the same or adjusted parameters.`,
         );

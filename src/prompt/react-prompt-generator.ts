@@ -9,12 +9,7 @@ import {
   ReasoningStep,
 } from "../interfaces/react-types.js";
 import { PromptRepository } from "../services/prompt/prompt-repository.js";
-import {
-  PromptContext,
-  PromptType,
-  ReasoningPrompt,
-  ToolUsagePrompt,
-} from "../types/prompts.js";
+import { PromptContext, PromptType } from "../types/prompts.js";
 import { ToolFormatter } from "../tools/tool-formatter.js";
 
 /**
@@ -781,11 +776,17 @@ Remember:
   private renderObservationText(observation: GroundedObservation): string {
     const parts: string[] = [observation.summary];
 
-    if (observation.importantFields && Object.keys(observation.importantFields).length > 0) {
+    if (
+      observation.importantFields &&
+      Object.keys(observation.importantFields).length > 0
+    ) {
       // Render at most 4 important fields inline so the model has structured signal
       const entries = Object.entries(observation.importantFields).slice(0, 4);
       const fieldLines = entries
-        .map(([k, v]) => `  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+        .map(
+          ([k, v]) =>
+            `  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`,
+        )
         .join("\n");
       parts.push(`Fields:\n${fieldLines}`);
     }
@@ -795,7 +796,9 @@ Remember:
     }
 
     if (observation.kind === "error" && observation.error) {
-      parts.push(`Error (${observation.error.kind ?? "unknown"}): ${observation.error.message}`);
+      parts.push(
+        `Error (${observation.error.kind ?? "unknown"}): ${observation.error.message}`,
+      );
     }
 
     return parts.join("\n");

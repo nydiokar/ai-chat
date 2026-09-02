@@ -175,9 +175,15 @@ describe("ReActToolHandler", () => {
       title: "Example result",
       url: "https://example.com/article",
     });
-    expect(observation.sourceRefs).to.deep.equal(["https://example.com/article"]);
-    expect(observation.result).to.include("Observation summary: Important grounded summary");
-    expect(observation.result).to.include("Sources: https://example.com/article");
+    expect(observation.sourceRefs).to.deep.equal([
+      "https://example.com/article",
+    ]);
+    expect(observation.result).to.include(
+      "Observation summary: Important grounded summary",
+    );
+    expect(observation.result).to.include(
+      "Sources: https://example.com/article",
+    );
   });
 
   it("should format string result", () => {
@@ -216,7 +222,9 @@ describe("ReActToolHandler", () => {
     const formatted = toolHandler.formatToolResult(mockResult, action);
 
     expect(formatted).to.include("Tool: test_tool");
-    expect(formatted).to.include("Observation summary: Tool test_tool returned 5 items.");
+    expect(formatted).to.include(
+      "Observation summary: Tool test_tool returned 5 items.",
+    );
     expect(formatted).to.include('"count": 5');
     expect(formatted).to.include('"sample": 1');
   });
@@ -297,9 +305,7 @@ describe("ReActToolHandler", () => {
     );
 
     expect(observation.kind).to.equal("error");
-    expect(observation.summary).to.equal(
-      "Tool test_tool failed: Test error",
-    );
+    expect(observation.summary).to.equal("Tool test_tool failed: Test error");
     expect(observation.error?.message).to.equal("Test error");
     expect(observation.error?.kind).to.equal("unknown");
     expect(observation.result).to.include("Tool: test_tool");

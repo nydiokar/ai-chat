@@ -326,7 +326,8 @@ describe("ReActPromptGenerator", () => {
 
   describe("scratchpad injection", () => {
     it("injects scratchpad summary as Task state block when provided", async () => {
-      const scratchpad = "Goal: find coffee\nFacts:\n  - Found 3 cafes nearby\nTried: web_search";
+      const scratchpad =
+        "Goal: find coffee\nFacts:\n  - Found 3 cafes nearby\nTried: web_search";
       const prompt = await promptGenerator.generateReActPrompt(
         "test query",
         [],
@@ -340,7 +341,11 @@ describe("ReActPromptGenerator", () => {
     });
 
     it("omits Task state block when scratchpad is not provided", async () => {
-      const prompt = await promptGenerator.generateReActPrompt("test query", [], mockTools);
+      const prompt = await promptGenerator.generateReActPrompt(
+        "test query",
+        [],
+        mockTools,
+      );
       expect(prompt).not.to.include("Task state:");
     });
   });

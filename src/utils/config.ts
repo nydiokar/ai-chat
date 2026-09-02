@@ -40,7 +40,7 @@ export const modelConfig = {
     ],
   },
   production: {
-    default: OpenAIModels.GPT4oMini,
+    default: OpenAIModels.GPT4o,
     fallback: OpenAIModels.GPT35Turbo,
     options: Object.values(OpenAIModels),
   },

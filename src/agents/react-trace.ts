@@ -1,9 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { MemoryProvider, MemoryType } from "../interfaces/memory-provider.js";
-import {
-  CompletionOutcome,
-  ReasoningStep,
-} from "../interfaces/react-types.js";
+import { CompletionOutcome, ReasoningStep } from "../interfaces/react-types.js";
 import { getLogger } from "../utils/shared-logger.js";
 import type { Logger } from "winston";
 

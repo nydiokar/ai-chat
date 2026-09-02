@@ -1,4 +1,8 @@
-import { AgentDecision, GroundedObservation, ReasoningStep } from "../interfaces/react-types.js";
+import {
+  AgentDecision,
+  GroundedObservation,
+  ReasoningStep,
+} from "../interfaces/react-types.js";
 
 const MAX_FACTS = 12;
 const MAX_ATTEMPTS = 10;
@@ -81,11 +85,15 @@ export class TaskScratchpad {
     }
 
     if (this.failures.length > 0) {
-      lines.push(`Failures:\n${this.failures.map((f) => `  - ${f}`).join("\n")}`);
+      lines.push(
+        `Failures:\n${this.failures.map((f) => `  - ${f}`).join("\n")}`,
+      );
     }
 
     if (this.openQuestions.length > 0) {
-      lines.push(`Open questions:\n${this.openQuestions.map((q) => `  - ${q}`).join("\n")}`);
+      lines.push(
+        `Open questions:\n${this.openQuestions.map((q) => `  - ${q}`).join("\n")}`,
+      );
     }
 
     if (this.nextBestAction) {
@@ -111,7 +119,11 @@ export class TaskScratchpad {
     if (obs.kind === "error") {
       const kind = obs.error?.kind ? ` (${obs.error.kind})` : "";
       const tool = obs.tool ? `${obs.tool}` : "tool";
-      this.push(this.failures, `${tool} failed${kind}: ${this.truncate(obs.summary, 120)}`, MAX_FAILURES);
+      this.push(
+        this.failures,
+        `${tool} failed${kind}: ${this.truncate(obs.summary, 120)}`,
+        MAX_FAILURES,
+      );
       return;
     }
 
@@ -143,6 +155,8 @@ export class TaskScratchpad {
 
   private truncate(s: string, max: number): string {
     const normalized = s.replace(/\s+/g, " ").trim();
-    return normalized.length > max ? normalized.slice(0, max - 1) + "…" : normalized;
+    return normalized.length > max
+      ? normalized.slice(0, max - 1) + "…"
+      : normalized;
   }
 }

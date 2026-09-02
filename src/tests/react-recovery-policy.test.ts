@@ -73,7 +73,7 @@ describe("RecoveryPolicy", () => {
   it("resets consecutive failure counter after a success", () => {
     policy.evaluate("web_search", errorObs("unknown")); // 1
     policy.evaluate("web_search", errorObs("unknown")); // 2
-    policy.evaluate("web_search", successObs());         // reset
+    policy.evaluate("web_search", successObs()); // reset
     // Now three more failures should be needed before block
     policy.evaluate("web_search", errorObs("unknown")); // 1
     policy.evaluate("web_search", errorObs("unknown")); // 2

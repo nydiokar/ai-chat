@@ -87,8 +87,14 @@ describe("ObservationParser", () => {
       expectedKind: string;
     }> = [
       { message: "Request timed out after 30s", expectedKind: "timeout" },
-      { message: "401 Unauthorized: invalid api key", expectedKind: "auth_error" },
-      { message: "429 Too Many Requests: rate limit exceeded", expectedKind: "rate_limit" },
+      {
+        message: "401 Unauthorized: invalid api key",
+        expectedKind: "auth_error",
+      },
+      {
+        message: "429 Too Many Requests: rate limit exceeded",
+        expectedKind: "rate_limit",
+      },
       { message: "No results found for query", expectedKind: "not_found" },
       { message: "Unexpected token in JSON", expectedKind: "parse_error" },
       { message: "Something went completely wrong", expectedKind: "unknown" },
@@ -121,7 +127,9 @@ describe("ObservationParser", () => {
     };
 
     const observation = parser.parseToolResult(result, action);
-    expect(observation.sourceRefs).to.deep.equal(["https://example.com/report"]);
+    expect(observation.sourceRefs).to.deep.equal([
+      "https://example.com/report",
+    ]);
   });
 
   it("preserves error kind even when action is missing", () => {

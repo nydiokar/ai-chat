@@ -68,6 +68,19 @@ export class BaseToolManager implements IToolManager {
 
   public registerTool(name: string, handler: ToolHandler): void {
     this.handlers.set(name, handler);
+    if (!this.toolsCache.has(name)) {
+      this.toolsCache.set(name, {
+        name,
+        description: `Local tool: ${name}`,
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+        enabled: true,
+        handler,
+      });
+    }
   }
 
   public async getAvailableTools(): Promise<ToolDefinition[]> {

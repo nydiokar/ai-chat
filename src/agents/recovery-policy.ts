@@ -118,7 +118,10 @@ export class RecoveryPolicy {
       };
     }
 
-    if (severity === "retryable" && record.consecutiveCount <= MAX_RETRIES_PER_TOOL) {
+    if (
+      severity === "retryable" &&
+      record.consecutiveCount <= MAX_RETRIES_PER_TOOL
+    ) {
       return {
         directive: "retry",
         reason: `Tool "${toolName}" timed out. Will retry once.`,

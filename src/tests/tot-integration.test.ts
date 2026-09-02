@@ -1,7 +1,6 @@
 import { describe, it, before } from "mocha";
 import { expect } from "chai";
 import { ToTPlanner } from "../agents/planning/tot-planner.js";
-import { ReActEngine } from "../agents/react-engine.js";
 import { AIFactory } from "../services/ai-factory.js";
 import { mcpConfig } from "../mcp_config.js";
 import { InMemoryProvider } from "../memory/in-memory-provider.js";
@@ -33,7 +32,7 @@ describe("ToT Integration Test", function () {
   });
 
   describe("ToT Planner Standalone", () => {
-    it("should execute 3-stage planning and return filtered tools", async function () {
+    it("should execute structured planning and return filtered tools", async function () {
       if (!hasApiKey) this.skip();
 
       // Setup
@@ -42,7 +41,7 @@ describe("ToT Integration Test", function () {
           console.log("\n📝 LLM Prompt Sent:");
           console.log(prompt.substring(0, 200) + "...\n");
 
-          // Mock responses for each stage
+          // Keep legacy branch responses for old prompts; current planner uses the structured fallback below.
           if (prompt.includes("break it into sub-problems")) {
             // Stage 1: Decomposition
             const response = `\`\`\`yaml
@@ -79,7 +78,33 @@ refined_plan:
             return { content: response, tokenCount: 20 };
           }
 
-          return { content: "Unknown prompt", tokenCount: 10 };
+          return {
+            content: JSON.stringify({
+              rationale: "Fetch trending repos and extract topics.",
+              selected_tools: [
+                {
+                  name: "github_trending",
+                  max_calls: 2,
+                  purpose: "Get trending repositories",
+                },
+                {
+                  name: "github_topics",
+                  max_calls: 1,
+                  purpose: "Get repository topics",
+                },
+              ],
+              steps: [
+                { id: 1, type: "tool", tool: "github_trending" },
+                { id: 2, type: "tool", tool: "github_topics" },
+                {
+                  id: 3,
+                  type: "answer",
+                  instruction: "Summarize GitHub trend findings",
+                },
+              ],
+            }),
+            tokenCount: 50,
+          };
         },
         getModel: () => "gpt-3.5-turbo",
         setSystemPrompt: () => {},

@@ -14,6 +14,11 @@ module.exports = {
         FORCE_COLOR: "1"
       },
       max_memory_restart: "1G",
+      node_args: [
+        "--max-old-space-size=1024",
+        "--optimize-for-size",
+        "--gc-interval=100"
+      ],
       autorestart: true,
       error_file: "/dev/null",
       output_file: "/dev/null",
@@ -45,6 +50,11 @@ module.exports = {
         FORCE_COLOR: "1"
       },
       max_memory_restart: "1G",
+      node_args: [
+        "--max-old-space-size=1024",
+        "--optimize-for-size",
+        "--gc-interval=100"
+      ],
       autorestart: true,
       error_file: "/dev/null",
       output_file: "/dev/null",

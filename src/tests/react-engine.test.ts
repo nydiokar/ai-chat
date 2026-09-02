@@ -98,14 +98,17 @@ describe("ReActEngine", () => {
 
     promptGenerator = {
       generatePrompt: sinon.stub().resolves("fallback prompt"),
-      generateReActPrompt: (promptGenerateStub = sinon.stub().callsFake(
-        async (
-          input: string,
-          _steps?: any[],
-          tools?: ToolDefinition[],
-          currentStep?: number,
-        ) => `Prompt ${currentStep ?? 0}: ${input}\nTools:${tools?.map((t) => t.name).join(",") ?? ""}`,
-      )),
+      generateReActPrompt: (promptGenerateStub = sinon
+        .stub()
+        .callsFake(
+          async (
+            input: string,
+            _steps?: any[],
+            tools?: ToolDefinition[],
+            currentStep?: number,
+          ) =>
+            `Prompt ${currentStep ?? 0}: ${input}\nTools:${tools?.map((t) => t.name).join(",") ?? ""}`,
+        )),
     };
 
     toolExecutor = {
@@ -198,7 +201,11 @@ conclusion:
     expect(llmGenerateResponseStub.calledTwice).to.be.true;
     expect(toolExecuteStub.called).to.be.false;
     const secondPrompt = promptGenerateStub.secondCall.args[1];
-    expect(secondPrompt.some((step: any) => step.observation?.result.includes("Recovery requested."))).to.be.true;
+    expect(
+      secondPrompt.some((step: any) =>
+        step.observation?.result.includes("Recovery requested."),
+      ),
+    ).to.be.true;
   });
 
   it("stores grounded observations in the trace between tool execution and the next prompt", async () => {
@@ -305,8 +312,9 @@ action:
     // Three consecutive failures across tools triggers block directive
     toolExecuteStub.rejects(new Error("Something went completely wrong"));
 
-    llmGenerateResponseStub.callsFake(async (_prompt: string, _callCount?: number) => ({
-      content: `\`\`\`yaml
+    llmGenerateResponseStub.callsFake(
+      async (_prompt: string, _callCount?: number) => ({
+        content: `\`\`\`yaml
 thought:
   reasoning: Trying the tool again.
   plan: Keep searching.
@@ -316,9 +324,10 @@ action:
   params:
     query: test
 \`\`\``,
-      tokenCount: null,
-      toolResults: [],
-    }));
+        tokenCount: null,
+        toolResults: [],
+      }),
+    );
 
     const result = await engine.process("trigger block", "user-6");
 

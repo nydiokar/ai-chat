@@ -15,18 +15,41 @@ const URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 const SEARCH_TOOL_PATTERN = /\b(search|web_search|lookup|query)\b/i;
 
 // Recognized URL-bearing field names in structured search results, in priority order
-const SOURCE_FIELD_NAMES: readonly string[] = ["url", "link", "href", "uri", "canonical", "source"];
+const SOURCE_FIELD_NAMES: readonly string[] = [
+  "url",
+  "link",
+  "href",
+  "uri",
+  "canonical",
+  "source",
+];
 
 type ErrorKind = NonNullable<NonNullable<GroundedObservation["error"]>["kind"]>;
 
 // Error classification patterns (checked in order — most specific first)
 const ERROR_PATTERNS: Array<{ kind: ErrorKind; pattern: RegExp }> = [
-  { kind: "not_found",    pattern: /not found|no results?|404|does not exist|couldn'?t find/i },
-  { kind: "timeout",      pattern: /timeout|timed out|deadline|took too long/i },
-  { kind: "auth_error",   pattern: /unauthorized|forbidden|403|401|permission denied|invalid (api )?key|authentication/i },
-  { kind: "rate_limit",   pattern: /rate.?limit|too many requests|429|quota exceeded/i },
-  { kind: "parse_error",  pattern: /parse|invalid json|syntax error|malformed|unexpected token/i },
-  { kind: "empty_result", pattern: /empty|no data|returned nothing|no content/i },
+  {
+    kind: "not_found",
+    pattern: /not found|no results?|404|does not exist|couldn'?t find/i,
+  },
+  { kind: "timeout", pattern: /timeout|timed out|deadline|took too long/i },
+  {
+    kind: "auth_error",
+    pattern:
+      /unauthorized|forbidden|403|401|permission denied|invalid (api )?key|authentication/i,
+  },
+  {
+    kind: "rate_limit",
+    pattern: /rate.?limit|too many requests|429|quota exceeded/i,
+  },
+  {
+    kind: "parse_error",
+    pattern: /parse|invalid json|syntax error|malformed|unexpected token/i,
+  },
+  {
+    kind: "empty_result",
+    pattern: /empty|no data|returned nothing|no content/i,
+  },
 ];
 
 export class ObservationParser {
@@ -266,8 +289,7 @@ export class ObservationParser {
     if (Array.isArray(data)) {
       return {
         count: data.length,
-        sample:
-          data.length > 0 ? this.normalizeFieldValue(data[0]) : undefined,
+        sample: data.length > 0 ? this.normalizeFieldValue(data[0]) : undefined,
       };
     }
 
@@ -303,10 +325,9 @@ export class ObservationParser {
     }
 
     if (typeof value === "object" && value !== null) {
-      const objectEntries = Object.entries(value as Record<string, unknown>).slice(
-        0,
-        5,
-      );
+      const objectEntries = Object.entries(
+        value as Record<string, unknown>,
+      ).slice(0, 5);
       return objectEntries.reduce<Record<string, unknown>>(
         (acc, [key, nestedValue]) => {
           const normalized = this.normalizeFieldValue(nestedValue);
@@ -346,7 +367,11 @@ export class ObservationParser {
 
     // Generic fallback: regex scan all string values
     const visit = (value: unknown): void => {
-      if (sources.size >= MAX_SOURCE_REFS || value === null || value === undefined) {
+      if (
+        sources.size >= MAX_SOURCE_REFS ||
+        value === null ||
+        value === undefined
+      ) {
         return;
       }
 
