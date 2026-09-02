@@ -24,7 +24,7 @@
     "test:agent-runtime": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 5000 --exit \"src/tests/react-step-parser.test.ts\" \"src/tests/react-trace.test.ts\" \"src/tests/react-observation-parser.test.ts\" \"src/tests/react-tool-handler.test.ts\" \"src/tests/react-agent.test.ts\" \"src/tests/react-engine.test.ts\" \"src/tests/react-recovery-policy.test.ts\" \"src/tests/react-task-scratchpad.test.ts\" \"src/prompt/react-prompt-generator.test.ts\"",
     "test:evals": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 10000 --exit \"src/tests/evals/agent-evals.test.ts\"",
     "test:evals:live": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config --timeout 120000 --exit \"src/tests/evals/live/live-evals.test.ts\"",
-    "test:ci": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/tests/react-agent.test.ts\" \"src/tests/react-step-parser.test.ts\" \"src/tests/react-tool-handler.test.ts\" \"src/tests/react-trace.test.ts\" \"src/tests/tools/**/*.test.ts\" \"src/tools/tool-chain/tool-chain-executor.test.ts\" \"src/tests/prompt/**/*.test.ts\"",
+    "test:ci": "cross-env NODE_OPTIONS=\"--import tsx\" mocha --no-config \"src/tests/react-agent.test.ts\" \"src/tests/react-step-parser.test.ts\" \"src/tests/react-tool-handler.test.ts\" \"src/tests/react-trace.test.ts\" \"src/tests/tools/**/*.test.ts\" \"src/tools/tool-chain/tool-chain-executor.test.ts\" \"src/tests/prompt/**/*.test.ts\"",
     "test:react": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/tests/react-agent.test.ts\"",
     "test:tokens": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/features/hot-tokens/services/hot-tokens-service.test.ts\"",
     "test:mcp": "cross-env NODE_OPTIONS=\"--import tsx\" mocha \"src/tools/mcp/**/*.test.ts\"",
@@ -65,8 +65,7 @@
     "@anthropic-ai/sdk": "^0.33.1",
     "@discordjs/core": "^2.0.1",
     "@discordjs/rest": "^2.4.3",
-    "@kimtaeyoon83/mcp-server-youtube-transcript": "^0.1.1",
-    "@modelcontextprotocol/sdk": "^1.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-brave-search": "^0.6.2",
     "@modelcontextprotocol/server-github": "^2025.1.23",
     "@types/node-cache": "^4.1.3",
@@ -86,7 +85,6 @@
     "js-yaml": "^4.1.1",
     "keyv": "^5.2.3",
     "keyv-file": "^5.1.1",
-    "mcp": "^1.3.4",
     "node-cache": "^5.1.2",
     "nodecache": "^0.0.2",
     "ollama": "^0.5.14",
@@ -141,6 +139,11 @@
   },
   "ts-node": {
     "esm": true
+  },
+  "overrides": {
+    "@modelcontextprotocol/server-github": {
+      "@modelcontextprotocol/sdk": "1.30.0"
+    }
   },
   "type": "module"
 }

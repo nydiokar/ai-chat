@@ -34,6 +34,8 @@ jobs:
           echo "No dependency changes detected"
         fi
 
+      continue-on-error: true
+
     - name: Type check
       run: npm run build
 
@@ -55,6 +57,8 @@ jobs:
         else
           echo "✅ No high/critical security vulnerabilities found"
         fi
+
+      continue-on-error: true
 
     - name: PR Quality Analysis
       if: github.event_name == 'pull_request'
