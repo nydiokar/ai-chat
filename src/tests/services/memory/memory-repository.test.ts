@@ -1,8 +1,13 @@
-import { expect } from 'chai';
-import { MemoryRepository } from '../../../services/memory/memory-repository.js';
-import { UserPreferences, ConversationContext, EntityRelationship, CommandUsagePattern } from '../../../types/memory.js';
+import { expect } from "chai";
+import { MemoryRepository } from "../../../services/performance/memory-repository.js";
+import {
+  UserPreferences,
+  ConversationContext,
+  EntityRelationship,
+  CommandUsagePattern,
+} from "../../../types/memory.js";
 
-describe('MemoryRepository', () => {
+describe("MemoryRepository", () => {
   let repository: MemoryRepository;
 
   beforeEach(async () => {
@@ -20,19 +25,19 @@ describe('MemoryRepository', () => {
     await repository.close();
   });
 
-  describe('User Preferences', () => {
-    it('should save and retrieve user preferences', async () => {
+  describe("User Preferences", () => {
+    it("should save and retrieve user preferences", async () => {
       // Create user first
-      await repository.createTestUser('test-user-1');
-      
+      await repository.createTestUser("test-user-1");
+
       const testPrefs: UserPreferences = {
-        id: 'test-prefs-1',
-        userId: 'test-user-1',
+        id: "test-prefs-1",
+        userId: "test-user-1",
         settings: {
-          theme: 'dark',
-          notifications: true
+          theme: "dark",
+          notifications: true,
         },
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
       };
 
       await repository.saveUserPreferences(testPrefs);
@@ -43,8 +48,8 @@ describe('MemoryRepository', () => {
     });
   });
 
-  describe('Conversation Context', () => {
-    it('should save and retrieve conversation context', async () => {
+  describe("Conversation Context", () => {
+    it("should save and retrieve conversation context", async () => {
       // Create conversation first
       await repository.createTestConversation(1);
 
@@ -52,26 +57,28 @@ describe('MemoryRepository', () => {
       const message = await repository.prisma.message.create({
         data: {
           id: 1,
-          content: 'Test message',
-          role: 'user',
+          content: "Test message",
+          role: "user",
           tokenCount: 10,
           conversationId: 1,
           discordUserId: null,
-          discordUsername: null
-        }
+          discordUsername: null,
+        },
       });
 
-      const testContext: Omit<ConversationContext, 'id'> = {
+      const testContext: Omit<ConversationContext, "id"> = {
         conversationId: 1,
-        topics: ['test', 'context'],
-        entities: ['entity1', 'entity2'],
-        summary: 'Test conversation summary',
+        topics: ["test", "context"],
+        entities: ["entity1", "entity2"],
+        summary: "Test conversation summary",
         timestamp: new Date(),
-        messages: [message]
+        messages: [message],
       };
 
       const saved = await repository.saveContext(testContext);
-      const contexts = await repository.getContextByConversation(testContext.conversationId);
+      const contexts = await repository.getContextByConversation(
+        testContext.conversationId,
+      );
 
       expect(contexts).to.have.length.greaterThan(0);
       expect(contexts[0].topics).to.deep.equal(testContext.topics);
@@ -79,18 +86,18 @@ describe('MemoryRepository', () => {
     });
   });
 
-  describe('Entity Relationships', () => {
-    it('should save and retrieve entity relationships', async () => {
-      const relationship: Omit<EntityRelationship, 'id'> = {
-        sourceId: 'entity1',
-        targetId: 'entity2',
-        relationType: 'related',
+  describe("Entity Relationships", () => {
+    it("should save and retrieve entity relationships", async () => {
+      const relationship: Omit<EntityRelationship, "id"> = {
+        sourceId: "entity1",
+        targetId: "entity2",
+        relationType: "related",
         strength: 0.8,
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
       };
 
       await repository.saveRelationship(relationship);
-      const relationships = await repository.getRelationships('entity1');
+      const relationships = await repository.getRelationships("entity1");
 
       expect(relationships).to.have.length.greaterThan(0);
       expect(relationships[0].sourceId).to.equal(relationship.sourceId);
@@ -98,46 +105,49 @@ describe('MemoryRepository', () => {
       expect(relationships[0].strength).to.equal(relationship.strength);
     });
 
-    it('should get related entities above strength threshold', async () => {
+    it("should get related entities above strength threshold", async () => {
       const relationships = [
         {
-          sourceId: 'entity1',
-          targetId: 'entity2',
-          relationType: 'related',
+          sourceId: "entity1",
+          targetId: "entity2",
+          relationType: "related",
           strength: 0.8,
-          lastUpdated: new Date()
+          lastUpdated: new Date(),
         },
         {
-          sourceId: 'entity1',
-          targetId: 'entity3',
-          relationType: 'related',
+          sourceId: "entity1",
+          targetId: "entity3",
+          relationType: "related",
           strength: 0.3,
-          lastUpdated: new Date()
-        }
+          lastUpdated: new Date(),
+        },
       ];
 
       for (const rel of relationships) {
         await repository.saveRelationship(rel);
       }
 
-      const relatedEntities = await repository.getRelatedEntities('entity1', 0.5);
+      const relatedEntities = await repository.getRelatedEntities(
+        "entity1",
+        0.5,
+      );
       expect(relatedEntities).to.have.length(1);
-      expect(relatedEntities[0]).to.equal('entity2');
+      expect(relatedEntities[0]).to.equal("entity2");
     });
   });
 
-  describe('Command Usage Patterns', () => {
-    it('should track command usage patterns', async () => {
+  describe("Command Usage Patterns", () => {
+    it("should track command usage patterns", async () => {
       // Create user first
-      await repository.createTestUser('test-user-1');
+      await repository.createTestUser("test-user-1");
 
-      const pattern: Omit<CommandUsagePattern, 'id'> = {
-        userId: 'test-user-1',
-        commandName: 'test-command',
+      const pattern: Omit<CommandUsagePattern, "id"> = {
+        userId: "test-user-1",
+        commandName: "test-command",
         frequency: 1,
         lastUsed: new Date(),
         successRate: 1.0,
-        contexts: ['context1', 'context2']
+        contexts: ["context1", "context2"],
       };
 
       await repository.updateCommandUsage(pattern);
@@ -147,14 +157,17 @@ describe('MemoryRepository', () => {
       expect(patterns[0].commandName).to.equal(pattern.commandName);
     });
 
-    it('should increment frequency on repeated command usage', async () => {
-      const pattern: Omit<CommandUsagePattern, 'id'> = {
-        userId: 'test-user-2',
-        commandName: 'repeated-command',
+    it("should increment frequency on repeated command usage", async () => {
+      // Create user first - fix for foreign key constraint
+      await repository.createTestUser("test-user-2");
+
+      const pattern: Omit<CommandUsagePattern, "id"> = {
+        userId: "test-user-2",
+        commandName: "repeated-command",
         frequency: 1,
         lastUsed: new Date(),
         successRate: 1.0,
-        contexts: ['context1']
+        contexts: ["context1"],
       };
 
       await repository.updateCommandUsage(pattern);
@@ -165,10 +178,10 @@ describe('MemoryRepository', () => {
     });
   });
 
-  describe('Memory Querying', () => {
-    it('should query memories with time-based decay', async () => {
-      const testUserId = 'test-user-123';
-      
+  describe("Memory Querying", () => {
+    it("should query memories with time-based decay", async () => {
+      const testUserId = "test-user-123";
+
       // Create required records first
       await repository.createTestUser(testUserId);
       await repository.createTestConversation(1);
@@ -178,46 +191,46 @@ describe('MemoryRepository', () => {
       const message1 = await repository.prisma.message.create({
         data: {
           id: 1,
-          content: 'Test message 1',
-          role: 'user',
+          content: "Test message 1",
+          role: "user",
           tokenCount: 10,
           conversationId: 1,
           discordUserId: testUserId,
-          discordUsername: 'testuser'
-        }
+          discordUsername: "testuser",
+        },
       });
 
       const message2 = await repository.prisma.message.create({
         data: {
           id: 2,
-          content: 'Test message 2',
-          role: 'user',
+          content: "Test message 2",
+          role: "user",
           tokenCount: 10,
           conversationId: 2,
           discordUserId: testUserId,
-          discordUsername: 'testuser'
-        }
+          discordUsername: "testuser",
+        },
       });
 
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 14);
 
-      const oldContext: Omit<ConversationContext, 'id'> = {
+      const oldContext: Omit<ConversationContext, "id"> = {
         conversationId: 1,
-        topics: ['old', 'test'],
-        entities: ['entity1'],
-        summary: 'Old context',
+        topics: ["old", "test"],
+        entities: ["entity1"],
+        summary: "Old context",
         timestamp: oldDate,
-        messages: [message1]
+        messages: [message1],
       };
 
-      const newContext: Omit<ConversationContext, 'id'> = {
+      const newContext: Omit<ConversationContext, "id"> = {
         conversationId: 2,
-        topics: ['new', 'test'],
-        entities: ['entity1'],
-        summary: 'New context',
+        topics: ["new", "test"],
+        entities: ["entity1"],
+        summary: "New context",
         timestamp: new Date(),
-        messages: [message2]
+        messages: [message2],
       };
 
       await repository.saveContext(oldContext);
@@ -225,8 +238,8 @@ describe('MemoryRepository', () => {
 
       const results = await repository.queryMemory({
         userId: testUserId,
-        topics: ['test'],
-        entities: ['entity1']
+        topics: ["test"],
+        entities: ["entity1"],
       });
 
       expect(results).to.have.length(2);

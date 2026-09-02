@@ -1,0 +1,261 @@
+name: Auto Fix & Quality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, dev ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Generate Prisma client
+      run: npm run prisma:generate
+
+    # Check current state before fixes
+    - name: Check initial code quality
+      id: initial-check
+      run: |
+        echo "Checking initial code quality..."
+
+        # Count lint issues before fixes
+        INITIAL_LINT=$(npm run lint 2>&1 | grep -c "warning\|error" || echo "0")
+        echo "initial-lint=$INITIAL_LINT" >> $GITHUB_OUTPUT
+
+        # Check formatting
+        if npx prettier --check "src/**/*.{ts,js,json,md}" >/dev/null 2>&1; then
+          echo "initial-format=0" >> $GITHUB_OUTPUT
+        else
+          echo "initial-format=1" >> $GITHUB_OUTPUT
+        fi
+
+        echo "Initial state: $INITIAL_LINT lint issues, format status: $INITIAL_FORMAT"
+
+    # Auto-fix formatting
+    - name: Auto-fix formatting
+      id: format-fix
+      run: |
+        echo "Running Prettier auto-fix..."
+        npm run format
+
+        # Check if any files were changed
+        if git diff --quiet; then
+          echo "format-changed=false" >> $GITHUB_OUTPUT
+          echo "✅ No formatting changes needed"
+        else
+          echo "format-changed=true" >> $GITHUB_OUTPUT
+          echo "✅ Formatting fixed"
+          git diff --name-only | head -10
+        fi
+
+    # Auto-fix linting issues
+    - name: Auto-fix linting issues
+      id: lint-fix
+      run: |
+        echo "Running ESLint auto-fix..."
+        npm run lint:fix
+
+        # Check if any files were changed
+        if git diff --quiet; then
+          echo "lint-changed=false" >> $GITHUB_OUTPUT
+          echo "✅ No linting fixes needed"
+        else
+          echo "lint-changed=true" >> $GITHUB_OUTPUT
+          echo "✅ Linting issues fixed"
+          git diff --name-only | head -10
+        fi
+
+    # Commit fixes if any changes were made
+    - name: Commit auto-fixes
+      id: commit-fixes
+      if: steps.format-fix.outputs.format-changed == 'true' || steps.lint-fix.outputs.lint-changed == 'true'
+      run: |
+        echo "Committing auto-fixes..."
+
+        # Configure git
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+        # Check if we're in a PR
+        if [ -n "${{ github.head_ref }}" ]; then
+          # Fetch the PR branch
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
+        fi
+
+        # Add all changes
+        git add .
+
+        # Create commit message
+        COMMIT_MSG="🤖 Auto-fix: Code quality improvements"
+        if [ "${{ steps.format-fix.outputs.format-changed }}" == "true" ]; then
+          COMMIT_MSG="$COMMIT_MSG - Prettier"
+        fi
+        if [ "${{ steps.lint-fix.outputs.lint-changed }}" == "true" ]; then
+          COMMIT_MSG="$COMMIT_MSG - ESLint"
+        fi
+
+        # Commit with detailed message
+        git commit -m "$COMMIT_MSG" -m "Auto-fixed code quality issues"
+
+        # Push the changes back to the source branch
+        if [ -n "${{ github.head_ref }}" ]; then
+          git push origin "HEAD:${{ github.head_ref }}"
+        else
+          echo "Not in a PR, skipping push"
+        fi
+
+        echo "✅ Auto-fixes committed and pushed"
+        echo "fixes-committed=true" >> $GITHUB_OUTPUT
+
+  # Final quality check
+    - name: Final code quality check
+      run: |
+        echo "Running final quality checks..."
+
+        # Check build
+        if npm run build; then
+          echo "✅ Build successful"
+        else
+          echo "❌ Build failed after auto-fixes"
+          exit 1
+        fi
+
+        # Final lint check
+        FINAL_LINT=$(npm run lint 2>&1 | grep -c "error" || echo "0")
+        if [ "$FINAL_LINT" -eq "0" ]; then
+          echo "✅ No linting errors remaining"
+        else
+          echo "⚠️  $FINAL_LINT linting errors remain (warnings are OK)"
+        fi
+
+        # Final format check
+        if npx prettier --check "src/**/*.{ts,js,json,md}"; then
+          echo "✅ Code formatting is correct"
+        else
+          echo "❌ Formatting issues remain after auto-fix"
+          exit 1
+        fi
+
+    # Post a comment on the PR if fixes were applied
+    - name: Comment on PR
+      if: steps.commit-fixes.outputs.fixes-committed == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fixes = [];
+          if ('${{ steps.format-fix.outputs.format-changed }}' === 'true') {
+            fixes.push('• Code formatting (Prettier)');
+          }
+          if ('${{ steps.lint-fix.outputs.lint-changed }}' === 'true') {
+            fixes.push('• Linting issues (ESLint)');
+          }
+
+          const body = `🤖 **Auto-fix Applied**
+
+          I've automatically improved your code quality by fixing:
+
+          ${fixes.join('\n')}
+
+          The fixes have been committed to your branch. Your code now meets our formatting and linting standards!
+
+          **What's next:**
+          - ✅ Formatting and basic linting issues are resolved
+          - 🔍 Manual review may still be needed for complex code issues
+          - 🧪 Make sure tests still pass with these changes
+
+          If you have any questions about these changes, feel free to ask!`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+
+  # Quality gate - runs after auto-fix to ensure everything passes
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: auto-fix
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Generate Prisma client
+      run: npm run prisma:generate
+
+    - name: Setup test database
+      run: npx prisma db push --accept-data-loss
+
+    - name: Build
+      run: npm run build
+
+    - name: Lint (strict)
+      run: npm run lint
+
+    - name: Format check
+      run: npx prettier --check "src/**/*.{ts,js,json,md}"
+
+    - name: Run tests
+      run: npm run test:unit
+      env:
+        NODE_ENV: test
+
+    - name: Quality metrics
+      run: |
+        echo "📊 Final Quality Report"
+        echo "======================"
+
+        # Bundle size
+        if [ -d "dist" ]; then
+          DIST_SIZE=$(du -sh dist | cut -f1)
+          echo "📦 Bundle size: $DIST_SIZE"
+        fi
+
+        # Test coverage (if available)
+        if [ -f "coverage/lcov.info" ]; then
+          echo "🧪 Test coverage report available"
+        fi
+
+        # TODO comments
+        TODO_COUNT=$(grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" --include="*.js" | wc -l)
+        echo "📝 TODO comments: $TODO_COUNT"
+
+        echo ""
+        echo "✅ All quality gates passed!"

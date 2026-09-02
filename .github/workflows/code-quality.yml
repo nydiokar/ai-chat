@@ -1,0 +1,231 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Generate Prisma client
+      run: npm run prisma:generate
+
+    - name: Code Formatting Check
+      run: |
+        echo "🔍 Checking code formatting..."
+        if npx prettier --check "src/**/*.{ts,js,json,md}"; then
+          echo "✅ All files are properly formatted"
+        else
+          echo "❌ Formatting issues found!"
+          echo ""
+          echo "🔧 To fix formatting issues locally:"
+          echo "   npm run format"
+          echo ""
+          echo "📋 Files that need formatting:"
+          npx prettier --check "src/**/*.{ts,js,json,md}" || true
+          exit 1
+        fi
+
+    - name: Type Safety Analysis
+      run: |
+        echo "🔍 Analyzing type safety..."
+
+        # Check for any TypeScript any types
+        ANY_COUNT=$(grep -r ":\s*any" src/ --include="*.ts" | wc -l)
+        echo "📊 Found $ANY_COUNT 'any' type usages"
+
+        if [ "$ANY_COUNT" -gt 20 ]; then
+          echo "⚠️  High number of 'any' types detected ($ANY_COUNT)"
+          echo "💡 Consider replacing with more specific types for better type safety"
+        elif [ "$ANY_COUNT" -gt 0 ]; then
+          echo "ℹ️  $ANY_COUNT 'any' types found - acceptable for current codebase"
+        else
+          echo "✅ No 'any' types found - excellent type safety!"
+        fi
+
+    - name: Production Code Quality Check
+      run: |
+        echo "🔍 Checking production code quality..."
+
+        # Find console.log statements (excluding test files and config files)
+        LOG_FILES=$(find src -name "*.ts" -not -path "*/tests/*" -not -name "*.config.*" -not -name "*.test.*" -exec grep -l "console\.log" {} \;)
+
+        if [ -n "$LOG_FILES" ]; then
+          LOG_COUNT=$(echo "$LOG_FILES" | wc -l)
+          echo "⚠️  Found console.log in $LOG_COUNT production files:"
+          echo "$LOG_FILES" | head -10
+          if [ "$LOG_COUNT" -gt 10 ]; then
+            echo ""
+            echo "💡 Recommendation: Replace with logger utility:"
+            echo "   import { debug, info, error } from './utils/logger'"
+            echo "   Replace: console.log() → debug()"
+          fi
+        else
+          echo "✅ No console.log statements in production code"
+        fi
+
+    - name: Bundle Analysis
+      run: |
+        echo "🔍 Analyzing bundle size..."
+
+        if npm run build >/dev/null 2>&1; then
+          echo "✅ Build successful"
+
+          if [ -d "dist" ]; then
+            DIST_SIZE=$(du -sh dist | cut -f1)
+            FILE_COUNT=$(find dist -name "*.js" | wc -l)
+            echo "📦 Bundle size: $DIST_SIZE ($FILE_COUNT files)"
+
+            # Warn if bundle is getting large
+            DIST_BYTES=$(du -sb dist | cut -f1)
+            if [ "$DIST_BYTES" -gt 52428800 ]; then # 50MB
+              echo "⚠️  Large bundle detected (>50MB). Consider code splitting or optimization."
+            fi
+          fi
+        else
+          echo "❌ Build failed - check TypeScript compilation"
+          exit 1
+        fi
+
+    - name: Development Debt Analysis
+      run: |
+        echo "🔍 Analyzing development debt..."
+
+        TODO_COUNT=$(grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" --include="*.js" | wc -l)
+        echo "📝 Found $TODO_COUNT development notes (TODO/FIXME/HACK)"
+
+        if [ "$TODO_COUNT" -gt 0 ]; then
+          echo ""
+          echo "📋 Development debt summary:"
+          grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" --include="*.js" | head -10
+
+          if [ "$TODO_COUNT" -gt 20 ]; then
+            echo ""
+            echo "💡 High development debt detected. Consider:"
+            echo "   • Creating issues for TODO items"
+            echo "   • Prioritizing technical debt reduction"
+          fi
+        else
+          echo "✅ No development debt markers found"
+        fi
+
+    - name: Package Configuration Validation
+      run: |
+        echo "🔍 Validating package configuration..."
+
+        # Check package.json structure
+        if jq -e '.name and .version' package.json >/dev/null 2>&1; then
+          PACKAGE_NAME=$(jq -r '.name' package.json)
+          PACKAGE_VERSION=$(jq -r '.version' package.json)
+          echo "✅ Package: $PACKAGE_NAME@$PACKAGE_VERSION"
+        else
+          echo "❌ package.json missing required fields"
+          exit 1
+        fi
+
+        # Validate npm scripts exist
+        echo "🔧 Checking npm scripts..."
+        INVALID_SCRIPTS=""
+        while IFS= read -r line; do
+          SCRIPT_NAME=$(echo "$line" | sed 's/npm run //' | cut -d' ' -f1)
+          if ! jq -e ".scripts.\"$SCRIPT_NAME\"" package.json >/dev/null 2>&1; then
+            INVALID_SCRIPTS="$INVALID_SCRIPTS $SCRIPT_NAME"
+          fi
+        done < <(grep "npm run" README.md | head -5)
+
+        if [ -n "$INVALID_SCRIPTS" ]; then
+          echo "⚠️  README references undefined scripts:$INVALID_SCRIPTS"
+        else
+          echo "✅ All referenced npm scripts exist"
+        fi
+
+    - name: Repository Health Check
+      run: |
+        echo "🔍 Checking repository health..."
+
+        # Large files check
+        LARGE_FILES=$(find . -type f -size +5M -not -path "./node_modules/*" -not -path "./dist/*" -not -path "./.git/*" 2>/dev/null)
+
+        if [ -n "$LARGE_FILES" ]; then
+          echo "⚠️  Large files detected (>5MB):"
+          echo "$LARGE_FILES" | while read -r file; do
+            SIZE=$(du -sh "$file" | cut -f1)
+            echo "   $file ($SIZE)"
+          done
+          echo "💡 Consider: .gitignore exclusions, Git LFS, or file optimization"
+        else
+          echo "✅ No problematic large files"
+        fi
+
+        # Check for sensitive files
+        SENSITIVE_FILES=$(find . -name "*.key" -o -name "*.pem" -o -name ".env*" -o -name "secrets*" | grep -v node_modules)
+
+        if [ -n "$SENSITIVE_FILES" ]; then
+          echo "🚨 Potential sensitive files found:"
+          echo "$SENSITIVE_FILES"
+          echo "💡 Ensure these are in .gitignore and not committed"
+        else
+          echo "✅ No sensitive files detected in repository"
+        fi
+
+    - name: Quality Score Summary
+      run: |
+        echo "📊 Code Quality Summary"
+        echo "========================"
+
+        # Calculate a simple quality score
+        SCORE=100
+
+        # Deduct for any types (max -20 points)
+        ANY_COUNT=$(grep -r ":\s*any" src/ --include="*.ts" | wc -l)
+        if [ "$ANY_COUNT" -gt 50 ]; then
+          SCORE=$((SCORE - 20))
+        elif [ "$ANY_COUNT" -gt 20 ]; then
+          SCORE=$((SCORE - 10))
+        fi
+
+        # Deduct for console.logs in production
+        LOG_COUNT=$(find src -name "*.ts" -not -path "*/tests/*" -not -name "*.config.*" -exec grep -l "console\.log" {} \; | wc -l)
+        SCORE=$((SCORE - LOG_COUNT * 2))
+
+        # Deduct for TODO debt
+        TODO_COUNT=$(grep -r "TODO\|FIXME\|HACK" src/ --include="*.ts" | wc -l)
+        SCORE=$((SCORE - TODO_COUNT / 5))
+
+        # Ensure score doesn't go below 0
+        if [ "$SCORE" -lt 0 ]; then
+          SCORE=0
+        fi
+
+        echo "🏆 Quality Score: $SCORE/100"
+        echo "📈 Metrics:"
+        echo "   • Type Safety: $ANY_COUNT 'any' types"
+        echo "   • Logging: $LOG_COUNT console.log in production"
+        echo "   • Debt: $TODO_COUNT development notes"
+
+        if [ "$SCORE" -ge 90 ]; then
+          echo "🎉 Excellent code quality!"
+        elif [ "$SCORE" -ge 75 ]; then
+          echo "✅ Good code quality"
+        elif [ "$SCORE" -ge 60 ]; then
+          echo "⚠️  Acceptable code quality"
+        else
+          echo "💡 Code quality improvements recommended"
+        fi

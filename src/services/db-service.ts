@@ -1,19 +1,24 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-import { AIModel, ConversationStats, MessageRole, Role, MessageContext } from '../types/index.js';
-import { ToolResponse } from '../tools/mcp/types/tools.js';
-import { MCPError } from '../types/errors.js';
-import { debug, info, error, warn } from '../utils/logger.js';
-import { DiscordContext } from '../types/discord.js';
-import path from 'path';
+import { PrismaClient, Prisma } from "@prisma/client";
+import {
+  AIModel,
+  ConversationStats,
+  MessageRole,
+  Role,
+  MessageContext,
+} from "../types/index.js";
+import { ToolResponse } from "../tools/mcp/types/tools.js";
+import { MCPError } from "../types/errors.js";
+import { debug, info, error, warn } from "../utils/logger.js";
+import { DiscordContext } from "../types/discord.js";
 
 export class DatabaseError extends Error {
   public cause?: any;
 
   constructor(message: string, cause?: any) {
     super(message);
-    this.name = 'DatabaseError';
+    this.name = "DatabaseError";
     this.cause = cause;
-    
+
     // This is needed in TypeScript when extending Error
     Object.setPrototypeOf(this, DatabaseError.prototype);
   }
@@ -26,13 +31,13 @@ interface PrismaError {
 
 type TransactionClient = Omit<
   PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
 >;
 
 type FullTransactionClient = TransactionClient & {
-  mCPServer: PrismaClient['mCPServer'];
-  mCPTool: PrismaClient['mCPTool'];
-  toolUsage: PrismaClient['toolUsage'];
+  mCPServer: PrismaClient["mCPServer"];
+  mCPTool: PrismaClient["mCPTool"];
+  toolUsage: PrismaClient["toolUsage"];
 };
 
 export class DatabaseService {
@@ -42,115 +47,110 @@ export class DatabaseService {
   private readonly MAX_SUMMARY_LENGTH = 500;
 
   protected constructor() {
-    const env = process.env.NODE_ENV || 'development';
-    
-    // Configure database based on environment
-    const dbConfig = {
-      development: {
-        provider: 'sqlite',
-        url: `file:${path.resolve(process.cwd(), 'prisma/dev.db')}`
-      },
-      production: {
-        provider: 'postgresql',
-        url: process.env.DATABASE_URL || ''
-      }
-    };
+    const env = process.env.NODE_ENV || "development";
 
-    const config = dbConfig[env as keyof typeof dbConfig] || dbConfig.development;
-    
     info({
-      component: 'Database',
-      message: 'Initializing PrismaClient',
+      component: "Database",
+      message: "Initializing PrismaClient",
       environment: env,
-      config: {
-        provider: config.provider,
-        url: config.url.replace(/^.*\//, '.../')  // Hide full path for security
-      }
+      note: "Database configuration managed by prisma.config.ts (Prisma 6.15.0)",
     });
-    
+
+    // For Prisma 6.15.0, we can still use datasources override
+    // This works alongside prisma.config.ts
+    // The config file manages schema selection, this ensures runtime connection
     this.prisma = new PrismaClient({
       log: [
-        { emit: 'event', level: 'error' },
-        { emit: 'event', level: 'warn' },
-        { emit: 'event', level: 'info' }
+        { emit: "event", level: "error" },
+        { emit: "event", level: "warn" },
+        { emit: "event", level: "info" },
       ],
-      datasources: {
-        db: {
-          url: config.url
-        }
-      }
     });
 
     // Set up Prisma event handlers
-    (this.prisma as any).$on('error', (e: Prisma.LogEvent) => {
+    (this.prisma as any).$on("error", (e: Prisma.LogEvent) => {
       error({
-        component: 'Database',
-        message: 'Prisma error',
-        error: e
+        component: "Database",
+        message: "Prisma error",
+        error: e,
       });
     });
 
-    (this.prisma as any).$on('warn', (e: Prisma.LogEvent) => {
+    (this.prisma as any).$on("warn", (e: Prisma.LogEvent) => {
       warn({
-        component: 'Database',
-        message: 'Prisma warning',
-        warning: e
+        component: "Database",
+        message: "Prisma warning",
+        warning: e,
       });
     });
 
-    (this.prisma as any).$on('info', (e: Prisma.LogEvent) => {
+    (this.prisma as any).$on("info", (e: Prisma.LogEvent) => {
       info({
-        component: 'Database',
-        message: 'Prisma info',
-        info: e
+        component: "Database",
+        message: "Prisma info",
+        info: e,
       });
     });
 
     // Log slow queries
     (this.prisma as any).$extends({
       query: {
-        $allOperations: async ({ operation, model, args }: { 
-          operation: string; 
-          model: string | null; 
-          args: Record<string, unknown>; 
-        }, next: (args: Record<string, unknown>) => Promise<unknown>) => {
+        $allOperations: async (
+          {
+            operation,
+            model,
+            args,
+          }: {
+            operation: string;
+            model: string | null;
+            args: Record<string, unknown>;
+          },
+          next: (args: Record<string, unknown>) => Promise<unknown>,
+        ) => {
           const start = Date.now();
           const result = await next(args);
           const duration = Date.now() - start;
-          
-          if (duration > 100) { // Log queries that take more than 100ms
+
+          if (duration > 100) {
+            // Log queries that take more than 100ms
             warn({
-              component: 'Database',
-              message: 'Slow query detected',
+              component: "Database",
+              message: "Slow query detected",
               query: { operation, model, args },
-              duration: `${duration}ms`
+              duration: `${duration}ms`,
             });
           }
-          
+
           return result;
-        }
-      }
+        },
+      },
     });
   }
 
   private validateId(id: number): void {
     if (!Number.isInteger(id) || id <= 0) {
-      throw new DatabaseError('Invalid ID provided');
+      throw new DatabaseError("Invalid ID provided");
     }
   }
 
-  private async handlePrismaError(error: unknown, operation: string): Promise<never> {
+  private async handlePrismaError(
+    error: unknown,
+    operation: string,
+  ): Promise<never> {
     const prismaError = error as PrismaError;
     if (prismaError.code) {
-      if (prismaError.code === 'P2002') {
-        throw new DatabaseError('Unique constraint violation');
+      if (prismaError.code === "P2002") {
+        throw new DatabaseError("Unique constraint violation");
       }
-      if (prismaError.code === 'P2025') {
-        throw new DatabaseError('Record not found');
+      if (prismaError.code === "P2025") {
+        throw new DatabaseError("Record not found");
       }
     }
-    const errorMessage = prismaError.message || 'Unknown database error';
-    throw new DatabaseError(`Database ${operation} failed: ${errorMessage}`, error as Error);
+    const errorMessage = prismaError.message || "Unknown database error";
+    throw new DatabaseError(
+      `Database ${operation} failed: ${errorMessage}`,
+      error as Error,
+    );
   }
 
   static getInstance(): DatabaseService {
@@ -164,14 +164,14 @@ export class DatabaseService {
     try {
       await this.prisma.$disconnect();
       info({
-        component: 'Database',
-        message: 'Disconnected from database'
+        component: "Database",
+        message: "Disconnected from database",
       });
     } catch (err) {
       error({
-        component: 'Database',
-        message: 'Failed to disconnect from database',
-        error: err instanceof Error ? err : new Error(String(err))
+        component: "Database",
+        message: "Failed to disconnect from database",
+        error: err instanceof Error ? err : new Error(String(err)),
       });
       throw err;
     }
@@ -181,14 +181,14 @@ export class DatabaseService {
     try {
       await this.prisma.$connect();
       info({
-        component: 'Database',
-        message: 'Connected to database'
+        component: "Database",
+        message: "Connected to database",
       });
     } catch (err) {
       error({
-        component: 'Database',
-        message: 'Failed to connect to database',
-        error: err instanceof Error ? err : new Error(String(err))
+        component: "Database",
+        message: "Failed to connect to database",
+        error: err instanceof Error ? err : new Error(String(err)),
       });
       throw err;
     }
@@ -198,37 +198,45 @@ export class DatabaseService {
     model: AIModel,
     title?: string,
     summary?: string,
-    discordContext?: DiscordContext
+    discordContext?: DiscordContext,
   ): Promise<number> {
     try {
       if (title && title.length > this.MAX_TITLE_LENGTH) {
-        throw new DatabaseError(`Title exceeds maximum length of ${this.MAX_TITLE_LENGTH}`);
+        throw new DatabaseError(
+          `Title exceeds maximum length of ${this.MAX_TITLE_LENGTH}`,
+        );
       }
       if (summary && summary.length > this.MAX_SUMMARY_LENGTH) {
-        throw new DatabaseError(`Summary exceeds maximum length of ${this.MAX_SUMMARY_LENGTH}`);
+        throw new DatabaseError(
+          `Summary exceeds maximum length of ${this.MAX_SUMMARY_LENGTH}`,
+        );
       }
 
       // If we have Discord context, ensure the user exists
       if (discordContext?.userId) {
         const existingUser = await this.prisma.user.findUnique({
-          where: { id: discordContext.userId }
+          where: { id: discordContext.userId },
         });
-        
+
         if (!existingUser) {
-          debug(`Creating user record for Discord user ${discordContext.userId}`);
+          debug(
+            `Creating user record for Discord user ${discordContext.userId}`,
+          );
           await this.prisma.user.create({
             data: {
               id: discordContext.userId,
-              username: discordContext.username || `Discord User ${discordContext.userId}`,
+              username:
+                discordContext.username ||
+                `Discord User ${discordContext.userId}`,
               isActive: true,
               createdAt: new Date(),
-              updatedAt: new Date()
-            }
+              updatedAt: new Date(),
+            },
           });
         }
       }
 
-      debug('Creating new conversation');
+      debug("Creating new conversation");
       const conversation = await this.prisma.conversation.create({
         data: {
           model,
@@ -249,7 +257,7 @@ export class DatabaseService {
       });
       return conversation.id;
     } catch (error) {
-      return this.handlePrismaError(error, 'conversation creation');
+      return this.handlePrismaError(error, "conversation creation");
     }
   }
 
@@ -258,23 +266,28 @@ export class DatabaseService {
     content: string | ToolResponse,
     role: MessageRole,
     tokenCount?: number,
-    context?: MessageContext
+    context?: MessageContext,
   ): Promise<void> {
     try {
-      
       // First verify the conversation exists
       const conversation = await this.prisma.conversation.findUnique({
-        where: { id: conversationId }
+        where: { id: conversationId },
       });
 
       if (!conversation) {
-        debug(`Conversation ${conversationId} not found when trying to add message`);
+        debug(
+          `Conversation ${conversationId} not found when trying to add message`,
+        );
         throw new DatabaseError(`Conversation ${conversationId} not found`);
       }
 
-      const messageContent = typeof content === 'string' 
-        ? content 
-        : content.data?.content?.map((c: { text: string }) => c.text).filter(Boolean).join('\n') || JSON.stringify(content.data);
+      const messageContent =
+        typeof content === "string"
+          ? content
+          : content.data?.content
+              ?.map((c: { text: string }) => c.text)
+              .filter(Boolean)
+              .join("\n") || JSON.stringify(content.data);
 
       await this.executePrismaOperation(async (prisma) => {
         await prisma.message.create({
@@ -286,20 +299,20 @@ export class DatabaseService {
             discordUserId: context?.userId,
             discordUsername: context?.username,
             discordGuildId: context?.guildId,
-            discordChannelId: context?.channelId
-          }
+            discordChannelId: context?.channelId,
+          },
         });
 
         // Update session activity if context exists
         if (context) {
           await prisma.session.updateMany({
-            where: { 
+            where: {
               conversationId,
-              isActive: true 
+              isActive: true,
             },
-            data: { 
-              lastActivity: new Date() 
-            }
+            data: {
+              lastActivity: new Date(),
+            },
           });
         }
 
@@ -309,16 +322,20 @@ export class DatabaseService {
             where: { id: conversationId },
             data: {
               tokenCount: {
-                increment: tokenCount
+                increment: tokenCount,
               },
-              updatedAt: new Date()
-            }
+              updatedAt: new Date(),
+            },
           });
         }
       });
-      debug(`Successfully added ${role} message to conversation ${conversationId}`);
+      debug(
+        `Successfully added ${role} message to conversation ${conversationId}`,
+      );
     } catch (error) {
-      throw MCPError.fromDatabaseError(error instanceof Error ? error : new Error(String(error)));
+      throw MCPError.fromDatabaseError(
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 
@@ -331,11 +348,11 @@ export class DatabaseService {
         include: {
           messages: {
             orderBy: {
-              createdAt: 'asc',
+              createdAt: "asc",
             },
           },
-          session: true
-        }
+          session: true,
+        },
       });
 
       if (!conversation) {
@@ -345,7 +362,7 @@ export class DatabaseService {
       return conversation;
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      return this.handlePrismaError(error, 'conversation retrieval');
+      return this.handlePrismaError(error, "conversation retrieval");
     }
   }
 
@@ -354,12 +371,12 @@ export class DatabaseService {
     return this.prisma.conversation.findMany({
       take: limit,
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
       include: {
         messages: {
           orderBy: {
-            createdAt: 'asc',
+            createdAt: "asc",
           },
         },
       },
@@ -376,7 +393,7 @@ export class DatabaseService {
   async cleanOldConversations(daysOld: number): Promise<number> {
     try {
       if (!Number.isInteger(daysOld) || daysOld <= 0) {
-        throw new DatabaseError('Invalid days parameter');
+        throw new DatabaseError("Invalid days parameter");
       }
 
       debug(`Cleaning conversations older than ${daysOld} days`);
@@ -394,21 +411,25 @@ export class DatabaseService {
       return result.count;
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      return this.handlePrismaError(error, 'conversation cleanup');
+      return this.handlePrismaError(error, "conversation cleanup");
     }
   }
 
   async updateConversationMetadata(
     id: number,
-    { title, summary }: { title?: string; summary?: string }
+    { title, summary }: { title?: string; summary?: string },
   ): Promise<void> {
     try {
       this.validateId(id);
       if (title && title.length > this.MAX_TITLE_LENGTH) {
-        throw new DatabaseError(`Title exceeds maximum length of ${this.MAX_TITLE_LENGTH}`);
+        throw new DatabaseError(
+          `Title exceeds maximum length of ${this.MAX_TITLE_LENGTH}`,
+        );
       }
       if (summary && summary.length > this.MAX_SUMMARY_LENGTH) {
-        throw new DatabaseError(`Summary exceeds maximum length of ${this.MAX_SUMMARY_LENGTH}`);
+        throw new DatabaseError(
+          `Summary exceeds maximum length of ${this.MAX_SUMMARY_LENGTH}`,
+        );
       }
 
       await this.prisma.conversation.update({
@@ -421,43 +442,47 @@ export class DatabaseService {
       });
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      throw new DatabaseError(`Failed to update conversation ${id} metadata`, error as Error);
+      throw new DatabaseError(
+        `Failed to update conversation ${id} metadata`,
+        error as Error,
+      );
     }
   }
 
   async getStats(): Promise<ConversationStats> {
-    const [totalConversations, totalMessages, modelGroups, roleGroups] = await Promise.all([
-      this.prisma.conversation.count(),
-      this.prisma.message.count(),
-      this.prisma.conversation.groupBy({
-        by: ['model'],
-        _count: {
-          _all: true
-        }
-      }),
-      this.prisma.message.groupBy({
-        by: ['role'],
-        _count: {
-          _all: true
-        }
-      })
-    ]);
+    const [totalConversations, totalMessages, modelGroups, roleGroups] =
+      await Promise.all([
+        this.prisma.conversation.count(),
+        this.prisma.message.count(),
+        this.prisma.conversation.groupBy({
+          by: ["model"],
+          _count: {
+            _all: true,
+          },
+        }),
+        this.prisma.message.groupBy({
+          by: ["role"],
+          _count: {
+            _all: true,
+          },
+        }),
+      ]);
 
     const modelDistribution = modelGroups.map((group: any) => ({
       model: group.model as AIModel,
-      _count: group._count._all
+      _count: group._count._all,
     }));
 
     const roleDistribution = roleGroups.map((group: any) => ({
       role: group.role as MessageRole,
-      _count: group._count._all
+      _count: group._count._all,
     }));
 
     return {
       totalConversations,
       totalMessages,
       modelDistribution,
-      roleDistribution
+      roleDistribution,
     };
   }
 
@@ -467,17 +492,17 @@ export class DatabaseService {
         where: {
           discordUserId: userId,
           ...(channelId && { conversation: { discordChannelId: channelId } }),
-          isActive: true
+          isActive: true,
         },
         include: {
-          conversation: true
+          conversation: true,
         },
         orderBy: {
-          lastActivity: 'desc'
-        }
+          lastActivity: "desc",
+        },
       });
     } catch (error) {
-      throw new DatabaseError('Failed to get active session', error as Error);
+      throw new DatabaseError("Failed to get active session", error as Error);
     }
   }
 
@@ -486,12 +511,12 @@ export class DatabaseService {
     await this.prisma.session.updateMany({
       where: {
         conversationId,
-        isActive: true
+        isActive: true,
       },
       data: {
         isActive: false,
-        lastActivity: new Date()
-      }
+        lastActivity: new Date(),
+      },
     });
   }
 
@@ -503,13 +528,13 @@ export class DatabaseService {
     await this.prisma.session.updateMany({
       where: {
         lastActivity: {
-          lt: date
+          lt: date,
         },
-        isActive: true
+        isActive: true,
       },
       data: {
-        isActive: false
-      }
+        isActive: false,
+      },
     });
   }
 
@@ -534,49 +559,55 @@ export class DatabaseService {
     model: AIModel;
     messages: { role: MessageRole; content: string }[];
   }) {
-    debug('Importing conversation');
+    debug("Importing conversation");
     const conversation = await this.createConversation(data.model);
-    
+
     for (const msg of data.messages) {
-      if (msg.role === 'system') continue; // Skip system messages
+      if (msg.role === "system") continue; // Skip system messages
       await this.addMessage(conversation, msg.content, msg.role);
     }
 
     return conversation;
   }
 
-  async getDiscordConversations(guildId: string, channelId: string, limit = 10) {
-    debug(`Getting Discord conversations for guild ${guildId} channel ${channelId}`);
+  async getDiscordConversations(
+    guildId: string,
+    channelId: string,
+    limit = 10,
+  ) {
+    debug(
+      `Getting Discord conversations for guild ${guildId} channel ${channelId}`,
+    );
     return this.prisma.conversation.findMany({
       where: {
         discordGuildId: guildId,
-        discordChannelId: channelId
+        discordChannelId: channelId,
       },
       take: limit,
       orderBy: {
-        createdAt: 'desc'
+        createdAt: "desc",
       },
       include: {
         messages: {
           orderBy: {
-            createdAt: 'asc'
-          }
+            createdAt: "asc",
+          },
         },
-        session: true
-      }
+        session: true,
+      },
     });
   }
 
   // Add a protected method for transaction access
   protected async transaction<T>(
-    fn: (prisma: TransactionClient) => Promise<T>
+    fn: (prisma: TransactionClient) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(fn);
   }
 
   // Add a method for MCP service to use
   async executePrismaOperation<T>(
-    operation: (prisma: FullTransactionClient) => Promise<T>
+    operation: (prisma: FullTransactionClient) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(operation as any) as Promise<T>;
   }
@@ -595,24 +626,24 @@ export class DatabaseService {
           hits: data.hits,
           misses: data.misses,
           lastAccessed: data.lastAccessed,
-          updatedAt: new Date()
+          updatedAt: new Date(),
         },
         create: {
           key: data.key,
           hits: data.hits,
           misses: data.misses,
-          lastAccessed: data.lastAccessed
-        }
+          lastAccessed: data.lastAccessed,
+        },
       });
     } catch (error) {
-      throw new DatabaseError('Failed to upsert cache metrics', error as Error);
+      throw new DatabaseError("Failed to upsert cache metrics", error as Error);
     }
   }
 
   async cleanOldCacheMetrics(daysOld: number): Promise<number> {
     try {
       if (!Number.isInteger(daysOld) || daysOld <= 0) {
-        throw new DatabaseError('Invalid days parameter');
+        throw new DatabaseError("Invalid days parameter");
       }
 
       debug(`Cleaning cache metrics older than ${daysOld} days`);
@@ -622,15 +653,18 @@ export class DatabaseService {
       const result = await this.prisma.cacheMetrics.deleteMany({
         where: {
           lastAccessed: {
-            lt: date
-          }
-        }
+            lt: date,
+          },
+        },
       });
 
       return result.count;
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
-      throw new DatabaseError('Failed to clean old cache metrics', error as Error);
+      throw new DatabaseError(
+        "Failed to clean old cache metrics",
+        error as Error,
+      );
     }
   }
 }

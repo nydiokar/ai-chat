@@ -1,0 +1,109 @@
+# IMPORTANT: Replace "YOUR_GITHUB_USERNAME" with your actual GitHub username below
+version: 2
+updates:
+  # Enable version updates for npm (production dependencies)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "nydiokar"
+    assignees:
+      - "nydiokar"
+    target-branch: "main"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group React ecosystem updates
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      # Group TypeScript ecosystem
+      typescript-ecosystem:
+        patterns:
+          - "typescript"
+          - "@types/*"
+          - "ts-*"
+      # Group testing framework updates
+      testing:
+        patterns:
+          - "mocha"
+          - "chai*"
+          - "@types/mocha"
+          - "@types/chai*"
+          - "c8"
+          - "nyc"
+      # Group linting/formatting
+      code-quality:
+        patterns:
+          - "eslint*"
+          - "prettier*"
+          - "@typescript-eslint/*"
+    ignore:
+      # Ignore major version updates for unstable packages
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/*"
+        update-types: ["version-update:semver-major"]
+      # Ignore alpha/beta versions
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+        versions: ["*-alpha", "*-beta", "*-rc"]
+      # Specific ignores for problematic packages
+      - dependency-name: "mcp"
+        versions: ["*"]
+      - dependency-name: "@modelcontextprotocol/*"
+        versions: ["*"]
+
+  # Enable version updates for npm dev dependencies (separate schedule)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 8
+    reviewers:
+      - "nydiokar"
+    assignees:
+      - "nydiokar"
+    target-branch: "dev"
+    dependency-type: "development"
+    commit-message:
+      prefix: "deps-dev"
+      include: "scope"
+    groups:
+      # Group all dev dependencies to reduce PR spam
+      dev-dependencies:
+        dependency-type: "development"
+    ignore:
+      # Ignore major updates for dev tools
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Ignore alpha/beta versions for dev tools
+      - dependency-name: "*"
+        versions: ["*-alpha", "*-beta", "*-rc"]
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "nydiokar"
+    assignees:
+      - "nydiokar"
+    target-branch: "main"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      # Group all GitHub Actions updates
+      github-actions:
+        patterns: ["*"]
