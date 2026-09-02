@@ -14,8 +14,10 @@ describe("TaskNotificationService", () => {
   let notificationService: TaskNotificationService;
   let notificationServiceStub: sinon.SinonStubbedInstance<NotificationService>;
   let prismaStub: sinon.SinonStubbedInstance<PrismaClient>;
+  let clock: sinon.SinonFakeTimers;
 
   beforeEach(() => {
+    clock = sinon.useFakeTimers(new Date("2026-01-10T12:00:00.000Z"));
     notificationServiceStub = sinon.createStubInstance(NotificationService);
     const findUniqueTaskStub = sinon.stub();
     const disconnectStub = sinon.stub().resolves();
@@ -36,6 +38,7 @@ describe("TaskNotificationService", () => {
   });
 
   afterEach(() => {
+    clock.restore();
     sinon.restore();
   });
 

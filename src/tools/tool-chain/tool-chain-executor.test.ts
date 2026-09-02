@@ -105,12 +105,10 @@ describe("ToolChainExecutor", function () {
       })
       .build();
 
-    let timeoutTriggered = false;
     const registry = {
       slowTool: sandbox.stub().callsFake(async () => {
         await new Promise<void>((resolve) => {
           setTimeout(() => {
-            timeoutTriggered = true;
             resolve();
           }, 200); // Significantly longer than timeout
         });
@@ -328,8 +326,6 @@ describe("ToolChainExecutor", function () {
   });
 
   it("handles errors in the middle of chain", async () => {
-    console.log("=== Starting test ===");
-    console.log("Creating chain config...");
     const chain = new ToolChainConfigBuilder(uuidv4())
       .addTool({
         name: "first",
@@ -346,12 +342,6 @@ describe("ToolChainExecutor", function () {
       })
       .build();
 
-    console.log("Chain config created:", {
-      id: chain.id,
-      tools: chain.tools.map((t) => t.name),
-    });
-
-    console.log("Creating registry...");
     const registry = {
       first: sandbox.stub().resolves({ step: 1 }),
       failingTool: sandbox
@@ -359,35 +349,10 @@ describe("ToolChainExecutor", function () {
         .callsFake(() => Promise.reject(new Error("Planned failure"))),
       third: sandbox.stub().resolves({ step: 3 }),
     };
-    console.log("Registry created with tools:", Object.keys(registry));
-    console.log("Registry stubs:", {
-      first: typeof registry.first,
-      failingTool: typeof registry.failingTool,
-      third: typeof registry.third,
-    });
 
-    console.log("About to execute chain...");
     const result = await executor.execute(chain, registry);
-    console.log("Chain execution completed");
 
     // Verify chain stopped at error
-    console.log("Running assertions...");
-    console.log("First tool:", {
-      called: registry.first.called,
-      calledOnce: registry.first.calledOnce,
-      callCount: registry.first.callCount,
-    });
-    console.log("Failing tool:", {
-      called: registry.failingTool.called,
-      calledOnce: registry.failingTool.calledOnce,
-      callCount: registry.failingTool.callCount,
-    });
-    console.log("Third tool:", {
-      called: registry.third.called,
-      calledOnce: registry.third.calledOnce,
-      callCount: registry.third.callCount,
-    });
-
     expect(registry.first.calledOnce, "first tool should be called once").to.be
       .true;
     expect(

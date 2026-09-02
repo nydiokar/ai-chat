@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 
 // Define schemas for tool chain configuration
 export const ToolInputSchema = z.object({
@@ -35,9 +36,7 @@ export class ToolChainConfigBuilder {
   constructor(name: string) {
     this.config = {
       name,
-      id:
-        (globalThis.crypto as any)?.randomUUID?.() ||
-        `tool-chain-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: randomUUID(),
       tools: [],
     };
   }
