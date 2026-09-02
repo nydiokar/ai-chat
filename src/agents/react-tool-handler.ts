@@ -191,6 +191,7 @@ export class ReActToolHandler {
     data: any[],
     action: ReasoningStep["action"],
   ): string {
+    void action;
     if (data.length === 0) return "Empty array []";
 
     // Check if array contains objects

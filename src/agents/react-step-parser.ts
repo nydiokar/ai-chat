@@ -165,7 +165,7 @@ export class ReActStepParser {
           }
           return parsed as ReasoningStep;
         }
-      } catch (e) {
+      } catch {
         // Not valid JSON, continue to text parsing
       }
 
@@ -199,7 +199,7 @@ export class ReActStepParser {
           if (paramsMatch) {
             try {
               params = JSON.parse(paramsMatch[0]);
-            } catch (e) {
+            } catch {
               // If JSON parsing fails, try to extract key-value pairs
               const paramRegex = /([a-zA-Z0-9_]+):\s*([^\n,]+)/g;
               let match;

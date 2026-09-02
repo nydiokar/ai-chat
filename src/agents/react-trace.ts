@@ -124,6 +124,7 @@ export class ReActTrace {
    * @returns Optimized array of reasoning steps
    */
   public optimizeSteps(maxTokens: number = 4000): ReasoningStep[] {
+    void maxTokens;
     // If we have few steps, just return all of them
     if (this.steps.length <= 3) return [...this.steps];
 

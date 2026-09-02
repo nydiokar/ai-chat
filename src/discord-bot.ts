@@ -42,6 +42,7 @@ import { DiscordService } from "./services/discord-service.js";
 import { defaultConfig, validateEnvironment } from "./utils/config.js";
 
 export async function startBot(instanceId: string, envPath: string) {
+  void envPath;
   const context = createLogContext(COMPONENT, "startBot", { instanceId });
 
   try {
